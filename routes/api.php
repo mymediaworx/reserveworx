@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\PoolController;
 use App\Http\Controllers\Api\V1\PricingController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
@@ -112,6 +113,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
+            Route::get('/reports/today', [ReportController::class, 'today']);
             Route::get('/widget-tokens', [WidgetTokenController::class, 'index']);
             Route::post('/widget-tokens', [WidgetTokenController::class, 'store']);
             Route::post('/widget-tokens/{widget_token}/revoke', [WidgetTokenController::class, 'revoke']);
