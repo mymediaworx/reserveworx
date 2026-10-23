@@ -1,0 +1,101 @@
+# Deploy
+
+Production target: `app.reserveworx.com` on SiteGround. The supported path is the manual GitHub Actions workflow `.github/workflows/deploy.yml`. It always checks out `main`. It does not deploy the branch that happens to contain the workflow file.
+
+The layout below was reported by BrandWorx Dev for distrosku.com on October 23, 2026, and is not yet verified for this site. The script still only writes under `$HOME/www/app.reserveworx.com`. It does not list or modify any other site folder.
+
+```text
+/home/customer/www/app.reserveworx.com/public_html   -> ../laravel/current/public
+/home/customer/www/app.reserveworx.com/laravel/releases/<sha>/
+/home/customer/www/app.reserveworx.com/laravel/current
+/home/customer/www/app.reserveworx.com/laravel/previous
+/home/customer/www/app.reserveworx.com/laravel/shared/.env
+/home/customer/www/app.reserveworx.com/laravel/shared/storage
+```
+
+`$HOME` is the SSH account home. On the reported account that home is `/home/customer`. The script uses `$HOME`, not a hardcoded customer directory.
+
+Do not run this workflow until:
+
+1. The pull request is merged, so `main` contains the workflow.
+2. **Hosting check** has been read.
+3. The Site Tools site for `app.reserveworx.com` exists, so `$HOME/www/app.reserveworx.com` is already there.
+4. `$HOME/www/app.reserveworx.com/laravel/shared/.env` exists on the server, copied from `.env.example` and filled in on the server. It is never uploaded from the repository.
+5. HTTPS Enforce is turned on for `app.reserveworx.com` only (Site Tools → Security → HTTPS Enforce). It is per subdomain. Do not change other sites.
+
+## What the workflow does
+
+`action=deploy`
+
+1. The runner uses PHP 8.2 and `composer install --no-dev`. Composer on the server is unknown and is not used. `composer.json` sets `platform.php` to `8.2.35`, the managed PHP version reported for the other BrandWorx site.
+2. The runner builds one `.tar.gz`. The archive is one inode on the server until it is deleted.
+3. Excluded from the archive: `.git`, `.env`, `.env.*`, `node_modules`, `tests`, and the runtime storage directories. `vendor` is inside the archive once. It is not copied anywhere else, and the server does not run Composer.
+4. The archive is uploaded only to `$HOME/www/app.reserveworx.com/laravel/incoming/<sha>.tar.gz`. If that domain directory does not exist, the job stops. It does not create another site.
+5. Before extract, the previous rollback directory is deleted so disk holds the live tree plus the new tree, not a third copy. The archive is deleted as soon as extract finishes.
+6. Shared storage and `.env` live in `laravel/shared` and are symlinked into the release. They are never overwritten from the archive.
+7. After the new release is current, every release directory other than `current` and `previous` is deleted. Steady state is two trees: the live release and one rollback release. Each tree contains the `vendor` directory built for that commit. There is no third vendor directory.
+8. CLI PHP must be 8.2 or newer. The script prefers `/usr/local/php82/bin/php`, matching the reported managed PHP 8.2.35.
+9. `config:cache`, `route:cache`, and `view:cache` run only when shared `.env` exists.
+10. `public_html` becomes a symlink to `../laravel/current/public`. A placeholder directory (`index.html`, `index.php`, `cgi-bin`, `.well-known`, `default.html`) is moved aside inside the same domain folder first. Any other files leave `public_html` unchanged and fail the job.
+11. Dynamic Cache: the script sends `PURGE` to `http://127.0.0.1/` with `Host: app.reserveworx.com` only. That request is what operators report for nginx; it is not the method in SiteGround's knowledge base. The knowledge base (updated January 29, 2025) says WordPress uses `wp sg purge` and every other application is flushed in Site Tools → Speed → Caching → Dynamic Cache. Success here is a body that contains `Successful purge`. HTTP 202 is not a successful purge. If the purge is not confirmed, flush this domain in Site Tools and do not flush other sites.
+12. Health check requests `https://app.reserveworx.com/up` with `Cache-Control: no-cache` and the `wpSGCacheBypass=1` cookie documented in that same knowledge base. Success is HTTP 200 and a body that contains `Application up`. HTTP 202 is the SiteGround bot check and is not proof the application is up.
+
+`action=rollback`
+
+Swaps the `current` and `previous` symlinks, prunes anything else, attempts the same cache purge, and runs the same health check. **`migrate:rollback` is not run.** Schema changes are not reversed by a code rollback.
+
+Concurrency group `production-deploy` does not cancel an in-progress deploy.
+
+## Migrations
+
+Default is off. `php artisan migrate --force` runs only when all of these are true:
+
+- action is `deploy`
+- **Run migrations** is true
+- the confirmation field is exactly `I have a backup`
+- shared `.env` exists
+
+Anything else skips migrations or fails the job without migrating. There is no production data in this foundation schema yet. Do not point the application at a database that already has customer data and then migrate until a restore drill is written.
+
+Take the backup in SiteGround's backup tool before typing the phrase. The workflow does not take a backup for you.
+
+## Cron and the GoGeek budget
+
+Reported by BrandWorx Dev for distrosku.com on October 23, 2026, not yet verified for this site:
+
+- Plan: GoGeek
+- Cron: every minute, configured in Site Tools
+- 4,000 CPU-seconds per hour
+- 4,000 PHP executions per hour
+- 600,000 inode hard cap (that account already hit the cap once)
+
+The script does not install a crontab. Add one Site Tools cron job for this site only:
+
+```text
+php /home/customer/www/app.reserveworx.com/laravel/current/artisan schedule:run
+```
+
+Use the PHP binary the deploy summary printed. The scheduler runs `queue:work database --stop-when-empty --tries=3 --max-time=20`.
+
+| Piece | Count per hour | Notes |
+|---|---|---|
+| `schedule:run` | 60 executions | One cron per minute. Do not add a second cron for the worker |
+| `queue:work` | up to 60 executions | `withoutOverlapping`, stops after 20 seconds |
+| Worker CPU | up to 1,200 CPU-seconds | 60 × 20. About 30% of the 4,000 CPU-second cap |
+| Left for HTTP | about 2,800 CPU-seconds and about 3,880 executions | Web requests count against both caps |
+
+Do not raise `QUEUE_WORK_MAX_TIME` without recounting that table. Hold expiry, when the booking engine exists, must still ignore expired holds at read time.
+
+## Secrets
+
+Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`. The workflow masks host, user, port, and passphrase. It does not echo the private key. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
+
+Application secrets belong only in `laravel/shared/.env`.
+
+## Trigger
+
+GitHub → Actions → **Deploy** → **Run workflow** → branch `main`.
+
+- First deploy: action `deploy`, migrations off, confirmation empty. Shared `.env` must exist before the document root moves.
+- Later schema changes: action `deploy`, migrations on, confirmation `I have a backup`.
+- Bad release: action `rollback`.
