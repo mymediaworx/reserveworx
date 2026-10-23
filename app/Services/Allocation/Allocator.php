@@ -1181,11 +1181,21 @@ class Allocator
             return null;
         }
 
+        $phone = $intent->customerPhone !== null && $intent->customerPhone !== '' ? $intent->customerPhone : null;
+
         if ($intent->customerEmail !== null && $intent->customerEmail !== '') {
             $customer = Customer::query()->firstOrCreate(
                 ['tenant_id' => $intent->tenantId, 'email' => strtolower($intent->customerEmail)],
-                ['name' => $intent->customerName !== null && $intent->customerName !== '' ? $intent->customerName : $intent->customerEmail],
+                [
+                    'name' => $intent->customerName !== null && $intent->customerName !== '' ? $intent->customerName : $intent->customerEmail,
+                    'phone' => $phone,
+                ],
             );
+
+            if ($phone !== null && ($customer->phone === null || $customer->phone === '')) {
+                $customer->phone = $phone;
+                $customer->save();
+            }
 
             return $customer->id;
         }
@@ -1193,6 +1203,7 @@ class Allocator
         return Customer::query()->create([
             'tenant_id' => $intent->tenantId,
             'name' => (string) $intent->customerName,
+            'phone' => $phone,
         ])->id;
     }
 

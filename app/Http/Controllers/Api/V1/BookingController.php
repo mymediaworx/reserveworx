@@ -6,6 +6,7 @@ use App\Enums\MembershipStatus;
 use App\Enums\OperationalStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Membership;
 use App\Models\RentalCheckout;
@@ -38,7 +39,7 @@ class BookingController extends Controller
     {
         $this->authorize('viewAny', Booking::class);
 
-        $bookings = Booking::query()->with('service')->orderBy('starts_at')->limit(100)->get();
+        $bookings = Booking::query()->with(['service', 'customer'])->orderBy('starts_at')->limit(100)->get();
 
         return response()->json(['data' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))]);
     }
@@ -64,6 +65,7 @@ class BookingController extends Controller
             'idempotency_key' => ['nullable', 'string', 'max:80'],
             'customer_name' => ['nullable', 'string', 'max:120'],
             'customer_email' => ['nullable', 'email', 'max:255'],
+            'customer_phone' => ['nullable', 'string', 'max:255'],
             'departure_id' => ['nullable', 'string'],
             'guide_user_id' => ['nullable', 'string'],
             'join_waitlist' => ['nullable', 'boolean'],
@@ -121,6 +123,7 @@ class BookingController extends Controller
             $validated['customer_email'] ?? null,
             is_string($departureId) ? $departureId : null,
             is_string($guideUserId) ? $guideUserId : null,
+            $this->customerPhone($validated['customer_phone'] ?? null),
         );
 
         try {
@@ -405,7 +408,7 @@ class BookingController extends Controller
                         ->orWhereHas('holds', fn ($rows) => $rows->where('pool_id', $id));
                 });
             })
-            ->with('service')
+            ->with(['service', 'customer'])
             ->orderBy('starts_at')
             ->get();
 
@@ -448,8 +451,12 @@ class BookingController extends Controller
      */
     private function payload(Booking $booking): array
     {
+        $booking->loadMissing('customer');
+
         return [
             'id' => $booking->id,
+            'customer_id' => $booking->customer_id,
+            'customer' => $this->customerPayload($booking),
             'service_id' => $booking->service_id,
             'departure_id' => $booking->departure_id,
             'location_id' => $booking->location_id,
@@ -465,6 +472,30 @@ class BookingController extends Controller
             'below_minimum' => $this->belowMinimum($booking),
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,
+        ];
+    }
+
+    private function customerPhone(mixed $phone): ?string
+    {
+        return is_string($phone) && $phone !== '' ? $phone : null;
+    }
+
+    /**
+     * @return array{id: string, name: string, email: string|null, phone: string|null}|null
+     */
+    private function customerPayload(Booking $booking): ?array
+    {
+        $customer = $booking->customer;
+
+        if (! $customer instanceof Customer) {
+            return null;
+        }
+
+        return [
+            'id' => $customer->id,
+            'name' => $customer->name,
+            'email' => $customer->email,
+            'phone' => $customer->phone,
         ];
     }
 
