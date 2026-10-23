@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Pricing snapshots, promo codes, Stripe Connect direct-charge checkout, and webhook confirmation. Online checkout stays off until the platform Stripe secret is set and the connected account can take card payments.
 - Locations, resource categories, individually tracked assets, and quantity pools.
 - Opening hours, blackouts, services, and resource requirements. Availability responses outside the allocation transaction are hints.
 - Atomic holds, confirmations, extensions, cancellations, reschedules, and asset reassignment, with the Section 4.7 concurrency suite.

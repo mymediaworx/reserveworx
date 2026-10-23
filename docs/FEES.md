@@ -1,6 +1,6 @@
 # Fees
 
-Product rules D1–D8 and spec Sections 7.4–7.7. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). **Stripe calls, checkout disclosures, and refund execution are not implemented.** Settings are persisted and rates change through a platform-only API.
+Product rules D1–D8 and spec Sections 7.4–7.8. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). Checkout disclosures are published with a pricing snapshot. Stripe checkout and webhooks are wired and stay inert until the platform secret exists. Refund execution against Stripe is not implemented. Settings are persisted and rates change through a platform-only API.
 
 ## What is stored
 
@@ -47,7 +47,7 @@ Then apply an optional fixed amount and an optional minimum, only when those col
 - If the deposit is less than or equal to the fee, raise the deposit to the fee plus $1.00.
 - If the operator absorbs the fee and the fee is greater than or equal to the charge, refuse checkout. Do not invent a new customer-facing adjustment.
 - If the calculated fee is 0, omit Stripe `application_fee_amount`. Stripe requires that amount to be positive and less than the charge.
-- Online checkout stays blocked until the connected account has `charges_enabled`.
+- Online checkout stays blocked until the connected account's `card_payments` capability status is `active`. Accounts v2 does not use `charges_enabled`.
 
 ## Calculation engine
 
@@ -116,6 +116,20 @@ Proportional fee refunds are computed from the **cumulative** subtotal refunded 
 
 `stripeMethod` is `refund_application_fee_flag` only for a full refund with nothing refunded before. Every other fee refund is `application_fee_refund` for the exact amount. The calculator works at booking level. Splitting a refund across a deposit charge and a balance charge is the Stripe layer's job. The fee sits on the first charge.
 
+## Checkout
+
+`BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the discount, the promo code, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis.
+
+`POST /api/v1/bookings/{booking}/pricing` writes that snapshot and the current booking-fee disclosure version for a customer-paid tenant. `POST /api/v1/bookings/{booking}/offline-payment` records method `offline`, fee 0, and confirms a held booking as `offline_paid`.
+
+Stripe uses Accounts v2 (`ConnectAccountSpec::API_VERSION`, `2026-09-30.preview`). The connected account is `dashboard: full`, with Stripe collecting processing fees and losses, and `card_payments` requested. There is no `type: standard` and no customer configuration. Direct charges are Checkout Sessions created with the `stripe_account` option and `payment_intent_data.application_fee_amount` when the fee is positive. `payment_method_types` is omitted. `integration_identifier` is `reserveworx_` plus eight random letters.
+
+The browser return URL does not confirm a booking. `checkout.session.completed` and `checkout.session.async_payment_succeeded` confirm only when `payment_status` is `paid` or `no_payment_required`. Events are deduped on `stripe_event_id`. A duplicate that never finished processing is retried. `application_fee.created` stores the Stripe fee id on the matching platform fee. `application_fee.refunded` stores `amount_refunded`. `GET /api/v1/fee-ledger` sums the current tenant's platform fees.
+
+Without `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET`, the gateway is `UnconfiguredStripeGateway`. Checkout returns 409. The webhook returns 400. Tests use `FakeStripeGateway` plus one real HMAC check in `StripeSdkGateway`. No live Stripe call is made.
+
+Refund execution against Stripe is still not wired. The refund calculator remains the source for the amounts. Receipt rendering is the disclosure partials; sending a receipt waits on an email provider.
+
 ## Not in this repository
 
-No price quote endpoint, no Stripe PaymentIntent, no webhook handler, no application-fee refund, and no receipt. Settings tests cover authorization and persistence only.
+No live Stripe keys, no application-fee refund API call, and no receipt email. Settings tests cover authorization and persistence only.

@@ -1,5 +1,7 @@
 <?php
 
+use App\Domain\Payments\ConnectAccountSpec;
+
 return [
 
     /*
@@ -32,6 +34,8 @@ return [
         'key' => env('STRIPE_KEY'),
         'secret' => env('STRIPE_SECRET'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        // Pinned in code. Accounts v2 onboarding uses this preview version.
+        'api_version' => ConnectAccountSpec::API_VERSION,
     ],
 
     'ghl' => [

@@ -1,0 +1,298 @@
+<?php
+
+namespace Tests\Feature\Payments;
+
+use App\Domain\Payments\StripeGateway;
+use App\Enums\PaymentStatus;
+use App\Models\Asset;
+use App\Models\Booking;
+use App\Models\Domain;
+use App\Models\Location;
+use App\Models\Membership;
+use App\Models\Payment;
+use App\Models\PlatformFee;
+use App\Models\ResourceRequirement;
+use App\Models\Service;
+use App\Models\StripeAccount;
+use App\Models\Tenant;
+use App\Models\User;
+use App\Models\WebhookEvent;
+use App\Services\Payments\FakeStripeGateway;
+use App\Tenancy\TenantManager;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
+use Tests\Support\CreatesWorkspace;
+use Tests\TestCase;
+
+class PricingCheckoutTest extends TestCase
+{
+    use CreatesWorkspace, RefreshDatabase;
+
+    public function test_offline_payment_confirms_a_priced_booking_with_no_fee(): void
+    {
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekday',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+            'window' => 'weekday',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekend',
+            'kind' => 'base',
+            'amount_cents' => 20_000,
+            'window' => 'weekend',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/promo-codes'), [
+            'code' => 'save10',
+            'percent_off' => 10,
+        ])->assertCreated();
+
+        $priced = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'), [
+            'promo_code' => 'SAVE10',
+            'tax_basis_points' => 0,
+        ])->assertOk()->json('data');
+
+        $this->assertSame(10_000, $priced['payload']['services_cents']);
+        $this->assertSame(1_000, $priced['payload']['discount_cents']);
+        $this->assertSame(270, $priced['payload']['fee_cents']);
+        $this->assertSame(9_270, $priced['payload']['customer_total_cents']);
+        $this->assertNotNull($priced['disclosure_version_id']);
+
+        $again = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'), [
+            'promo_code' => 'NOPE',
+        ])->assertOk()->json('data');
+        $this->assertSame($priced['id'], $again['id']);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/offline-payment'))
+            ->assertOk()
+            ->assertJsonPath('data.fee_cents', 0)
+            ->assertJsonPath('data.payment_status', 'offline_paid')
+            ->assertJsonPath('data.status', 'confirmed');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(0, PlatformFee::query()->count());
+        $this->assertSame(0, Payment::query()->firstOrFail()->fee_cents);
+        $this->assertSame(PaymentStatus::OfflinePaid, Booking::query()->findOrFail($bookingId)->payment_status);
+        app(TenantManager::class)->forget();
+    }
+
+    public function test_checkout_is_refused_without_an_active_account_or_a_platform_secret(): void
+    {
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'Online payments are not enabled for this workspace.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $account = StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'pending',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'Online payments are not enabled for this workspace.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $account->card_payments_status = 'active';
+        $account->save();
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'Stripe is not configured. Add the platform secret before taking online payments.');
+    }
+
+    public function test_a_paid_webhook_confirms_the_booking_and_records_the_fee(): void
+    {
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $started = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk()->json('data');
+
+        $this->assertSame('https://checkout.stripe.test/pay/cs_test_123', $started['checkout_url']);
+        $this->assertSame(300, $started['fee_cents']);
+        $this->assertSame(10_300, $started['amount_cents']);
+        $this->assertSame('acct_test_123', $fake->sessions[0]['account']);
+        $this->assertSame(300, $fake->sessions[0]['params']['payment_intent_data']['application_fee_amount']);
+        $this->assertArrayNotHasKey('payment_method_types', $fake->sessions[0]['params']);
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'held');
+
+        $this->postJson('http://localhost/api/v1/stripe/webhook', [
+            'id' => 'evt_paid',
+            'type' => 'checkout.session.completed',
+        ], ['Stripe-Signature' => 'nope'])->assertStatus(400);
+
+        $session = [
+            'id' => 'cs_test_123',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_test_123',
+            'metadata' => [
+                'booking_id' => $bookingId,
+                'tenant_id' => $workspace['tenant']->id,
+            ],
+        ];
+        $this->postWebhook('evt_paid', 'checkout.session.completed', $session, 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_paid', 'checkout.session.completed', $session, 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'confirmed')
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(1, PlatformFee::query()->count());
+        $this->assertSame(300, PlatformFee::query()->firstOrFail()->amount_cents);
+        $this->assertSame(1, Payment::query()->count());
+        $this->assertSame(1, WebhookEvent::query()->count());
+        app(TenantManager::class)->forget();
+
+        $this->postWebhook('evt_fee', 'application_fee.created', [
+            'id' => 'fee_123',
+            'amount' => 300,
+            'account' => 'acct_test_123',
+        ], 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_fee_refund', 'application_fee.refunded', [
+            'id' => 'fee_123',
+            'amount_refunded' => 150,
+        ])->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/fee-ledger'))
+            ->assertOk()
+            ->assertJsonPath('data.charged_cents', 300)
+            ->assertJsonPath('data.refunded_cents', 150)
+            ->assertJsonPath('data.net_cents', 150)
+            ->assertJsonPath('data.count', 1);
+
+        $this->postJson('http://localhost/api/v1/stripe/webhook', [
+            'id' => 'evt_capability',
+            'type' => 'v2.core.account.updated',
+            'data' => ['object' => [
+                'id' => 'acct_test_123',
+                'configuration' => [
+                    'merchant' => [
+                        'capabilities' => [
+                            'card_payments' => ['status' => 'restricted'],
+                        ],
+                    ],
+                ],
+            ]],
+        ], ['Stripe-Signature' => 'test-signature'])->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('restricted', StripeAccount::query()->firstOrFail()->card_payments_status);
+        $this->assertSame('fee_123', PlatformFee::query()->firstOrFail()->stripe_fee_id);
+        app(TenantManager::class)->forget();
+    }
+
+    public function test_an_unconfigured_webhook_is_rejected(): void
+    {
+        $this->postJson('http://localhost/api/v1/stripe/webhook', ['id' => 'evt_x'], [
+            'Stripe-Signature' => 'test-signature',
+        ])->assertStatus(400)->assertJsonPath('message', 'Invalid Stripe signature.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $object
+     */
+    private function postWebhook(string $id, string $type, array $object, ?string $account = null): TestResponse
+    {
+        return $this->postJson('http://localhost/api/v1/stripe/webhook', [
+            'id' => $id,
+            'type' => $type,
+            'account' => $account,
+            'data' => ['object' => $object],
+        ], ['Stripe-Signature' => 'test-signature']);
+    }
+
+    private function hold(Service $service): string
+    {
+        return $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
+            'service_id' => $service->id,
+            'starts_at' => '2026-06-15T15:00:00Z',
+            'ends_at' => '2026-06-15T16:00:00Z',
+            'participants' => 2,
+            'idempotency_key' => 'pay-'.$service->id,
+            'customer_name' => 'Ada',
+            'customer_email' => 'ada@example.com',
+        ])->assertCreated()->json('data.id');
+    }
+
+    /**
+     * @return array{0: array{tenant: Tenant, domain: Domain, user: User, membership: Membership}, 1: Service}
+     */
+    private function rental(): array
+    {
+        $workspace = $this->workspace('dock.test');
+        $location = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'timezone' => 'UTC',
+        ]);
+        $asset = Asset::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $location->id,
+            'name' => 'Boat A',
+        ]);
+        app(TenantManager::class)->set($workspace['tenant']);
+        $service = Service::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $location->id,
+            'name' => 'Hourly boat',
+            'kind' => 'rental',
+        ]);
+        ResourceRequirement::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'service_id' => $service->id,
+            'resource_type' => 'asset',
+            'resource_id' => $asset->id,
+            'quantity' => 1,
+        ]);
+        app(TenantManager::class)->forget();
+
+        return [$workspace, $service];
+    }
+}
