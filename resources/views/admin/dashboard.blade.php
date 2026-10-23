@@ -4,6 +4,7 @@
 
 @section('content')
     <h1>Today</h1>
+    <p class="muted"><a href="{{ route('admin.integrations') }}">Integrations</a></p>
     @if ($error)
         <p class="error">{{ $error }}</p>
     @endif

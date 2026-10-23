@@ -3,10 +3,13 @@
 namespace App\Services\Notifications;
 
 use App\Models\NotificationHook;
+use App\Services\Integrations\Outbox;
 use Illuminate\Database\QueryException;
 
 final class NotificationHooks
 {
+    public function __construct(private readonly Outbox $outbox) {}
+
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -25,5 +28,10 @@ final class NotificationHooks
                 throw $exception;
             }
         }
+
+        $this->outbox->enqueue($tenantId, $kind, $dedupeKey, array_merge($payload, [
+            'tenant_id' => $tenantId,
+            'booking_id' => $bookingId,
+        ]));
     }
 }

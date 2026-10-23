@@ -110,6 +110,10 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 `GET /api/v1/reports/today` and `GET /admin` read live rows. They do not add a summary table. A booking counts on the calendar date of `starts_at` in its location timezone. Open and overdue checkouts are current, not limited to that date. Booking-fee totals on this report are all time.
 
+## Integration outbox
+
+`integration_outbox` queues a GoHighLevel event for the current workspace only. `dedupe_key` is unique per tenant when set. `attempts` and `available_at` are the backoff. `status` stays `queued` until five attempts, then `held`. Nothing in this table is sent to HighLevel. `notification_hooks.delivery_status` stays `queued` until `integrations:dispatch` marks it `skipped` with `delivery_error` because no email provider is configured.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -120,8 +124,8 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - refunds, platform_fee_refunds
 - waiver PDF export and a retention job
-- notification delivery beyond `notification_hooks`
-- ghl_connections, ghl_mappings, integration_outbox, integration_logs
+- a mail transport and delivery webhooks
+- ghl_connections, ghl_mappings, integration_logs, and a live HighLevel client
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
 

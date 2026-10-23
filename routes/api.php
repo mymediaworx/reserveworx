@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\DepartureController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\OperationsController;
+use App\Http\Controllers\Api\V1\OutboxController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
@@ -113,6 +114,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
+            Route::get('/integrations/outbox', [OutboxController::class, 'index']);
             Route::get('/reports/today', [ReportController::class, 'today']);
             Route::get('/widget-tokens', [WidgetTokenController::class, 'index']);
             Route::post('/widget-tokens', [WidgetTokenController::class, 'store']);

@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- GoHighLevel events queue in an outbox and are not sent. A mismatched workspace is refused. Notification hooks are marked skipped when no email provider is configured. `integrations:dispatch` does both.
 - Staff can sign in on the tenant host and see today's bookings, departures, open checkouts, overdue rentals, and booking-fee totals. The same figures are available at `GET /api/v1/reports/today`. Heavier metrics stay off this live query.
 - Maintenance and an unavailable asset flag future bookings and leave them in place. A late return records a per-minute fee when the workspace sets one. Waiver signatures store the template hash, IP, user agent, and a guardian name for a minor. This is not a claim of ESIGN or UETA compliance.
 - Guests can look up a booking with its reference and email, cancel when the workspace allows it, and reschedule a confirmed booking. Card payments are not refunded from that page. Notification hooks for those actions are deduped.

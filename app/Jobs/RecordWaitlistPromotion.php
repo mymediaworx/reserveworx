@@ -2,7 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Models\NotificationHook;
+use App\Enums\TenantStatus;
+use App\Models\Tenant;
+use App\Services\Notifications\NotificationHooks;
+use App\Tenancy\TenantManager;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -19,16 +22,34 @@ class RecordWaitlistPromotion implements ShouldQueue
         public string $waitlistEntryId,
     ) {}
 
-    public function handle(): void
+    public function handle(TenantManager $tenants, NotificationHooks $hooks): void
     {
-        NotificationHook::query()->create([
-            'tenant_id' => $this->tenantId,
-            'booking_id' => $this->bookingId,
-            'kind' => 'waitlist.promoted',
-            'payload' => [
-                'booking_id' => $this->bookingId,
-                'waitlist_entry_id' => $this->waitlistEntryId,
-            ],
-        ]);
+        $previous = $tenants->get();
+        $tenant = Tenant::query()->find($this->tenantId);
+
+        if (! $tenant instanceof Tenant || $tenant->status === TenantStatus::Terminated) {
+            return;
+        }
+
+        $tenants->set($tenant);
+
+        try {
+            $hooks->record(
+                $this->tenantId,
+                $this->bookingId,
+                'waitlist.promoted',
+                'waitlist.promoted:'.$this->waitlistEntryId,
+                [
+                    'booking_id' => $this->bookingId,
+                    'waitlist_entry_id' => $this->waitlistEntryId,
+                ],
+            );
+        } finally {
+            if ($previous instanceof Tenant) {
+                $tenants->set($previous);
+            } else {
+                $tenants->forget();
+            }
+        }
     }
 }

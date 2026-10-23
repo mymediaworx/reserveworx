@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\IntegrationController;
 use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\WidgetController;
@@ -19,6 +20,7 @@ Route::middleware('tenant.resolve')->group(function (): void {
 
     Route::middleware(['auth:web,sanctum', 'tenant.member'])->group(function (): void {
         Route::get('/admin', [DashboardController::class, 'show'])->name('admin.dashboard');
+        Route::get('/admin/integrations', [IntegrationController::class, 'show'])->name('admin.integrations');
         Route::post('/admin/logout', [SessionController::class, 'destroy'])->name('admin.logout');
     });
 });
