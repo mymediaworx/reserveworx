@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\WidgetController;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
@@ -20,4 +21,9 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::get('/checkout/{booking}', [WidgetController::class, 'checkout'])->name('widget.checkout')->middleware('signed');
         Route::post('/checkout/{booking}', [WidgetController::class, 'pay'])->name('widget.pay')->middleware('signed');
         Route::get('/confirmation/{booking}', [WidgetController::class, 'confirmation'])->name('widget.confirmation')->middleware('signed');
+        Route::get('/lookup', [GuestBookingController::class, 'lookupForm'])->name('widget.lookup');
+        Route::post('/lookup', [GuestBookingController::class, 'lookup'])->name('widget.lookup.store');
+        Route::get('/manage/{booking}', [GuestBookingController::class, 'manage'])->name('widget.manage')->middleware('signed');
+        Route::post('/manage/{booking}/cancel', [GuestBookingController::class, 'cancel'])->name('widget.guest-cancel')->middleware('signed');
+        Route::post('/manage/{booking}/reschedule', [GuestBookingController::class, 'reschedule'])->name('widget.guest-reschedule')->middleware('signed');
     });

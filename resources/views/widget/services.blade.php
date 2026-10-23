@@ -4,6 +4,7 @@
 @section('content')
     <h1>{{ $tenantName }}</h1>
     <p>Choose a service. Prices shown here are the total, including the booking fee when the operator charges one.</p>
+    <p><a href="{{ url('/book/'.$token.'/lookup') }}">Look up a booking</a></p>
     @forelse ($services as $row)
         <article class="card">
             <h2>{{ $row['service']->name }}</h2>
