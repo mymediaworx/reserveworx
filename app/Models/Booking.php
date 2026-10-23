@@ -19,6 +19,7 @@ class Booking extends Model
         'tenant_id',
         'location_id',
         'service_id',
+        'departure_id',
         'customer_id',
         'created_by',
         'status',
@@ -46,6 +47,14 @@ class Booking extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * @return BelongsTo<Departure, $this>
+     */
+    public function departure(): BelongsTo
+    {
+        return $this->belongsTo(Departure::class);
     }
 
     /**

@@ -43,6 +43,8 @@ The transaction isolation is `READ COMMITTED`. A repeatable-read snapshot taken 
 
 For each pool, the pool row is locked before its buckets so `pools.quantity` cannot change during the recheck. That stays inside the pool-then-asset order.
 
+A booking that names a departure locks that departure row first, before any pool or asset. Seat and private-tour checks run under that lock. Two departures cannot deadlock with each other, and a booking without a departure never waits on a departure row.
+
 Set `innodb_lock_wait_timeout` to 3 seconds for the transaction. On MySQL deadlock `1213` or lock-wait timeout `1205`, retry up to 3 times with jitter. After that, return a clean "no longer available" response. Do not surface the SQL error. Individually tracked assets are exclusive for the buffered interval. `assets.capacity` is stored and does not allow a second overlap.
 
 ## Transaction

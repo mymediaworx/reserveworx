@@ -3,16 +3,19 @@
 namespace App\Services\Allocation;
 
 use App\Enums\BookingStatus;
+use App\Enums\DepartureStatus;
 use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\ResourceStatus;
 use App\Enums\ResourceType;
+use App\Enums\ServiceKind;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
+use App\Models\Departure;
 use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
@@ -59,6 +62,12 @@ class Allocator
                 return $existing;
             }
 
+            $this->claimDeparture($intent);
+
+            if ($this->joiningOccupiedDeparture($intent)) {
+                return $this->createSeatBooking($intent)->load(['holds', 'lineItems']);
+            }
+
             $plan = $this->plan($intent);
             $this->lock($plan);
             $this->recheck($plan, null);
@@ -83,6 +92,15 @@ class Allocator
             $intent = $this->intentFromBooking($booking);
             $holds = Hold::query()->where('booking_id', $booking->id)->get();
             $unexpired = $holds->isNotEmpty() && $holds->every(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
+            $seatOnly = $holds->isNotEmpty() && $holds->every(fn (Hold $hold): bool => $hold->asset_id === null && $hold->pool_id === null);
+
+            if ($unexpired && $seatOnly) {
+                Hold::query()->where('booking_id', $booking->id)->delete();
+                $booking->status = BookingStatus::Confirmed;
+                $booking->save();
+
+                return $booking->load(['allocations', 'lineItems']);
+            }
 
             if ($unexpired) {
                 $plan = $this->plan($intent);
@@ -133,6 +151,10 @@ class Allocator
 
                 if ($booking->status !== BookingStatus::Confirmed) {
                     throw new AllocationUnavailableException('Only a confirmed booking can be extended.');
+                }
+
+                if ($booking->departure_id !== null) {
+                    throw new AllocationUnavailableException('A departure booking keeps the departure time.');
                 }
 
                 $newEnd = $newEnd->utc();
@@ -201,6 +223,29 @@ class Allocator
         }));
     }
 
+    public function noShow(Booking $booking): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if (! in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true)) {
+                throw new AllocationUnavailableException('Only a held or confirmed booking can be marked as a no-show.');
+            }
+
+            $intent = $this->intentFromBooking($booking);
+            $plan = $this->plan($intent);
+            $this->lock($plan);
+            Hold::query()->where('booking_id', $booking->id)->delete();
+            Allocation::query()->where('booking_id', $booking->id)->delete();
+            $booking->status = BookingStatus::NoShow;
+            $booking->save();
+            $this->refreshCounters($plan);
+
+            return $booking;
+        }));
+    }
+
     public function reschedule(Booking $booking, CarbonImmutable $newStart, CarbonImmutable $newEnd): Booking
     {
         return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newStart, $newEnd): Booking {
@@ -209,6 +254,10 @@ class Allocator
 
             if ($booking->status !== BookingStatus::Confirmed) {
                 throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
+            }
+
+            if ($booking->departure_id !== null) {
+                throw new AllocationUnavailableException('Choose another departure to move a tour booking.');
             }
 
             $newStart = $newStart->utc();
@@ -564,6 +613,94 @@ class Allocator
         ];
     }
 
+    private function joiningOccupiedDeparture(AllocationIntent $intent): bool
+    {
+        if ($intent->departureId === null || $intent->departureId === '') {
+            return false;
+        }
+
+        $departure = Departure::query()->find($intent->departureId);
+
+        return $departure instanceof Departure && $departure->headcount() > 0;
+    }
+
+    private function createSeatBooking(AllocationIntent $intent): Booking
+    {
+        $service = Service::query()->findOrFail($intent->serviceId);
+        $booking = Booking::query()->create([
+            'tenant_id' => $intent->tenantId,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'departure_id' => $intent->departureId,
+            'customer_id' => $this->customerId($intent),
+            'status' => BookingStatus::Held,
+            'payment_status' => PaymentStatus::Unpaid,
+            'operational_status' => OperationalStatus::NotArrived,
+            'starts_at' => $intent->startsAt->utc(),
+            'ends_at' => $intent->endsAt->utc(),
+            'participants' => $intent->participants,
+            'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
+            'payload_hash' => $intent->payloadHash(),
+        ]);
+
+        Hold::query()->create([
+            'tenant_id' => $booking->tenant_id,
+            'booking_id' => $booking->id,
+            'quantity' => $intent->participants,
+            'starts_at' => $intent->startsAt->utc(),
+            'ends_at' => $intent->endsAt->utc(),
+            'expires_at' => now()->addMinutes($this->holdMinutes($booking->tenant_id)),
+        ]);
+
+        return $booking;
+    }
+
+    private function claimDeparture(AllocationIntent $intent): void
+    {
+        if ($intent->departureId === null || $intent->departureId === '') {
+            return;
+        }
+
+        $locked = DB::select('select id from departures where id = ? for update', [$intent->departureId]);
+
+        if ($locked === []) {
+            throw new AllocationUnavailableException('That departure is not available.');
+        }
+
+        $departure = Departure::query()->with('service')->find($intent->departureId);
+
+        if (! $departure instanceof Departure || $departure->service === null) {
+            throw new AllocationUnavailableException('That departure is not available.');
+        }
+
+        if ($departure->status !== DepartureStatus::Scheduled) {
+            throw new AllocationUnavailableException('That departure is cancelled.');
+        }
+
+        if ($departure->service->kind !== ServiceKind::Tour || $departure->service_id !== $intent->serviceId) {
+            throw new AllocationUnavailableException('That departure is for a different service.');
+        }
+
+        $starts = CarbonImmutable::instance($departure->starts_at)->utc();
+        $ends = CarbonImmutable::instance($departure->ends_at)->utc();
+
+        if (! $starts->equalTo($intent->startsAt->utc()) || ! $ends->equalTo($intent->endsAt->utc())) {
+            throw new AllocationUnavailableException('That departure has a different time.');
+        }
+
+        $headcount = $departure->headcount();
+
+        if ($departure->private && $headcount > 0) {
+            throw new AllocationUnavailableException('That private departure already has a booking.');
+        }
+
+        $cap = $departure->seats ?? $departure->service->max_participants;
+
+        if ($cap !== null && $headcount + $intent->participants > $cap) {
+            throw new AllocationUnavailableException('That departure is full.');
+        }
+    }
+
     private function resource(ResourceRequirement $requirement): Asset|Pool|null
     {
         if ($requirement->resource_type === ResourceType::Asset) {
@@ -721,6 +858,7 @@ class Allocator
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
+            'departure_id' => $intent->departureId !== '' ? $intent->departureId : null,
             'customer_id' => $customerId,
             'status' => $status,
             'payment_status' => PaymentStatus::Unpaid,
@@ -847,6 +985,7 @@ class Allocator
             null,
             null,
             null,
+            $booking->departure_id,
         );
     }
 
