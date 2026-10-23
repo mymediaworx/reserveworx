@@ -59,7 +59,7 @@ class ProductDecisionTest extends TestCase
         $this->assertSame(BookingStatus::Held, $promoted->status);
         $this->assertTrue(Hold::query()->where('booking_id', $promoted->id)->where('expires_at', '>', now())->exists());
         $this->assertSame(1, NotificationHook::query()->where('kind', 'waitlist.promoted')->count());
-        $this->assertSame($promoted->id, NotificationHook::query()->firstOrFail()->booking_id);
+        $this->assertSame($promoted->id, NotificationHook::query()->where('kind', 'waitlist.promoted')->firstOrFail()->booking_id);
         app(TenantManager::class)->forget();
     }
 
@@ -80,7 +80,8 @@ class ProductDecisionTest extends TestCase
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame(WaitlistStatus::Promoted, WaitlistEntry::query()->firstOrFail()->status);
-        $this->assertSame(1, NotificationHook::query()->count());
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'waitlist.promoted')->count());
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.confirmed')->count());
         app(TenantManager::class)->forget();
 
         $expired = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), $this->booking($service, '2026-06-16T15:00:00Z', '2026-06-16T16:00:00Z', 'expire-1'))

@@ -11,3 +11,4 @@ Schedule::command(sprintf(
 
 Schedule::command('holds:purge-expired')->everyMinute()->withoutOverlapping();
 Schedule::command('integrations:dispatch')->everyMinute()->withoutOverlapping();
+Schedule::command('rentals:flag-overdue')->everyMinute()->withoutOverlapping();

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Incident;
+use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Pool;
 use App\Models\Tenant;
@@ -22,6 +23,25 @@ use Illuminate\Validation\ValidationException;
 class OperationsController extends Controller
 {
     public function __construct(private readonly AffectedBookings $affected) {}
+
+    public function indexMaintenance(): JsonResponse
+    {
+        $this->authorize('viewAny', Asset::class);
+        $rows = [];
+
+        foreach (MaintenanceWindow::query()->orderBy('starts_at')->orderBy('id')->get() as $window) {
+            $rows[] = [
+                'id' => $window->id,
+                'asset_id' => $window->asset_id,
+                'pool_id' => $window->pool_id,
+                'starts_at' => $window->starts_at->toIso8601String(),
+                'ends_at' => $window->ends_at->toIso8601String(),
+                'reason' => $window->reason,
+            ];
+        }
+
+        return response()->json(['data' => $rows]);
+    }
 
     public function storeMaintenance(Request $request): JsonResponse
     {
@@ -57,6 +77,54 @@ class OperationsController extends Controller
             'id' => $window->id,
             'flagged_bookings' => $flagged,
         ]], 201);
+    }
+
+    public function indexMaintenanceRecords(Asset $asset): JsonResponse
+    {
+        $this->authorize('view', $asset);
+        $rows = [];
+
+        foreach (MaintenanceRecord::query()->where('asset_id', $asset->id)->orderBy('inspected_at')->orderBy('id')->get() as $record) {
+            $rows[] = $this->maintenanceRecordPayload($record);
+        }
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storeMaintenanceRecord(Request $request, Asset $asset): JsonResponse
+    {
+        $this->authorize('create', Asset::class);
+        $tenant = $this->tenant($request);
+        $validated = $request->validate([
+            'inspected_at' => ['required', 'date'],
+            'summary' => ['required', 'string', 'max:500'],
+        ]);
+        $record = MaintenanceRecord::query()->create([
+            'tenant_id' => $tenant->id,
+            'asset_id' => $asset->id,
+            'inspected_at' => CarbonImmutable::parse($validated['inspected_at'])->utc(),
+            'summary' => $validated['summary'],
+        ]);
+
+        return response()->json(['data' => $this->maintenanceRecordPayload($record)], 201);
+    }
+
+    public function indexIncidents(Booking $booking): JsonResponse
+    {
+        $this->authorize('view', $booking);
+        $rows = [];
+
+        foreach (Incident::query()->where('booking_id', $booking->id)->orderBy('occurred_at')->orderBy('id')->get() as $incident) {
+            $rows[] = [
+                'id' => $incident->id,
+                'booking_id' => $incident->booking_id,
+                'asset_id' => $incident->asset_id,
+                'summary' => $incident->summary,
+                'occurred_at' => $incident->occurred_at->toIso8601String(),
+            ];
+        }
+
+        return response()->json(['data' => $rows]);
     }
 
     public function storeIncident(Request $request, Booking $booking): JsonResponse
@@ -167,6 +235,19 @@ class OperationsController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="waiver-'.$row->id.'.pdf"',
         ]);
+    }
+
+    /**
+     * @return array{id: string, asset_id: string, inspected_at: string, summary: string}
+     */
+    private function maintenanceRecordPayload(MaintenanceRecord $record): array
+    {
+        return [
+            'id' => $record->id,
+            'asset_id' => $record->asset_id,
+            'inspected_at' => $record->inspected_at->toIso8601String(),
+            'summary' => $record->summary,
+        ];
     }
 
     private function tenant(Request $request): Tenant

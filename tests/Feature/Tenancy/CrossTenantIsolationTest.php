@@ -63,7 +63,12 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/integrations/outbox'],
             ['GET', '/api/v1/widget-tokens'],
             ['POST', '/api/v1/widget-tokens'],
+            ['GET', '/api/v1/maintenance-windows'],
             ['POST', '/api/v1/maintenance-windows'],
+            ['GET', '/api/v1/assets/'.$beta['membership']->id.'/maintenance-records'],
+            ['POST', '/api/v1/assets/'.$beta['membership']->id.'/maintenance-records'],
+            ['GET', '/api/v1/notification-hooks'],
+            ['GET', '/api/v1/bookings/'.$beta['membership']->id.'/incidents'],
             ['POST', '/api/v1/waiver-versions'],
             ['GET', '/api/v1/bookings/'.$beta['membership']->id.'/waivers/'.$beta['membership']->id],
         ];
