@@ -1,6 +1,6 @@
 # One-shot first install. This file stays off main.
 # A push of this file is the trigger because this GitHub App cannot dispatch workflows.
-# Retries after the document root listing stopped using /dev/fd.
+# Retries with a real public_html front controller. A symlinked document root returns 403.
 name: First install once
 
 on:

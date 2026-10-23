@@ -137,12 +137,54 @@ link_shared() {
   ln -sfn "${shared}/storage/app/public" "${target}/public/storage"
 }
 
-switch_docroot() {
-  local relative="../laravel/current/public"
+install_front_controller() {
+  local release_public
+  release_public="$(readlink -f "$current")/public"
+  mkdir -p "$docroot"
+  cat > "${docroot}/index.php" << 'PHP'
+<?php
 
+use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+
+define('LARAVEL_START', microtime(true));
+
+$root = __DIR__.'/../laravel/current';
+
+if (file_exists($maintenance = $root.'/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+require $root.'/vendor/autoload.php';
+
+/** @var Application $app */
+$app = require_once $root.'/bootstrap/app.php';
+
+$app->handleRequest(Request::capture());
+PHP
+  if [[ -f "${release_public}/.htaccess" ]]; then
+    cp "${release_public}/.htaccess" "${docroot}/.htaccess"
+  fi
+  if [[ -f "${release_public}/robots.txt" ]]; then
+    cp "${release_public}/robots.txt" "${docroot}/robots.txt"
+  fi
+  if [[ -f "${release_public}/favicon.ico" ]]; then
+    cp "${release_public}/favicon.ico" "${docroot}/favicon.ico"
+  fi
+  chmod 755 "$docroot"
+  chmod 644 "${docroot}/index.php" "${docroot}/.htaccess" "${docroot}/robots.txt" "${docroot}/favicon.ico" 2>/dev/null || true
+  echo "document_root=directory ${docroot} front_controller=../laravel/current"
+}
+
+switch_docroot() {
+  # Nginx on this host returns 403 for a symlinked document root. public_html
+  # stays a real directory whose index.php boots ../laravel/current.
   if [[ -L "$docroot" ]]; then
-    ln -sfn "$relative" "$docroot"
-    echo "document_root=symlink ${docroot} -> ${relative}"
+    rm -f "$docroot"
+  fi
+
+  if [[ -d "$docroot" && -f "${docroot}/index.php" ]] && grep -q "laravel/current" "${docroot}/index.php"; then
+    install_front_controller
     return 0
   fi
 
@@ -173,8 +215,7 @@ switch_docroot() {
     return 1
   fi
 
-  ln -sfn "$relative" "$docroot"
-  echo "document_root=symlink ${docroot} -> ${relative}"
+  install_front_controller
 }
 
 purge_dynamic_cache() {
