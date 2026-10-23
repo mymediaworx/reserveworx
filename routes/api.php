@@ -11,18 +11,22 @@ use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\DepartureController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
+use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\PoolController;
+use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\ServiceController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('/stripe/webhook', [StripeWebhookController::class, 'store']);
 
     Route::middleware('auth:sanctum')->group(function (): void {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -74,6 +78,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/services/{service}', [ServiceController::class, 'show']);
             Route::post('/services/{service}/requirements', [ServiceController::class, 'storeRequirement']);
             Route::post('/services/{service}/durations', [ServiceController::class, 'storeDuration']);
+            Route::post('/services/{service}/prices', [PricingController::class, 'storeRule']);
+            Route::post('/promo-codes', [PricingController::class, 'storePromo']);
             Route::get('/availability', [AvailabilityController::class, 'show']);
             Route::get('/calendar', [BookingController::class, 'calendar']);
             Route::get('/departures', [DepartureController::class, 'index']);
@@ -95,6 +101,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
             Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout']);
             Route::post('/bookings/{booking}/return', [BookingController::class, 'returnRental']);
+            Route::post('/bookings/{booking}/pricing', [PricingController::class, 'priceBooking']);
+            Route::post('/bookings/{booking}/checkout-session', [PaymentController::class, 'checkout']);
+            Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
+            Route::post('/stripe/account', [PaymentController::class, 'connect']);
+            Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
         });
     });
 });

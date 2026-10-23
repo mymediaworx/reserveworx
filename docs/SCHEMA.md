@@ -92,7 +92,11 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 ## Disclosure versions
 
-`disclosure_versions` is migrated in `database/migrations/2026_10_23_200000_create_disclosure_versions_table.php`. It is tenant-owned and uses `BelongsToTenant`. Columns: `kind` (`booking_fee_refund_terms`), `version` (unique per tenant and kind), `fee_payer`, `rules_version`, `body` (one sentence per line), `content_hash`, and `published_at`. Rows are immutable: the model refuses updates and deletes. Bookings will record the version the customer saw (spec 7.6 item 8). That column belongs to the booking engine and is not added here.
+`disclosure_versions` is migrated in `database/migrations/2026_10_23_200000_create_disclosure_versions_table.php`. It is tenant-owned and uses `BelongsToTenant`. Columns: `kind` (`booking_fee_refund_terms`), `version` (unique per tenant and kind), `fee_payer`, `rules_version`, `body` (one sentence per line), `content_hash`, and `published_at`. Rows are immutable: the model refuses updates and deletes. `pricing_snapshots.disclosure_version_id` records the version the customer saw.
+
+## Pricing and payments
+
+`price_rules`, `promo_codes`, `pricing_snapshots`, `stripe_accounts`, `payments`, and `platform_fees` are tenant-owned. `webhook_events` is not: Stripe calls the platform host before a tenant is known, and `stripe_event_id` is globally unique. A pricing snapshot is unique per booking. A Stripe account is unique per tenant and per `stripe_account_id`. A checkout session id is unique and nullable, so offline payments do not collide. `stripe_fee_id` is unique and nullable until `application_fee.created` arrives. `card_payments_status` starts at `pending` and must be `active` before online checkout.
 
 ## Planned, not migrated
 
@@ -101,9 +105,8 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - service_variants
 - participants
 - rental_returns, maintenance_records, incidents
-- pricing_snapshots, taxes, discounts
-- payments, refunds, platform_fees, platform_fee_refunds
-- stripe_accounts, webhook_events
+- service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
+- refunds, platform_fee_refunds
 - waiver_templates, waiver_signatures
 - notifications
 - ghl_connections, ghl_mappings, integration_outbox, integration_logs
