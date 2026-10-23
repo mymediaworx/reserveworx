@@ -8,7 +8,7 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 |---|---|---|
 | Platform (`app.reserveworx.com`) | `/` | Product page with platform sign in |
 | Platform | `/platform/login`, `/platform` | Platform admins only: list and add workspaces |
-| Platform | `/platform/tenants/{id}` | Domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, status |
+| Platform | `/platform/tenants/{id}` | Domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, a private data export, status |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
@@ -35,7 +35,7 @@ Each staff action calls the same service as the matching API endpoint (Allocator
 
 ## Platform admin
 
-Platform pages exist only on platform hosts (`platform.host`) and require `auth` plus `platform.admin`, which also re-runs on every Livewire update. Each action writes the same audit action as the platform API. Closing a workspace for good is refused until a data export exists, as in the API. A new owner's temporary password is shown once, and only its hash is stored.
+Platform pages exist only on platform hosts (`platform.host`) and require `auth` plus `platform.admin`, which also re-runs on every Livewire update. Each action writes the same audit action as the platform API. Closing a workspace for good is refused until a private JSON export of that workspace has been saved. The download route is platform-admin only. A new owner's temporary password is shown once, and only its hash is stored.
 
 ## Booking links
 

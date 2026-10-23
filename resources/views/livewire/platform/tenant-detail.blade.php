@@ -101,6 +101,24 @@
         </section>
 
         <section class="panel">
+            <h2>Data export</h2>
+            <p class="muted small">A private copy of this workspace. Passwords are left out. Closing for good stays unavailable until a file is saved here. The file is a snapshot, so export again if you change data first.</p>
+            <button type="button" class="button" wire:click="exportData">Export workspace data</button>
+            @if ($exports->isEmpty())
+                <p class="empty top-gap">No export yet.</p>
+            @else
+                <ul class="rows compact top-gap">
+                    @foreach ($exports as $export)
+                        <li class="row">
+                            <a href="{{ route('platform.exports.download', ['tenant' => $tenant, 'export' => $export]) }}">Download {{ $export->completed_at->timezone('UTC')->format('Y-m-d H:i') }} UTC</a>
+                            <span class="muted">{{ number_format($export->bytes) }} bytes</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
+
+        <section class="panel">
             <h2>Status</h2>
             <p class="muted small">Onboarding and active workspaces are served on their domains. Suspended ones show an unavailable page.</p>
             <div class="actions">

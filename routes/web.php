@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\IntegrationController;
 use App\Http\Controllers\Admin\SessionController;
+use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\Web\HomeController;
@@ -42,6 +43,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
     Route::middleware(['auth', 'platform.admin'])->group(function (): void {
         Route::get('/', Tenants::class);
         Route::get('/tenants/{tenant}', TenantDetail::class);
+        Route::get('/tenants/{tenant}/exports/{export}', [TenantExportController::class, 'download'])->name('platform.exports.download');
     });
 });
 

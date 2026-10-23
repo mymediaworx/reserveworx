@@ -28,7 +28,7 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 19. **White-label GoHighLevel install.** It is not verified that the BrandWorx agency at `app.brandworx.ai` can install a private marketplace app.
 20. **HighLevel version header and location-token path.** Official pages disagree (`v3` versus `2021-07-28`, `/oauth/location-token` versus `/oauth/locationToken`). Confirm with a live call before Phase 6.
 21. **Stripe API version and fee collector.** Do not pin an API version until payments are implemented. Before charging, confirm the connected account's fee collector (`controller.fees.payer` or Accounts v2 `defaults.responsibilities.fees_collector`).
-22. **Data export before termination.** Terminating a tenant returns HTTP 409 until an export exists. The export is not built.
+22. **Data export before termination.** A platform administrator can store a private JSON export of one workspace. Termination stays refused until that file exists. The export does not delete the workspace. How long signed waivers are kept after termination is still open question 3.
 23. **Backup and restore.** Not tested. Production migrations stay off until a backup exists and the operator types the confirmation phrase in [`DEPLOY.md`](DEPLOY.md).
 24. **`QUEUE_WORK_MAX_TIME`.** Default is 20 seconds so a one-minute cron stays inside the reported 4,000 CPU-second GoGeek cap. Revisit after hosting-check prints the real limits.
 25. **Frontend.** Answered October 23, 2026: the product owner approved Blade plus Livewire. See [`DECISIONS.md`](DECISIONS.md) and [`UI.md`](UI.md).

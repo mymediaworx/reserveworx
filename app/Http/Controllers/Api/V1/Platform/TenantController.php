@@ -11,6 +11,7 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Platform\TenantExporter;
 use App\Services\TenantLifecycle;
 use App\Tenancy\TenantScope;
 use Illuminate\Http\JsonResponse;
@@ -24,6 +25,7 @@ class TenantController extends Controller
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly TenantLifecycle $lifecycle,
+        private readonly TenantExporter $exports,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -90,7 +92,7 @@ class TenantController extends Controller
         $next = TenantStatus::from($request->string('status')->toString());
         $actor = $request->user() instanceof User ? $request->user() : null;
 
-        if ($next === TenantStatus::Terminated) {
+        if ($next === TenantStatus::Terminated && ! $this->exports->isReady($tenant)) {
             $this->audit->log(
                 action: 'platform.termination_refused',
                 subject: $tenant,
@@ -102,7 +104,7 @@ class TenantController extends Controller
             );
 
             return response()->json([
-                'message' => 'Termination is refused until a tenant data export exists. Export is not implemented yet.',
+                'message' => 'Termination is refused until a tenant data export exists.',
             ], 409);
         }
 

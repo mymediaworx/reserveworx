@@ -8,9 +8,11 @@ use App\Models\Domain;
 use App\Models\Membership;
 use App\Models\Role;
 use App\Models\Tenant;
+use App\Models\TenantDataExport;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Platform\TenantExporter;
 use App\Services\TenantLifecycle;
 use App\Support\Hostname;
 use App\Tenancy\TenantScope;
@@ -74,7 +76,7 @@ class TenantDetail extends Component
         $this->thirdPartyMinimum = $setting->third_party_fee_minimum_cents === null ? '' : $this->dollars($setting->third_party_fee_minimum_cents);
     }
 
-    public function setStatus(string $status, TenantLifecycle $lifecycle, AuditLogger $audit): void
+    public function setStatus(string $status, TenantLifecycle $lifecycle, AuditLogger $audit, TenantExporter $exports): void
     {
         $actor = $this->guard();
         $this->resetMessages();
@@ -82,7 +84,7 @@ class TenantDetail extends Component
         $next = TenantStatus::tryFrom($status);
         abort_if($next === null, 422);
 
-        if ($next === TenantStatus::Terminated) {
+        if ($next === TenantStatus::Terminated && ! $exports->isReady($tenant)) {
             $audit->log('platform.termination_refused', $tenant, ['reason' => 'data_export_not_available'], $tenant->id, $actor, request(), false);
             $this->problem = 'Closing a workspace for good is refused until a data export exists.';
 
@@ -240,6 +242,14 @@ class TenantDetail extends Component
             : 'Owner added. Give them the temporary password below; it is shown only once.';
     }
 
+    public function exportData(TenantExporter $exports): void
+    {
+        $actor = $this->guard();
+        $this->resetMessages();
+        $export = $exports->create($this->tenant($this->tenantId), $actor, request());
+        $this->flash = 'Export saved ('.number_format($export->bytes).' bytes). Download it below. Closing for good is now allowed.';
+    }
+
     public function render(): View
     {
         $tenant = $this->tenant($this->tenantId);
@@ -254,6 +264,10 @@ class TenantDetail extends Component
             'members' => $members,
             'statuses' => TenantStatus::cases(),
             'setting' => $this->setting(),
+            'exports' => TenantDataExport::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $tenant->id)
+                ->orderByDesc('completed_at')
+                ->get(),
         ])->title($tenant->name);
     }
 
