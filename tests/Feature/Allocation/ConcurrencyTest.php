@@ -39,11 +39,78 @@ class ConcurrencyTest extends TestCase
         $this->contend($rental, '2026-06-15T15:00:00Z', '2026-06-15T17:00:00Z', asset: false, winnerService: $tour);
     }
 
-    public function test_an_extension_interval_competes_with_a_new_booking(): void
+    public function test_an_extension_competes_with_a_new_booking(): void
     {
         [$service, $asset] = $this->serviceOnAsset();
-        $this->seedConfirmed($service, $asset->id, '2026-06-15 14:00:00', '2026-06-15 15:00:00');
-        $this->contend($service, '2026-06-15T15:00:00Z', '2026-06-15T16:00:00Z', asset: true);
+        $bookingId = $this->seedConfirmed($service, $asset->id, '2026-06-15 14:00:00', '2026-06-15 15:00:00');
+
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        DB::beginTransaction();
+        DB::statement('set innodb_lock_wait_timeout = 15');
+        DB::select('select id from assets where id = ? for update', [$asset->id]);
+
+        $payload = tempnam(sys_get_temp_dir(), 'extend-');
+        $this->assertNotFalse($payload);
+        file_put_contents($payload, json_encode([
+            'booking_id' => $bookingId,
+            'ends_at' => '2026-06-15T16:00:00Z',
+        ], JSON_THROW_ON_ERROR));
+
+        $process = new Process(
+            [PHP_BINARY, base_path('tests/Support/concurrent_extend.php'), $payload],
+            base_path(),
+            $this->childEnvironment(),
+        );
+        $process->setTimeout(30);
+        $started = microtime(true);
+        $process->start();
+        $waited = $this->waitForLock($process, $started);
+
+        $winnerId = (string) Str::ulid();
+        DB::table('bookings')->insert([
+            'id' => $winnerId,
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => 'confirmed',
+            'payment_status' => 'unpaid',
+            'operational_status' => 'not_arrived',
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'participants' => 1,
+            'idempotency_key' => 'winner-'.Str::lower(Str::random(8)),
+            'payload_hash' => str_repeat('d', 64),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('allocations')->insert([
+            'id' => (string) Str::ulid(),
+            'tenant_id' => $service->tenant_id,
+            'booking_id' => $winnerId,
+            'asset_id' => $asset->id,
+            'quantity' => 1,
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::commit();
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+
+        $process->wait();
+        @unlink($payload);
+
+        $this->assertTrue($waited, $process->getOutput().$process->getErrorOutput());
+        $this->assertSame(2, $process->getExitCode(), $process->getOutput().$process->getErrorOutput());
+        $this->assertStringNotContainsString('Allocator.php:'.$this->lockWaitGiveUpLine(), $process->getErrorOutput());
+        $this->assertSame('2026-06-15 15:00:00', DB::table('bookings')->where('id', $bookingId)->value('ends_at'));
+        $this->assertSame(1, DB::table('allocations')
+            ->where('asset_id', $asset->id)
+            ->where('starts_at', '<', '2026-06-15 16:00:00')
+            ->where('ends_at', '>', '2026-06-15 15:00:00')
+            ->count());
+        $this->assertSame(0, DB::table('holds')->count());
+        $this->assertSame(0, DB::table('capacity_ledger')->where('allocated_units', '<', 0)->orWhere('held_units', '<', 0)->count());
     }
 
     public function test_a_multi_day_new_york_transition_still_allows_only_one_winner(): void
@@ -324,7 +391,7 @@ class ConcurrencyTest extends TestCase
         return [$rental, $tour];
     }
 
-    private function seedConfirmed(Service $service, string $assetId, string $start, string $end): void
+    private function seedConfirmed(Service $service, string $assetId, string $start, string $end): string
     {
         $bookingId = (string) Str::ulid();
         DB::table('bookings')->insert([
@@ -353,5 +420,7 @@ class ConcurrencyTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+
+        return $bookingId;
     }
 }
