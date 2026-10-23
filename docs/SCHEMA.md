@@ -1,6 +1,6 @@
 # Schema
 
-Spec Section 13 lists the entities. This document says which of them exist in MySQL today. Timezone belongs on `locations`, which is not migrated yet. Every timestamp that is stored is UTC.
+Spec Section 13 lists the entities. This document says which of them exist in MySQL today. Timezone belongs on `locations`. Every timestamp that is stored is UTC.
 
 ## Migrated now
 
@@ -84,16 +84,19 @@ Foundation migration: `database/migrations/2026_10_23_170000_create_foundation_t
 
 `availability_schedules` belong to a location, asset, or pool (`owner_type`, `owner_id`). `weekday` is Carbon's `0` Sunday through `6` Saturday. `blackouts.location_id` null covers the whole tenant. `services.kind` is `rental` or `tour`. `resource_requirements` point at one asset or pool.
 
+## Bookings and the capacity ledger
+
+`customers`, `bookings`, `booking_line_items`, `allocations`, `holds`, and `capacity_ledger` are migrated in `database/migrations/2026_10_23_193000_create_booking_tables.php`.
+
+A booking stores the customer interval in UTC, party size, status, payment status, and operational status. Idempotency is a unique `(tenant_id, idempotency_key)` plus `payload_hash`. MySQL treats null keys as distinct, so bookings without a key do not collide. `allocations` and `holds` store the buffered interval. A hold counts only while `expires_at` is still in the future. `capacity_ledger` is unique on `(tenant_id, pool_id, bucket_start_utc)`. Its counters are rewritten after a successful write and are not the admission check.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
-- customers
-- services, service_variants, resource_requirements
-- capacity_ledger `(tenant_id, pool_id, bucket_start_utc)`
+- service_variants
 - tours, departures
-- bookings, participants, booking_line_items
-- allocations, holds
+- participants
 - rental_checkouts, rental_returns, maintenance_records, incidents
 - pricing_snapshots, taxes, discounts
 - payments, refunds, platform_fees, platform_fee_refunds

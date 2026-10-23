@@ -32,8 +32,8 @@ class OpeningHours
         if ($resourceType !== null && $resourceId !== null) {
             $owner = ScheduleOwnerType::from($resourceType);
             $open = $open
-                && $this->instantOpen($owner, $resourceId, $pickup, false)
-                && $this->instantOpen($owner, $resourceId, $return, false);
+                && $this->instantOpen($owner, $resourceId, $pickup, true)
+                && $this->instantOpen($owner, $resourceId, $return, true);
         }
 
         return ['open' => $open && ! $blackout, 'blackout' => $blackout];

@@ -21,6 +21,8 @@ class RoleAndPermissionSeeder extends Seeder
             'audit.view' => 'View the audit log',
             'inventory.view' => 'View locations and resources',
             'inventory.manage' => 'Create and update locations and resources',
+            'bookings.view' => 'View bookings and the calendar',
+            'bookings.manage' => 'Hold, confirm, extend, and cancel bookings',
         ];
 
         $saved = [];
@@ -41,11 +43,15 @@ class RoleAndPermissionSeeder extends Seeder
                 'audit.view',
                 'inventory.view',
                 'inventory.manage',
+                'bookings.view',
+                'bookings.manage',
             ]],
             'staff' => ['name' => 'Staff', 'permissions' => [
                 'settings.view',
                 'members.view',
                 'inventory.view',
+                'bookings.view',
+                'bookings.manage',
             ]],
         ];
 
