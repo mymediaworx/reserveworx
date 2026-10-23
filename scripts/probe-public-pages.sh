@@ -28,3 +28,23 @@ probe home /
 probe platform_login /platform/login
 probe css /ui/app.css
 probe platform /platform
+
+probe_host() {
+  local label="$1"
+  local host="$2"
+  local path="$3"
+  local body code named title
+  body="$(mktemp)"
+  code="$(curl -sk --max-time 20 --resolve "${host}:443:127.0.0.1" -o "$body" -w '%{http_code}' \
+    -H "Cache-Control: no-cache" \
+    "https://${host}${path}" || true)"
+  named=no
+  if grep -q "ReserveWorx" "$body"; then named=yes; fi
+  title="$(grep -o '<title>[^<]*</title>' "$body" | head -n 1 || true)"
+  echo "${label}_http=${code:-none} reserveworx=${named} title=${title:-none} host=${host}"
+  rm -f "$body"
+}
+
+probe_host staff_login harbor-demo.reserveworx.test /staff/login
+probe_host calendar harbor-demo.reserveworx.test /staff/calendar
+probe_host admin_login harbor-demo.reserveworx.test /admin/login

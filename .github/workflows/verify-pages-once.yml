@@ -1,4 +1,5 @@
 # One-shot read of app.reserveworx.com. Stays off main. Does not deploy or write.
+# Also asks the app for the demo tenant host, which is not public DNS.
 name: Verify pages once
 
 on:
