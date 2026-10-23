@@ -12,6 +12,7 @@ use App\Models\PricingSnapshot;
 use App\Models\StripeAccount;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Notifications\BookingEvents;
 use Illuminate\Support\Str;
 
 final class CheckoutService
@@ -19,6 +20,7 @@ final class CheckoutService
     public function __construct(
         private readonly StripeGateway $stripe,
         private readonly Allocator $allocator,
+        private readonly BookingEvents $events,
     ) {}
 
     /**
@@ -102,6 +104,8 @@ final class CheckoutService
             $booking->payment_status = PaymentStatus::OfflinePaid;
             $booking->save();
         }
+
+        $this->events->paymentCompleted($payment);
 
         return $payment;
     }

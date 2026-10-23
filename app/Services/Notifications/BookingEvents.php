@@ -4,6 +4,7 @@ namespace App\Services\Notifications;
 
 use App\Enums\BookingStatus;
 use App\Models\Booking;
+use App\Models\Payment;
 use App\Models\RentalCheckout;
 
 /**
@@ -59,6 +60,33 @@ final class BookingEvents
             'booking.returned',
             'booking.returned:'.$booking->id,
             ['booking_id' => $booking->id],
+        );
+    }
+
+    public function paymentCompleted(Payment $payment): void
+    {
+        $this->hooks->record(
+            $payment->tenant_id,
+            $payment->booking_id,
+            'payment.completed',
+            'payment.completed:'.$payment->id,
+            [
+                'booking_id' => $payment->booking_id,
+                'payment_id' => $payment->id,
+                'method' => $payment->method,
+                'amount_cents' => $payment->amount_cents,
+            ],
+        );
+    }
+
+    public function paymentFailed(string $tenantId, string $bookingId, string $dedupeKey): void
+    {
+        $this->hooks->record(
+            $tenantId,
+            $bookingId,
+            'payment.failed',
+            $dedupeKey,
+            ['booking_id' => $bookingId],
         );
     }
 

@@ -9,6 +9,7 @@ use App\Models\Booking;
 use App\Models\Domain;
 use App\Models\Location;
 use App\Models\Membership;
+use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
 use App\Models\ResourceRequirement;
@@ -20,6 +21,8 @@ use App\Models\WebhookEvent;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
@@ -30,6 +33,8 @@ class PricingCheckoutTest extends TestCase
 
     public function test_offline_payment_confirms_a_priced_booking_with_no_fee(): void
     {
+        Http::fake();
+        Mail::fake();
         [$workspace, $service] = $this->rental();
         $this->actingAsWorkspace($workspace);
         $bookingId = $this->hold($service);
@@ -75,9 +80,19 @@ class PricingCheckoutTest extends TestCase
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame(0, PlatformFee::query()->count());
-        $this->assertSame(0, Payment::query()->firstOrFail()->fee_cents);
+        $payment = Payment::query()->firstOrFail();
+        $this->assertSame(0, $payment->fee_cents);
         $this->assertSame(PaymentStatus::OfflinePaid, Booking::query()->findOrFail($bookingId)->payment_status);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        $completed = NotificationHook::query()->where('kind', 'payment.completed')->firstOrFail();
+        $this->assertSame($payment->id, $completed->payload['payment_id'] ?? null);
+        $this->assertSame('offline', $completed->payload['method'] ?? null);
+        $this->assertSame(9_270, $completed->payload['amount_cents'] ?? null);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.confirmed')->count());
         app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
     }
 
     public function test_checkout_is_refused_without_an_active_account_or_a_platform_secret(): void
@@ -124,6 +139,8 @@ class PricingCheckoutTest extends TestCase
 
     public function test_a_paid_webhook_confirms_the_booking_and_records_the_fee(): void
     {
+        Http::fake();
+        Mail::fake();
         $fake = new FakeStripeGateway;
         $this->app->instance(StripeGateway::class, $fake);
 
@@ -189,7 +206,16 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame(300, PlatformFee::query()->firstOrFail()->amount_cents);
         $this->assertSame(1, Payment::query()->count());
         $this->assertSame(1, WebhookEvent::query()->count());
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        $completed = NotificationHook::query()->where('kind', 'payment.completed')->firstOrFail();
+        $this->assertSame(Payment::query()->firstOrFail()->id, $completed->payload['payment_id'] ?? null);
+        $this->assertSame('stripe', $completed->payload['method'] ?? null);
+        $this->assertSame(10_300, $completed->payload['amount_cents'] ?? null);
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'payment.failed')->count());
         app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
 
         $this->postWebhook('evt_fee', 'application_fee.created', [
             'id' => 'fee_123',
@@ -227,6 +253,74 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame('restricted', StripeAccount::query()->firstOrFail()->card_payments_status);
         $this->assertSame('fee_123', PlatformFee::query()->firstOrFail()->stripe_fee_id);
         app(TenantManager::class)->forget();
+    }
+
+    public function test_a_failed_async_checkout_queues_one_hook_and_leaves_the_hold(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $this->app->instance(StripeGateway::class, new FakeStripeGateway);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+
+        $session = [
+            'id' => 'cs_test_123',
+            'payment_status' => 'unpaid',
+            'metadata' => [
+                'booking_id' => $bookingId,
+                'tenant_id' => $workspace['tenant']->id,
+            ],
+        ];
+        $this->postWebhook('evt_fail', 'checkout.session.async_payment_failed', $session, 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_fail', 'checkout.session.async_payment_failed', $session, 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_fail_again', 'checkout.session.async_payment_failed', $session, 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'held');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('pending', Payment::query()->firstOrFail()->status);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.failed')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.confirmed')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.cancelled')->count());
+        $failed = NotificationHook::query()->where('kind', 'payment.failed')->firstOrFail();
+        $this->assertSame('payment.failed:cs_test_123', $failed->dedupe_key);
+        $this->assertSame($bookingId, $failed->booking_id);
+        app(TenantManager::class)->forget();
+
+        $this->artisan('integrations:dispatch')->assertSuccessful();
+        app(TenantManager::class)->set($workspace['tenant']);
+        $skipped = NotificationHook::query()->where('kind', 'payment.failed')->firstOrFail();
+        $this->assertSame('skipped', $skipped->delivery_status);
+        $this->assertSame('No transactional email provider is configured.', $skipped->delivery_error);
+        app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
     }
 
     public function test_an_unconfigured_webhook_is_rejected(): void

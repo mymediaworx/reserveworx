@@ -14,6 +14,7 @@ use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\WebhookEvent;
 use App\Services\Allocation\Allocator;
+use App\Services\Notifications\BookingEvents;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Database\QueryException;
@@ -26,6 +27,7 @@ final class WebhookProcessor
         private readonly Allocator $allocator,
         private readonly TenantManager $tenants,
         private readonly RefundService $refunds,
+        private readonly BookingEvents $events,
     ) {}
 
     public function handle(string $payload, string $signature): void
@@ -60,6 +62,7 @@ final class WebhookProcessor
 
         match ($event['type']) {
             'checkout.session.completed', 'checkout.session.async_payment_succeeded' => $this->fulfill($event['object']),
+            'checkout.session.async_payment_failed' => $this->fail($event['object']),
             'application_fee.created' => $this->rememberFee($event['object']),
             'application_fee.refunded' => $this->rememberFeeRefund($event['object']),
             'charge.dispute.closed' => $this->rememberDispute($event['object']),
@@ -154,6 +157,42 @@ final class WebhookProcessor
                 ]);
                 $this->linkStripeFee($recorded);
             }
+
+            $this->events->paymentCompleted($payment);
+        } finally {
+            $this->tenants->forget();
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $session
+     */
+    private function fail(array $session): void
+    {
+        $metadata = is_array($session['metadata'] ?? null) ? $session['metadata'] : [];
+        $bookingId = $metadata['booking_id'] ?? null;
+
+        if (! is_string($bookingId) || $bookingId === '') {
+            return;
+        }
+
+        $booking = Booking::withoutGlobalScope(TenantScope::class)->find($bookingId);
+
+        if (! $booking instanceof Booking) {
+            return;
+        }
+
+        $tenant = Tenant::query()->find($booking->tenant_id);
+
+        if (! $tenant instanceof Tenant) {
+            return;
+        }
+
+        $sessionId = is_string($session['id'] ?? null) && $session['id'] !== '' ? $session['id'] : $booking->id;
+        $this->tenants->set($tenant);
+
+        try {
+            $this->events->paymentFailed($booking->tenant_id, $booking->id, 'payment.failed:'.$sessionId);
         } finally {
             $this->tenants->forget();
         }
