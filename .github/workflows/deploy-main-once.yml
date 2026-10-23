@@ -1,0 +1,159 @@
+# One-shot deploy of origin/main. This file stays off main.
+# A push of this file is the trigger because this GitHub App cannot dispatch workflows.
+# The release that is packed is main, not this branch. Writes only under app.reserveworx.com.
+name: Deploy main once
+
+on:
+  push:
+    branches:
+      - cursor/deploy-main-681b
+    paths:
+      - .github/workflows/deploy-main-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy main to app.reserveworx.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
+          if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
+          if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
+          if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          tools: composer:v2
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Pack main
+        id: release
+        run: |
+          set -euo pipefail
+          release="$(git rev-parse HEAD)"
+          if [[ ! "$release" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to pack because the release id is not a commit sha." >&2
+            exit 1
+          fi
+          echo "packing=${release}"
+          tar -czf "/tmp/reserveworx-${release}.tar.gz" \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            --exclude 'node_modules' \
+            --exclude 'tests' \
+            --exclude 'storage/logs' \
+            --exclude 'storage/framework/cache/data' \
+            --exclude 'storage/framework/sessions' \
+            --exclude 'storage/framework/views' \
+            --exclude 'storage/pail' \
+            .
+          echo "sha=${release}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release archive
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "test -d www/app.reserveworx.com && test ! -d www/reserveworx.com/laravel && mkdir -p www/app.reserveworx.com/laravel/incoming"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat > www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
+          rm -f "/tmp/reserveworx-${RELEASE}.tar.gz"
+
+      - name: Activate release, migrate, and roll back if the app is down
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/remote-deploy.sh
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q MIGRATION_CONFIRMATION=%q bash -s' \
+            deploy "$RELEASE" true "I have a backup")"
+          set +e
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/deploy-out.txt
+          deploy_exit=${PIPESTATUS[0]}
+          set -e
+          echo "deploy_script_exit=${deploy_exit}"
+
+          switched=no
+          if grep -q '^current=' /tmp/deploy-out.txt; then
+            switched=yes
+          fi
+          echo "release_switched=${switched}"
+
+          set +e
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s <<'PROBE' | tee /tmp/probe-out.txt
+          probe() {
+            label="$1"
+            url="$2"
+            host="$3"
+            body="$(mktemp)"
+            code="$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' -H "Host: ${host}" -H "Cache-Control: no-cache" "$url" || true)"
+            marker=no
+            if grep -q "Application up" "$body"; then marker=yes; fi
+            title="$(grep -o '<title>[^<]*</title>' "$body" | head -n 1 || true)"
+            echo "${label}_http=${code:-none} application_up=${marker} title=${title:-none} host=${host}"
+            rm -f "$body"
+          }
+          probe up_local "http://127.0.0.1/up" "app.reserveworx.com"
+          probe home_local "http://127.0.0.1/" "app.reserveworx.com"
+          probe platform_login_local "http://127.0.0.1/platform/login" "app.reserveworx.com"
+          probe css_local "http://127.0.0.1/ui/app.css" "app.reserveworx.com"
+          probe staff_login_local "http://127.0.0.1/staff/login" "harbor-demo.reserveworx.test"
+          probe calendar_local "http://127.0.0.1/staff/calendar" "harbor-demo.reserveworx.test"
+          probe admin_login_local "http://127.0.0.1/admin/login" "harbor-demo.reserveworx.test"
+          PROBE
+          set -e
+
+          up_code="$(sed -n 's/^up_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
+          up_marker="$(sed -n 's/^up_local_http=[^ ]* application_up=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
+          home_code="$(sed -n 's/^home_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
+          login_code="$(sed -n 's/^platform_login_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
+          echo "server_up_http=${up_code:-none} application_up=${up_marker:-no} home_http=${home_code:-none} platform_login_http=${login_code:-none}"
+
+          if [[ "$switched" == "yes" && "$up_code" == "200" && "$up_marker" == "yes" && "$home_code" == "200" && "$login_code" == "200" ]] && grep -q '^migrations=ran$' /tmp/deploy-out.txt; then
+            echo "health=ok source=server_localhost"
+            exit 0
+          fi
+
+          if [[ "$switched" == "yes" ]]; then
+            echo "health=failed. Rolling the code release back. migrate:rollback is not run." >&2
+            rollback_cmd="$(printf 'ACTION=%q bash -s' rollback)"
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$rollback_cmd" < scripts/remote-deploy.sh | tee /tmp/rollback-out.txt
+            exit 1
+          fi
+
+          echo "release_not_switched=no rollback. reserveworx.com was not used." >&2
+          exit 1
