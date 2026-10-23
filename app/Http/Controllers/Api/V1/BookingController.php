@@ -8,8 +8,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Membership;
+use App\Models\RentalCheckout;
 use App\Models\Service;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
@@ -276,6 +278,8 @@ class BookingController extends Controller
             $this->promoter->afterRelease($result['booking'], $result['released_start'], $result['released_end']);
         }
 
+        $this->recordLateFee($result['booking']);
+
         $this->audit->log('booking.returned', $result['booking'], [], request: $request);
 
         return response()->json(['data' => $this->payload($result['booking'])]);
@@ -457,10 +461,40 @@ class BookingController extends Controller
             'participants' => $booking->participants,
             'created_by' => $booking->created_by,
             'guide_user_id' => $booking->guide_user_id,
+            'attention_reason' => $booking->attention_reason,
             'below_minimum' => $this->belowMinimum($booking),
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,
         ];
+    }
+
+    private function recordLateFee(Booking $booking): void
+    {
+        $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
+        $rate = $setting instanceof TenantSetting ? $setting->late_fee_per_minute_cents : null;
+
+        if ($rate === null || $rate < 1) {
+            return;
+        }
+
+        $checkouts = RentalCheckout::query()->where('booking_id', $booking->id)->whereNotNull('returned_at')->get();
+
+        foreach ($checkouts as $checkout) {
+            $returnedAt = $checkout->returned_at;
+
+            if ($returnedAt === null) {
+                continue;
+            }
+
+            $seconds = $returnedAt->getTimestamp() - $checkout->due_at->getTimestamp();
+
+            if ($seconds <= 0) {
+                continue;
+            }
+
+            $checkout->late_fee_cents = intdiv($seconds, 60) * $rate;
+            $checkout->save();
+        }
     }
 
     private function belowMinimum(Booking $booking): bool

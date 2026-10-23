@@ -28,6 +28,7 @@ class TenantSettingController extends Controller
         $before = $setting->only([
             'hold_minutes',
             'guest_cancel_before_minutes',
+            'late_fee_per_minute_cents',
             'ledger_bucket_minutes',
             'fee_payer',
         ]);
@@ -35,6 +36,7 @@ class TenantSettingController extends Controller
         $setting->fill($request->safe()->only([
             'hold_minutes',
             'guest_cancel_before_minutes',
+            'late_fee_per_minute_cents',
             'ledger_bucket_minutes',
             'fee_payer',
         ]));

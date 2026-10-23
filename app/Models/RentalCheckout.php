@@ -20,6 +20,7 @@ class RentalCheckout extends Model
         'checked_out_at',
         'due_at',
         'returned_at',
+        'late_fee_cents',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class RentalCheckout extends Model
         'checked_out_at' => 'datetime',
         'due_at' => 'datetime',
         'returned_at' => 'datetime',
+        'late_fee_cents' => 'integer',
     ];
 
     /**
