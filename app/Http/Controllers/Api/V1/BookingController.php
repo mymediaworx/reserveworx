@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\MembershipStatus;
 use App\Enums\OperationalStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Departure;
+use App\Models\Membership;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\Allocation\AllocationIntent;
@@ -14,6 +16,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Booking\Waitlist;
+use App\Services\Booking\WaitlistPromoter;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +29,7 @@ class BookingController extends Controller
         private readonly Allocator $allocator,
         private readonly AuditLogger $audit,
         private readonly Waitlist $waitlist,
+        private readonly WaitlistPromoter $promoter,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -59,6 +63,7 @@ class BookingController extends Controller
             'customer_name' => ['nullable', 'string', 'max:120'],
             'customer_email' => ['nullable', 'email', 'max:255'],
             'departure_id' => ['nullable', 'string'],
+            'guide_user_id' => ['nullable', 'string'],
             'join_waitlist' => ['nullable', 'boolean'],
         ]);
 
@@ -85,6 +90,24 @@ class BookingController extends Controller
             $departureId = null;
         }
 
+        $guideUserId = $validated['guide_user_id'] ?? null;
+
+        if (is_string($guideUserId) && $guideUserId !== '') {
+            $activeGuide = Membership::query()
+                ->where('user_id', $guideUserId)
+                ->where('status', MembershipStatus::Active)
+                ->whereHas('role', fn ($query) => $query->whereIn('slug', ['owner', 'manager', 'staff']))
+                ->exists();
+
+            if (! $activeGuide) {
+                throw ValidationException::withMessages([
+                    'guide_user_id' => 'That guide is not an active member of this workspace.',
+                ]);
+            }
+        } else {
+            $guideUserId = null;
+        }
+
         $intent = new AllocationIntent(
             $tenant->id,
             $validated['service_id'],
@@ -95,6 +118,7 @@ class BookingController extends Controller
             $validated['customer_name'] ?? null,
             $validated['customer_email'] ?? null,
             is_string($departureId) ? $departureId : null,
+            is_string($guideUserId) ? $guideUserId : null,
         );
 
         try {
@@ -201,6 +225,7 @@ class BookingController extends Controller
     {
         $this->authorize('update', $booking);
         $cancelled = $this->allocator->cancel($booking);
+        $this->promoter->afterRelease($cancelled);
         $this->audit->log('booking.cancelled', $cancelled, [], request: $request);
 
         return response()->json(['data' => $this->payload($cancelled)]);
@@ -216,9 +241,44 @@ class BookingController extends Controller
             return response()->json(['message' => $exception->getMessage()], 409);
         }
 
+        $this->promoter->afterRelease($saved);
         $this->audit->log('booking.no_show', $saved, [], request: $request);
 
         return response()->json(['data' => $this->payload($saved)]);
+    }
+
+    public function checkout(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+
+        try {
+            $saved = $this->allocator->checkout($booking);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
+        }
+
+        $this->audit->log('booking.checked_out', $saved, [], request: $request);
+
+        return response()->json(['data' => $this->payload($saved)]);
+    }
+
+    public function returnRental(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+
+        try {
+            $result = $this->allocator->returnRental($booking);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
+        }
+
+        if ($result['released_start'] instanceof CarbonImmutable && $result['released_end'] instanceof CarbonImmutable) {
+            $this->promoter->afterRelease($result['booking'], $result['released_start'], $result['released_end']);
+        }
+
+        $this->audit->log('booking.returned', $result['booking'], [], request: $request);
+
+        return response()->json(['data' => $this->payload($result['booking'])]);
     }
 
     public function update(Request $request, Booking $booking): JsonResponse
@@ -396,6 +456,7 @@ class BookingController extends Controller
             'ends_at' => $booking->ends_at->utc()->format('Y-m-d\TH:i:s\Z'),
             'participants' => $booking->participants,
             'created_by' => $booking->created_by,
+            'guide_user_id' => $booking->guide_user_id,
             'below_minimum' => $this->belowMinimum($booking),
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,

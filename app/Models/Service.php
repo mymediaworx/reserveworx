@@ -45,4 +45,12 @@ class Service extends Model
     {
         return $this->hasMany(ResourceRequirement::class);
     }
+
+    /**
+     * @return HasMany<ServiceDuration, $this>
+     */
+    public function durations(): HasMany
+    {
+        return $this->hasMany(ServiceDuration::class);
+    }
 }

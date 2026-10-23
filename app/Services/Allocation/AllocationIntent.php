@@ -16,6 +16,7 @@ readonly class AllocationIntent
         public ?string $customerName,
         public ?string $customerEmail,
         public ?string $departureId = null,
+        public ?string $guideUserId = null,
     ) {}
 
     public function payloadHash(): string
@@ -29,6 +30,10 @@ readonly class AllocationIntent
 
         if ($this->departureId !== null && $this->departureId !== '') {
             $fields['departure_id'] = $this->departureId;
+        }
+
+        if ($this->guideUserId !== null && $this->guideUserId !== '') {
+            $fields['guide_user_id'] = $this->guideUserId;
         }
 
         $encoded = json_encode($fields, JSON_THROW_ON_ERROR);

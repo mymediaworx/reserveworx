@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\DurationUnit;
 use App\Enums\ResourceType;
 use App\Enums\ServiceKind;
 use App\Http\Controllers\Controller;
@@ -9,6 +10,7 @@ use App\Models\Asset;
 use App\Models\Pool;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
+use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
 use Illuminate\Http\JsonResponse;
@@ -25,7 +27,7 @@ class ServiceController extends Controller
         $this->authorize('viewAny', Service::class);
 
         return response()->json([
-            'data' => Service::query()->with('requirements')->orderBy('name')->get()->map(fn (Service $service): array => $this->payload($service)),
+            'data' => Service::query()->with(['requirements', 'durations'])->orderBy('name')->get()->map(fn (Service $service): array => $this->payload($service)),
         ]);
     }
 
@@ -71,7 +73,7 @@ class ServiceController extends Controller
     public function show(Request $request, Service $service): JsonResponse
     {
         $this->authorize('view', $service);
-        $service->load('requirements');
+        $service->load(['requirements', 'durations']);
 
         return response()->json(['data' => $this->payload($service)]);
     }
@@ -116,6 +118,51 @@ class ServiceController extends Controller
         ]], 201);
     }
 
+    public function storeDuration(Request $request, Service $service): JsonResponse
+    {
+        $this->authorize('update', $service);
+        $tenant = $request->attributes->get('tenant');
+        abort_unless($tenant instanceof Tenant, 403);
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:80'],
+            'quantity' => ['required', 'integer', 'min:1', 'max:10080'],
+            'unit' => ['required', Rule::enum(DurationUnit::class)],
+        ]);
+
+        $unitValue = $validated['unit'];
+
+        if (! is_string($unitValue)) {
+            abort(422);
+        }
+
+        $unit = DurationUnit::from($unitValue);
+        $quantity = (int) $validated['quantity'];
+        $minutes = $unit === DurationUnit::Hours ? $quantity * 60 : $quantity;
+
+        if ($minutes < 1 || $minutes > 10080) {
+            throw ValidationException::withMessages([
+                'quantity' => 'That rental length is outside the supported range.',
+            ]);
+        }
+
+        $duration = ServiceDuration::query()->create([
+            'tenant_id' => $tenant->id,
+            'service_id' => $service->id,
+            'name' => $validated['name'],
+            'quantity' => $quantity,
+            'unit' => $unit,
+            'duration_minutes' => $minutes,
+        ]);
+
+        $this->audit->log('service.duration_created', $duration, [
+            'service_id' => $service->id,
+            'duration_minutes' => $duration->duration_minutes,
+        ], request: $request);
+
+        return response()->json(['data' => $this->durationPayload($duration)], 201);
+    }
+
     private function assertResource(Service $service, ResourceType $type, string $id): void
     {
         $resource = match ($type) {
@@ -143,6 +190,9 @@ class ServiceController extends Controller
             'min_participants' => $service->min_participants,
             'max_participants' => $service->max_participants,
             'waitlist_enabled' => $service->waitlist_enabled,
+            'durations' => $service->relationLoaded('durations')
+                ? $service->durations->map(fn (ServiceDuration $duration): array => $this->durationPayload($duration))->all()
+                : [],
             'requirements' => $service->relationLoaded('requirements')
                 ? $service->requirements->map(fn (ResourceRequirement $requirement): array => [
                     'id' => $requirement->id,
@@ -152,6 +202,20 @@ class ServiceController extends Controller
                     'per_participants' => $requirement->per_participants,
                 ])->all()
                 : [],
+        ];
+    }
+
+    /**
+     * @return array{id: string, name: string, quantity: int, unit: string, duration_minutes: int}
+     */
+    private function durationPayload(ServiceDuration $duration): array
+    {
+        return [
+            'id' => $duration->id,
+            'name' => $duration->name,
+            'quantity' => $duration->quantity,
+            'unit' => $duration->unit->value,
+            'duration_minutes' => $duration->duration_minutes,
         ];
     }
 }

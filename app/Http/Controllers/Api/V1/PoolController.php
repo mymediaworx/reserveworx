@@ -39,6 +39,7 @@ class PoolController extends Controller
             'status' => $request->enum('status', ResourceStatus::class) ?? ResourceStatus::Active,
             'prep_buffer_minutes' => $request->integer('prep_buffer_minutes'),
             'return_buffer_minutes' => $request->integer('return_buffer_minutes'),
+            'turnaround_minutes' => $request->integer('turnaround_minutes'),
         ]);
 
         $this->audit->log('pool.created', $pool, [
@@ -66,6 +67,7 @@ class PoolController extends Controller
             'status',
             'prep_buffer_minutes',
             'return_buffer_minutes',
+            'turnaround_minutes',
         ]));
         $pool->save();
 

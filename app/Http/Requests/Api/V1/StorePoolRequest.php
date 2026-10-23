@@ -34,6 +34,7 @@ class StorePoolRequest extends FormRequest
             'status' => ['sometimes', Rule::enum(ResourceStatus::class)],
             'prep_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
             'return_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
+            'turnaround_minutes' => ['sometimes', 'integer', 'between:0,1440'],
         ];
     }
 }

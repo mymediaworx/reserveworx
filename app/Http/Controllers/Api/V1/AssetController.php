@@ -37,8 +37,10 @@ class AssetController extends Controller
             'name' => $request->string('name')->toString(),
             'status' => $request->enum('status', ResourceStatus::class) ?? ResourceStatus::Active,
             'capacity' => $request->integer('capacity', 1),
+            'is_guide' => $request->boolean('is_guide'),
             'prep_buffer_minutes' => $request->integer('prep_buffer_minutes'),
             'return_buffer_minutes' => $request->integer('return_buffer_minutes'),
+            'turnaround_minutes' => $request->integer('turnaround_minutes'),
         ]);
 
         $this->audit->log('asset.created', $asset, ['name' => $asset->name], request: $request);
@@ -61,8 +63,10 @@ class AssetController extends Controller
             'name',
             'status',
             'capacity',
+            'is_guide',
             'prep_buffer_minutes',
             'return_buffer_minutes',
+            'turnaround_minutes',
         ]));
         $asset->save();
 

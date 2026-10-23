@@ -73,6 +73,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/services', [ServiceController::class, 'store']);
             Route::get('/services/{service}', [ServiceController::class, 'show']);
             Route::post('/services/{service}/requirements', [ServiceController::class, 'storeRequirement']);
+            Route::post('/services/{service}/durations', [ServiceController::class, 'storeDuration']);
             Route::get('/availability', [AvailabilityController::class, 'show']);
             Route::get('/calendar', [BookingController::class, 'calendar']);
             Route::get('/departures', [DepartureController::class, 'index']);
@@ -92,6 +93,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
             Route::post('/bookings/{booking}/no-show', [BookingController::class, 'noShow']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
+            Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout']);
+            Route::post('/bookings/{booking}/return', [BookingController::class, 'returnRental']);
         });
     });
 });

@@ -21,8 +21,10 @@ class AssetResource extends JsonResource
             'name' => $this->name,
             'status' => $this->status->value,
             'capacity' => $this->capacity,
+            'is_guide' => $this->is_guide,
             'prep_buffer_minutes' => $this->prep_buffer_minutes,
             'return_buffer_minutes' => $this->return_buffer_minutes,
+            'turnaround_minutes' => $this->turnaround_minutes,
         ];
     }
 }

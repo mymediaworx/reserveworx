@@ -16,6 +16,7 @@ class WaitlistEntry extends Model
         'tenant_id',
         'service_id',
         'departure_id',
+        'booking_id',
         'location_id',
         'created_by',
         'starts_at',
@@ -48,5 +49,13 @@ class WaitlistEntry extends Model
     public function departure(): BelongsTo
     {
         return $this->belongsTo(Departure::class);
+    }
+
+    /**
+     * @return BelongsTo<Booking, $this>
+     */
+    public function booking(): BelongsTo
+    {
+        return $this->belongsTo(Booking::class);
     }
 }

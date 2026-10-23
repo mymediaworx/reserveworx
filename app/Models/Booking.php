@@ -22,6 +22,7 @@ class Booking extends Model
         'departure_id',
         'customer_id',
         'created_by',
+        'guide_user_id',
         'status',
         'payment_status',
         'operational_status',
@@ -87,5 +88,13 @@ class Booking extends Model
     public function lineItems(): HasMany
     {
         return $this->hasMany(BookingLineItem::class);
+    }
+
+    /**
+     * @return HasMany<RentalCheckout, $this>
+     */
+    public function checkouts(): HasMany
+    {
+        return $this->hasMany(RentalCheckout::class);
     }
 }

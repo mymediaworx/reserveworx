@@ -24,6 +24,7 @@ class Pool extends Model
         'status',
         'prep_buffer_minutes',
         'return_buffer_minutes',
+        'turnaround_minutes',
     ];
 
     protected $casts = [
@@ -31,6 +32,7 @@ class Pool extends Model
         'quantity' => 'integer',
         'prep_buffer_minutes' => 'integer',
         'return_buffer_minutes' => 'integer',
+        'turnaround_minutes' => 'integer',
     ];
 
     /**
