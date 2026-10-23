@@ -19,6 +19,8 @@ class RoleAndPermissionSeeder extends Seeder
             'members.view' => 'View members',
             'members.manage' => 'Add and revoke members',
             'audit.view' => 'View the audit log',
+            'inventory.view' => 'View locations and resources',
+            'inventory.manage' => 'Create and update locations and resources',
         ];
 
         $saved = [];
@@ -37,10 +39,13 @@ class RoleAndPermissionSeeder extends Seeder
                 'settings.update',
                 'members.view',
                 'audit.view',
+                'inventory.view',
+                'inventory.manage',
             ]],
             'staff' => ['name' => 'Staff', 'permissions' => [
                 'settings.view',
                 'members.view',
+                'inventory.view',
             ]],
         ];
 
