@@ -28,16 +28,10 @@ class AuditLog extends Model
         'created_at',
     ];
 
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'properties' => 'array',
-            'created_at' => 'datetime',
-        ];
-    }
+    protected $casts = [
+        'properties' => 'array',
+        'created_at' => 'datetime',
+    ];
 
     /**
      * @return BelongsTo<User, $this>

@@ -56,7 +56,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         if ($user instanceof User) {
-            $user->currentAccessToken()?->delete();
+            $user->currentAccessToken()->delete();
             $this->audit->log(
                 action: 'auth.logout',
                 subject: $user,

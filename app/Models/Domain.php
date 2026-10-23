@@ -15,16 +15,10 @@ class Domain extends Model
     /** @use HasFactory<DomainFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
 
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'verified_at' => 'datetime',
-            'is_primary' => 'boolean',
-        ];
-    }
+    protected $casts = [
+        'verified_at' => 'datetime',
+        'is_primary' => 'boolean',
+    ];
 
     public function isVerified(): bool
     {

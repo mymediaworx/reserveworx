@@ -3,11 +3,14 @@
 namespace Tests\Feature\Tenancy;
 
 use App\Models\Membership;
+use App\Models\PlatformAdministrator;
 use App\Models\TenantSetting;
+use App\Models\User;
 use App\Policies\TenantSettingPolicy;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
@@ -92,9 +95,9 @@ class CrossTenantIsolationTest extends TestCase
     public function test_a_platform_administrator_without_membership_cannot_use_tenant_routes(): void
     {
         $workspace = $this->workspace('alpha.test');
-        $admin = \App\Models\User::factory()->create();
-        \App\Models\PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
-        \Laravel\Sanctum\Sanctum::actingAs($admin);
+        $admin = User::factory()->create();
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        Sanctum::actingAs($admin);
 
         $this->getJson($this->tenantUrl('alpha.test', '/api/v1/settings'))->assertForbidden();
     }

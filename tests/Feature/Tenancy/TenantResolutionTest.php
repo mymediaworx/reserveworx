@@ -3,6 +3,7 @@
 namespace Tests\Feature\Tenancy;
 
 use App\Models\Domain;
+use App\Models\Membership;
 use App\Models\TenantSetting;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -84,7 +85,7 @@ class TenantResolutionTest extends TestCase
         $beta = $this->workspace('beta.test');
 
         $beta['membership']->delete();
-        $beta['membership'] = \App\Models\Membership::factory()->create([
+        $beta['membership'] = Membership::factory()->create([
             'tenant_id' => $beta['tenant']->id,
             'user_id' => $alpha['user']->id,
         ]);

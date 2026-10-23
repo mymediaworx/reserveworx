@@ -23,7 +23,7 @@ class AuditLogResource extends JsonResource
             'subject_id' => $this->subject_id,
             'properties' => $this->properties,
             'ip_address' => $this->ip_address,
-            'created_at' => $this->created_at?->toIso8601String(),
+            'created_at' => $this->created_at->toIso8601String(),
         ];
     }
 }

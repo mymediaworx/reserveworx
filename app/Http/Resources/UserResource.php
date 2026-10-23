@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Membership;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -19,7 +20,7 @@ class UserResource extends JsonResource
             'name' => $this->name,
             'email' => $this->email,
             'is_platform_admin' => $this->isPlatformAdmin(),
-            'memberships' => $this->whenLoaded('memberships', fn () => $this->memberships->map(fn ($membership): array => [
+            'memberships' => $this->whenLoaded('memberships', fn () => $this->memberships->map(fn (Membership $membership): array => [
                 'id' => $membership->id,
                 'tenant_id' => $membership->tenant_id,
                 'role' => $membership->role?->slug,

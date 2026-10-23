@@ -4,6 +4,4 @@ namespace App\Tenancy;
 
 use RuntimeException;
 
-class MissingTenantContextException extends RuntimeException
-{
-}
+class MissingTenantContextException extends RuntimeException {}

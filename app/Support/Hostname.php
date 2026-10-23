@@ -6,10 +6,9 @@ final class Hostname
 {
     public static function normalize(string $host): string
     {
-        $host = strtolower(trim($host));
-        $host = preg_replace('/:\d+$/', '', $host) ?? $host;
+        $host = rtrim(strtolower(trim($host)), '.');
 
-        return rtrim($host, '.');
+        return preg_replace('/:\d+$/', '', $host) ?? $host;
     }
 
     public static function isValid(string $host): bool

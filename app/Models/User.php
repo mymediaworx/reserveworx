@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Tenancy\TenantScope;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -27,16 +28,10 @@ class User extends Authenticatable
         });
     }
 
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'datetime',
-            'password' => 'hashed',
-        ];
-    }
+    protected $casts = [
+        'email_verified_at' => 'datetime',
+        'password' => 'hashed',
+    ];
 
     /**
      * Memberships are the user's own rows across workspaces, so they are not tenant-scoped.
@@ -45,7 +40,7 @@ class User extends Authenticatable
      */
     public function memberships(): HasMany
     {
-        return $this->hasMany(Membership::class)->withoutGlobalScope(\App\Tenancy\TenantScope::class);
+        return $this->hasMany(Membership::class)->withoutGlobalScope(TenantScope::class);
     }
 
     /**

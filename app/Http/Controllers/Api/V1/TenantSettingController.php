@@ -47,7 +47,7 @@ class TenantSettingController extends Controller
                 'before' => [
                     'hold_minutes' => $before['hold_minutes'],
                     'ledger_bucket_minutes' => $before['ledger_bucket_minutes'],
-                    'fee_payer' => $before['fee_payer'] instanceof \BackedEnum ? $before['fee_payer']->value : $before['fee_payer'],
+                    'fee_payer' => $before['fee_payer']->value,
                 ],
                 'after' => [
                     'hold_minutes' => $setting->hold_minutes,

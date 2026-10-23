@@ -4,6 +4,7 @@ use App\Http\Middleware\EnsureKnownHost;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\EnsureTenantMembership;
 use App\Http\Middleware\ResolveTenant;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -18,6 +19,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(EnsureKnownHost::class);
+        $middleware->prependToPriorityList(
+            before: AuthenticatesRequests::class,
+            prepend: ResolveTenant::class,
+        );
         $middleware->alias([
             'tenant.resolve' => ResolveTenant::class,
             'tenant.member' => EnsureTenantMembership::class,

@@ -6,6 +6,7 @@ use App\Models\AuditLog;
 use App\Models\User;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class LoginTest extends TestCase
@@ -35,6 +36,13 @@ class LoginTest extends TestCase
         $this->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('http://localhost/api/v1/logout')
             ->assertOk();
+
+        $this->assertSame(0, PersonalAccessToken::query()->count());
+
+        // Sanctum's RequestGuard keeps the user for the life of this PHP process.
+        // A new request in production is a new process. Forget the guard so this
+        // assertion checks the deleted token rather than that in-process cache.
+        $this->app['auth']->forgetGuards();
 
         $this->withHeader('Authorization', 'Bearer '.$token)
             ->getJson('http://localhost/api/v1/me')

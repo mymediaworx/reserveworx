@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Models\Membership;
 use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -13,7 +14,7 @@ class StoreMembershipRequest extends FormRequest
     {
         $user = $this->user();
 
-        return $user instanceof User && $user->can('create', \App\Models\Membership::class);
+        return $user instanceof User && $user->can('create', Membership::class);
     }
 
     /**

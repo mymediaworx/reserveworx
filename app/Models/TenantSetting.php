@@ -28,20 +28,15 @@ class TenantSetting extends Model
     /** @use HasFactory<TenantSettingFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
 
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'fee_payer' => FeePayer::class,
-            'hold_minutes' => 'integer',
-            'ledger_bucket_minutes' => 'integer',
-            'direct_fee_bps' => 'integer',
-            'third_party_fee_bps' => 'integer',
-            'direct_fee_fixed_cents' => 'integer',
-            'third_party_fee_fixed_cents' => 'integer',
-            'direct_fee_minimum_cents' => 'integer',
-        ];
-    }
+    protected $casts = [
+        'fee_payer' => FeePayer::class,
+        'hold_minutes' => 'integer',
+        'ledger_bucket_minutes' => 'integer',
+        'direct_fee_bps' => 'integer',
+        'third_party_fee_bps' => 'integer',
+        'direct_fee_fixed_cents' => 'integer',
+        'third_party_fee_fixed_cents' => 'integer',
+        'direct_fee_minimum_cents' => 'integer',
+        'third_party_fee_minimum_cents' => 'integer',
+    ];
 }

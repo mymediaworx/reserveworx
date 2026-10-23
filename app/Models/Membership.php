@@ -17,15 +17,9 @@ class Membership extends Model
     /** @use HasFactory<MembershipFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
 
-    /**
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'status' => MembershipStatus::class,
-        ];
-    }
+    protected $casts = [
+        'status' => MembershipStatus::class,
+    ];
 
     /**
      * @return BelongsTo<User, $this>
