@@ -15,8 +15,12 @@
             <div class="stat"><strong>{{ count($report['departures']) }}</strong> Departures</div>
             <div class="stat"><strong>{{ $report['open_checkouts'] }}</strong> Checked out</div>
             <div class="stat"><strong>{{ $report['overdue_checkouts'] }}</strong> Overdue</div>
+            <div class="stat"><strong>${{ number_format($report['totals']['gross_cents'] / 100, 2) }}</strong> Gross bookings</div>
+            <div class="stat"><strong>${{ number_format($report['totals']['tax_cents'] / 100, 2) }}</strong> Tax</div>
+            <div class="stat"><strong>${{ number_format($report['totals']['booking_fee_cents'] / 100, 2) }}</strong> Booking fees today</div>
             <div class="stat"><strong>${{ number_format($report['payments']['stripe_cents'] / 100, 2) }}</strong> Card payments</div>
             <div class="stat"><strong>${{ number_format($report['payments']['offline_cents'] / 100, 2) }}</strong> Offline payments</div>
+            <div class="stat"><strong>${{ number_format($report['totals']['refunds_cents'] / 100, 2) }}</strong> Refunds</div>
             <div class="stat"><strong>${{ number_format($report['fees']['net_cents'] / 100, 2) }}</strong> Net booking fees</div>
         </div>
 
