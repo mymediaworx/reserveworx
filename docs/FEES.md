@@ -68,6 +68,26 @@ When refunds are implemented:
 
 Citations for the Stripe behavior are in [`INTEGRATIONS.md`](INTEGRATIONS.md).
 
+### Refund calculator
+
+`App\Domain\Fees\Refunds\FeeRefundCalculator` turns each Section 7.7 row into amounts. It is pure: no Stripe calls and no database access. Input is a `FeeRefundState` (subtotal, fee charged, amount paid through Stripe, and what has already been refunded) plus a `RefundReason`. Output is a `FeeRefund` with the customer refund, the booking fee inside it, the application fee refund, the reason code, the rule applied, and which Stripe mechanism matches.
+
+| Reason codes | Rule (7.7 row) | Amounts |
+|---|---|---|
+| `operator_cancelled` | Operator cancels | Everything still refundable |
+| `platform_oversell`, `platform_payment_after_hold_expiry`, `platform_duplicate_charge`, `platform_error` | Platform or system fault | Everything still refundable |
+| `customer_cancelled_full_refund` | Customer full refund | Everything still refundable |
+| `customer_cancelled_partial_refund` | Customer partial refund | Fee in proportion to the subtotal refunded |
+| `customer_cancelled_no_refund` | Customer no refund | Nothing |
+| `price_reduced` | Lower price | Fee in proportion to the subtotal reduction |
+| `dispute_lost` | Dispute lost | Remaining fee to the tenant. The customer is handled by the dispute |
+| `dispute_won` | Dispute won | Nothing |
+| `no_show_full_refund`, `no_show_partial_refund`, `no_show_no_refund` | No-show | Same as the matching customer cancellation |
+
+Proportional fee refunds are computed from the **cumulative** subtotal refunded and rounded half-up once, minus fee already refunded. Any sequence of partial refunds that adds up to the whole subtotal returns exactly the whole fee, with no rounding drift. The caller supplies the tax to refund. Section 7.7 does not say how tax is split.
+
+`stripeMethod` is `refund_application_fee_flag` only for a full refund with nothing refunded before. Every other fee refund is `application_fee_refund` for the exact amount. The calculator works at booking level. Splitting a refund across a deposit charge and a balance charge is the Stripe layer's job. The fee sits on the first charge.
+
 ## Not in this repository
 
 No price quote endpoint, no Stripe PaymentIntent, no webhook handler, no application-fee refund, and no receipt. Settings tests cover authorization and persistence only.
