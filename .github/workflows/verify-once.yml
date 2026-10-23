@@ -1,0 +1,57 @@
+# One-shot health check. Stays off main. Does not upload a new release.
+name: Verify once
+
+on:
+  push:
+    branches:
+      - cursor/production-install-681b
+    paths:
+      - .github/workflows/verify-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify app.reserveworx.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
+          if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
+          if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
+          if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+
+      - name: Seed if needed and probe the app
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/seed-and-verify.sh
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/seed-and-verify.sh
+
+      - name: What an outside request sees
+        run: |
+          set -euo pipefail
+          for path in / /up; do
+            code="$(curl -sS -o "/tmp/body${path//\//_}" --max-time 20 -w '%{http_code}' -H 'Cache-Control: no-cache' "https://app.reserveworx.com${path}" || true)"
+            marker=no
+            if grep -q "Application up" "/tmp/body${path//\//_}"; then marker=yes; fi
+            name=no
+            if grep -q "ReserveWorx" "/tmp/body${path//\//_}"; then name=yes; fi
+            echo "outside path=${path} http=${code:-none} application_up=${marker} contains_reserveworx=${name}"
+          done

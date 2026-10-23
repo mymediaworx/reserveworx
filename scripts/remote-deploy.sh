@@ -319,7 +319,7 @@ echo "composer_on_server=not run"
 echo "caches=written"
 
 switch_docroot
-purge_dynamic_cache
+purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
 health_check
 echo "deploy=complete"
 echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
