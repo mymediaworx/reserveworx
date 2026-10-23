@@ -54,7 +54,13 @@ Then apply an optional fixed amount and an optional minimum, only when those col
 - `customer_paid`: the customer sees a line item labeled exactly `Booking fee`.
 - `operator_absorbed`: no customer line. The application fee is still deducted from the connected account.
 
-Every fee must be disclosed before payment (spec Section 7.6). Disclosure copy is waiting on attorney review (open question 2). Do not ship customer-facing fee text until that review exists.
+Every fee must be disclosed before payment (spec Section 7.6). The product owner chose to build the disclosure templates ahead of the attorney review. **Open question 2 still blocks launch:** an attorney must confirm the wording before real customers see it.
+
+### Disclosure templates
+
+- `BookingFeeRefundTerms` writes the plain-language refund summary from the Section 7.7 rows a customer can be in. Disputes are tenant-platform outcomes and are left out. The fee is always labeled `Booking fee` and never described as a card fee, surcharge, processing fee, or government charge.
+- `DisclosurePublisher::currentBookingFeeRefundTerms()` returns the tenant's current `DisclosureVersion` inside that tenant's context. It publishes a new immutable version only when the text changes. Operator-absorbed tenants get none, because the customer sees no fee.
+- Blade partials: `disclosures.checkout-summary` lists subtotal, booking fee, taxes, total, and the refund terms. `disclosures.receipt` adds paid, refunded, and booking fee refunded, plus the terms version. In customer-paid mode both refuse to render without refund terms.
 
 ## Refunds
 

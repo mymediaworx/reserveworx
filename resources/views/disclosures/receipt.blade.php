@@ -1,0 +1,68 @@
+{{--
+    Receipt and confirmation fee section (spec Section 7.6 items 5 and 6).
+
+    @param int $subtotalCents
+    @param int|null $bookingFeeCents  Customer-paid booking fee; null in operator-absorbed mode.
+    @param int $taxCents
+    @param int $totalCents
+    @param int $paidCents
+    @param int|null $refundedCents  Total refunded to the customer, for refund receipts.
+    @param int|null $refundedBookingFeeCents  Booking fee within that refund, itemized on refund receipts.
+    @param string $currency
+    @param \App\Models\DisclosureVersion|null $refundTerms  The version the customer saw at checkout.
+--}}
+@use('App\Domain\Fees\Disclosures\BookingFeeRefundTerms')
+@use('App\Domain\Fees\Disclosures\Money')
+@php
+    $currency = $currency ?? 'USD';
+    $bookingFeeCents = $bookingFeeCents ?? null;
+    $refundTerms = $refundTerms ?? null;
+    $refundedCents = $refundedCents ?? null;
+    $refundedBookingFeeCents = $refundedBookingFeeCents ?? null;
+
+    if ($bookingFeeCents !== null && $refundTerms === null) {
+        throw new \LogicException('Customer-paid receipts must show the booking fee refund terms.');
+    }
+@endphp
+<section class="receipt-summary">
+    <dl>
+        <div class="line subtotal">
+            <dt>Subtotal</dt>
+            <dd>{{ Money::format($subtotalCents, $currency) }}</dd>
+        </div>
+        @if ($bookingFeeCents !== null)
+            <div class="line booking-fee">
+                <dt>{{ BookingFeeRefundTerms::LABEL }}</dt>
+                <dd>{{ Money::format($bookingFeeCents, $currency) }}</dd>
+            </div>
+        @endif
+        <div class="line taxes">
+            <dt>Taxes</dt>
+            <dd>{{ Money::format($taxCents, $currency) }}</dd>
+        </div>
+        <div class="line total">
+            <dt>Total</dt>
+            <dd>{{ Money::format($totalCents, $currency) }}</dd>
+        </div>
+        <div class="line paid">
+            <dt>Paid</dt>
+            <dd>{{ Money::format($paidCents, $currency) }}</dd>
+        </div>
+        @if ($refundedCents !== null)
+            <div class="line refunded">
+                <dt>Refunded</dt>
+                <dd>{{ Money::format($refundedCents, $currency) }}</dd>
+            </div>
+            @if ($bookingFeeCents !== null)
+                <div class="line refunded-booking-fee">
+                    <dt>{{ BookingFeeRefundTerms::LABEL }} refunded</dt>
+                    <dd>{{ Money::format($refundedBookingFeeCents ?? 0, $currency) }}</dd>
+                </div>
+            @endif
+        @endif
+    </dl>
+
+    @if ($bookingFeeCents !== null)
+        @include('disclosures.refund-terms', ['refundTerms' => $refundTerms])
+    @endif
+</section>
