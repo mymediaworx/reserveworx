@@ -150,7 +150,8 @@ switch_docroot() {
     local allowed=1 name
     while IFS= read -r name; do
       [[ -z "$name" ]] && continue
-      case "$name" in
+      lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+      case "$lower" in
         index.html|index.php|cgi-bin|.well-known|default.html) ;;
         *) allowed=0 ;;
       esac
