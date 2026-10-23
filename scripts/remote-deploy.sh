@@ -147,7 +147,9 @@ switch_docroot() {
   fi
 
   if [[ -d "$docroot" ]]; then
-    local allowed=1 name
+    local allowed=1 name list
+    list="$(mktemp)"
+    find "$docroot" -mindepth 1 -maxdepth 1 -printf '%f\n' > "$list"
     while IFS= read -r name; do
       [[ -z "$name" ]] && continue
       lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
@@ -155,7 +157,8 @@ switch_docroot() {
         index.html|index.php|cgi-bin|.well-known|default.html) ;;
         *) allowed=0 ;;
       esac
-    done < <(find "$docroot" -mindepth 1 -maxdepth 1 -printf '%f\n')
+    done < "$list"
+    rm -f "$list"
 
     if [[ "$allowed" -ne 1 ]]; then
       echo "document_root=left unchanged because ${docroot} contains files outside the placeholder list. No other site was touched." >&2

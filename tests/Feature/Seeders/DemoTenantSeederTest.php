@@ -43,6 +43,11 @@ class DemoTenantSeederTest extends TestCase
             $this->assertTrue($user->memberships()->where('status', 'active')->exists());
         }
 
+        $this->seed(DatabaseSeeder::class);
+        $again = $this->records($path);
+        $this->assertSame($records[0]['password'], $again[0]['password']);
+        $this->assertSame($records[1]['password'], $again[1]['password']);
+
         @unlink($path);
         putenv('DEMO_LOGIN_FILE');
         unset($_ENV['DEMO_LOGIN_FILE'], $_SERVER['DEMO_LOGIN_FILE']);

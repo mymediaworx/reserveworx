@@ -23,6 +23,8 @@ class DemoTenantSeeder extends Seeder
     public function run(): void
     {
         $ownerRole = Role::query()->where('slug', 'owner')->firstOrFail();
+        $path = (string) env('DEMO_LOGIN_FILE', storage_path('app/demo-logins.txt'));
+        $savedPasswords = $this->savedPasswords($path);
         $lines = [
             '# ReserveWorx demo logins. This file is not in git. Do not copy it into chat.',
             '',
@@ -75,11 +77,12 @@ class DemoTenantSeeder extends Seeder
                 ],
             );
 
+            $keptPassword = $password ?? ($savedPasswords[$definition['email']] ?? null);
             $lines[] = 'tenant='.$definition['slug'];
             $lines[] = 'fee_payer='.$definition['fee_payer']->value;
             $lines[] = 'hostname='.$definition['hostname'];
             $lines[] = 'email='.$definition['email'];
-            $lines[] = $password === null ? 'password=unchanged' : 'password='.$password;
+            $lines[] = $keptPassword === null ? 'password=unchanged' : 'password='.$keptPassword;
             $lines[] = '';
 
             $this->command?->info(sprintf(
@@ -91,7 +94,6 @@ class DemoTenantSeeder extends Seeder
             ));
         }
 
-        $path = (string) env('DEMO_LOGIN_FILE', storage_path('app/demo-logins.txt'));
         $directory = dirname($path);
 
         if (! is_dir($directory)) {
@@ -101,6 +103,35 @@ class DemoTenantSeeder extends Seeder
         file_put_contents($path, implode("\n", $lines));
         chmod($path, 0600);
         $this->command?->info('demo_login_file=written');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function savedPasswords(string $path): array
+    {
+        if (! is_file($path)) {
+            return [];
+        }
+
+        $email = null;
+        $saved = [];
+
+        foreach (file($path, FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+            if (str_starts_with($line, 'email=')) {
+                $email = substr($line, strlen('email='));
+            }
+
+            if ($email !== null && str_starts_with($line, 'password=')) {
+                $password = substr($line, strlen('password='));
+                if ($password !== '' && $password !== 'unchanged') {
+                    $saved[$email] = $password;
+                }
+                $email = null;
+            }
+        }
+
+        return $saved;
     }
 
     /**
