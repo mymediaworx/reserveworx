@@ -201,6 +201,155 @@ class Allocator
         }));
     }
 
+    public function reschedule(Booking $booking, CarbonImmutable $newStart, CarbonImmutable $newEnd): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newStart, $newEnd): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if ($booking->status !== BookingStatus::Confirmed) {
+                throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
+            }
+
+            $newStart = $newStart->utc();
+            $newEnd = $newEnd->utc();
+
+            if ($newEnd->lessThanOrEqualTo($newStart)) {
+                throw new AllocationUnavailableException('Choose a valid interval.');
+            }
+
+            if (CarbonImmutable::instance($booking->starts_at)->utc()->equalTo($newStart)
+                && CarbonImmutable::instance($booking->ends_at)->utc()->equalTo($newEnd)) {
+                return $booking->load(['allocations', 'lineItems', 'service']);
+            }
+
+            $intent = new AllocationIntent(
+                $booking->tenant_id,
+                $booking->service_id,
+                $newStart,
+                $newEnd,
+                $booking->participants,
+                null,
+                null,
+                null,
+            );
+            $plan = $this->plan($intent);
+            $this->lock($plan);
+
+            try {
+                $this->recheck($plan, $booking->id);
+            } catch (AllocationUnavailableException $unavailable) {
+                throw new AllocationUnavailableException($unavailable->getMessage(), [
+                    'authoritative' => false,
+                    'other_asset_ids' => $this->otherAssets($booking, $plan),
+                ]);
+            }
+
+            $booking->starts_at = Carbon::instance($newStart);
+            $booking->ends_at = Carbon::instance($newEnd);
+            $booking->save();
+            Allocation::query()->where('booking_id', $booking->id)->delete();
+            BookingLineItem::query()->where('booking_id', $booking->id)->delete();
+            $this->writeRows($booking, $plan, hold: false);
+            $this->refreshCounters($plan);
+
+            return $booking->load(['allocations', 'lineItems', 'service']);
+        }));
+    }
+
+    public function reassignAsset(Booking $booking, string $fromAssetId, string $toAssetId): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $fromAssetId, $toAssetId): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if ($booking->status !== BookingStatus::Confirmed) {
+                throw new AllocationUnavailableException('Only a confirmed booking can be reassigned.');
+            }
+
+            if ($fromAssetId === $toAssetId) {
+                throw new AllocationUnavailableException('Choose a different asset.');
+            }
+
+            $intent = $this->intentFromBooking($booking);
+            $plan = $this->plan($intent);
+            $plan = $this->swapAsset($plan, $booking, $fromAssetId, $toAssetId);
+            $this->lock($plan);
+
+            try {
+                $this->recheck($plan, $booking->id);
+            } catch (AllocationUnavailableException $unavailable) {
+                throw new AllocationUnavailableException($unavailable->getMessage(), [
+                    'authoritative' => false,
+                    'other_asset_ids' => $this->otherAssets($booking, $plan),
+                ]);
+            }
+
+            Allocation::query()->where('booking_id', $booking->id)->delete();
+            BookingLineItem::query()->where('booking_id', $booking->id)->delete();
+            $this->writeRows($booking, $plan, hold: false);
+            $this->refreshCounters($plan);
+
+            return $booking->load(['allocations', 'lineItems', 'service']);
+        }));
+    }
+
+    /**
+     * @param  Plan  $plan
+     * @return Plan
+     */
+    private function swapAsset(array $plan, Booking $booking, string $fromAssetId, string $toAssetId): array
+    {
+        $from = Asset::query()->find($fromAssetId);
+        $to = Asset::query()->find($toAssetId);
+
+        if (! $to instanceof Asset || $to->status !== ResourceStatus::Active || $to->location_id !== $booking->location_id) {
+            throw new AllocationUnavailableException('That asset is not available.');
+        }
+
+        if (! $from instanceof Asset || $from->resource_category_id === null || $from->resource_category_id !== $to->resource_category_id) {
+            throw new AllocationUnavailableException('Choose another asset in the same category.');
+        }
+
+        $replaced = false;
+
+        foreach ($plan['demands'] as $index => $demand) {
+            if ($demand['type'] !== ResourceType::Asset || $demand['id'] !== $fromAssetId) {
+                continue;
+            }
+
+            $open = $this->hours->assess($plan['location'], $plan['starts_at'], $plan['ends_at'], ResourceType::Asset->value, $to->id);
+
+            if (! $open['open']) {
+                throw new AllocationUnavailableException('That resource is outside its hours or a blackout.');
+            }
+
+            $plan['demands'][$index]['id'] = $to->id;
+            $plan['demands'][$index]['name'] = $to->name;
+            $plan['demands'][$index]['buffer_start'] = $plan['starts_at']->subMinutes($to->prep_buffer_minutes);
+            $plan['demands'][$index]['buffer_end'] = $plan['ends_at']->addMinutes($to->return_buffer_minutes);
+            $replaced = true;
+        }
+
+        if (! $replaced) {
+            throw new AllocationUnavailableException('That asset is not on this booking.');
+        }
+
+        $demands = $plan['demands'];
+        usort($demands, function (array $left, array $right): int {
+            $type = [$left['type'] === ResourceType::Pool ? 0 : 1, $right['type'] === ResourceType::Pool ? 0 : 1];
+
+            if ($type[0] !== $type[1]) {
+                return $type[0] <=> $type[1];
+            }
+
+            return $left['id'] <=> $right['id'];
+        });
+        $plan['demands'] = $demands;
+
+        return $plan;
+    }
+
     /**
      * @template T
      *
@@ -324,6 +473,10 @@ class Allocator
 
         if ($intent->endsAt->lessThanOrEqualTo($intent->startsAt) || $intent->participants < 1) {
             throw new AllocationUnavailableException('Choose a valid interval and party size.');
+        }
+
+        if ($service->max_participants !== null && $intent->participants > $service->max_participants) {
+            throw new AllocationUnavailableException('That party is larger than this service allows.');
         }
 
         $settings = TenantSetting::query()->where('tenant_id', $intent->tenantId)->first();

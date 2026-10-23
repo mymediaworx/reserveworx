@@ -6,7 +6,9 @@ Semantic versions start at the first tagged release. This file records what land
 
 - Locations, resource categories, individually tracked assets, and quantity pools.
 - Opening hours, blackouts, services, and resource requirements. Availability responses outside the allocation transaction are hints.
-- Atomic holds, confirmations, extensions, and cancellations, with the Section 4.7 concurrency suite.
+- Atomic holds, confirmations, extensions, cancellations, reschedules, and asset reassignment, with the Section 4.7 concurrency suite.
+- Calendar day, week, month, and agenda windows, including a staff-member filter on the member who created the booking.
+- Service minimum and maximum party size. A short party is flagged and an oversized party is refused.
 - Phase 1 documents: hosting checklist, allocation design, schema, integrations, and fees.
 - Laravel 12 foundation on PHP 8.2: tenants, domains, memberships, Sanctum auth, roles, platform administration, and audit logs.
 - CI runs on PHP 8.2 against MySQL 8.0 and MariaDB 11.8.

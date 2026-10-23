@@ -124,6 +124,8 @@ class BookingTest extends TestCase
 
         Artisan::call('holds:purge-expired');
         $this->assertSame(0, Hold::withoutGlobalScope(TenantScope::class)->where('expires_at', '<=', now())->count());
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(1, Hold::query()->count());
         app(TenantManager::class)->forget();
     }
 

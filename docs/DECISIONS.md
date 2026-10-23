@@ -36,6 +36,11 @@ The product owner also created the subdomain `app.reserveworx.com` as the applic
 | Allocation transaction | `READ COMMITTED`, pool row then ledger buckets, then assets. Three retries on 1205 and 1213 | A repeatable-read snapshot would miss a commit that landed while this transaction waited |
 | Asset overlap | One asset, one overlapping booking. Capacity on the asset is recorded and does not allow a second overlap | A specific boat or guide is exclusive. Overlapping up to `capacity` is a product decision |
 | Staff bookings | Staff have `bookings.manage` | Spec Section 5 includes staff-created bookings |
+| Calendar staff filter | `staff_user_id` matches `bookings.created_by`, the member who placed the hold | Guide assignment is not a separate column. The product owner can switch this to an assigned guide later |
+| Party size | `max_participants` rejects the hold. A party under `min_participants` is stored and returned as `below_minimum` | Spec Section 5 says a tour below its minimum is flagged for the operator, not refused. There is no departure table yet |
+| Reschedule and reassign | Confirmed bookings only. Same lock order and live recheck as a new allocation. The original rows stay if the recheck fails | Spec Section 5. Reassignment stays inside one category and location |
+| Rental lengths | Any half-open interval is accepted, so hourly, half-day, full-day, and multi-day rentals need no duration catalog yet | Named products belong with pricing |
+| Slot blockers | Allocations and unexpired holds block a slot. A separate active-rental overlap waits for `rental_checkouts` | Spec Section 4.2 names active rentals. That table is still planned |
 | Inventory permissions | `inventory.view` for owner, manager, and staff. `inventory.manage` for owner and manager | Staff can see resources. They cannot change quantity, status, or buffers |
 | Location timezone | Timezone is stored on `locations`, not tenants | Spec Section 4 and SCHEMA.md |
 | Opening hours | A location with no schedule rows is open all day. Pickup and the instant before return must sit in a window. Overnight between those instants does not have to. Equal open and close times are an empty window | Matches a shop that must be open when a rental leaves and comes back. The product owner can require the whole interval to be inside opening hours later |
