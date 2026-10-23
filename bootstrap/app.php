@@ -2,8 +2,10 @@
 
 use App\Http\Middleware\EnsureKnownHost;
 use App\Http\Middleware\EnsurePlatformAdmin;
+use App\Http\Middleware\EnsurePlatformHost;
 use App\Http\Middleware\EnsureTenantMembership;
 use App\Http\Middleware\ResolveTenant;
+use App\Support\Hosts;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -27,8 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant.resolve' => ResolveTenant::class,
             'tenant.member' => EnsureTenantMembership::class,
             'platform.admin' => EnsurePlatformAdmin::class,
+            'platform.host' => EnsurePlatformHost::class,
         ]);
-        $middleware->redirectGuestsTo(fn (): string => route('admin.login'));
+        // Grok's tenant dashboard keeps /admin/login; the staff area and platform pages have their own.
+        $middleware->redirectGuestsTo(function (Request $request): string {
+            if ($request->is('staff', 'staff/*')) {
+                return '/staff/login';
+            }
+
+            return Hosts::isPlatform($request) ? '/platform/login' : route('admin.login');
+        });
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

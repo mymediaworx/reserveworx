@@ -31,5 +31,5 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 22. **Data export before termination.** Terminating a tenant returns HTTP 409 until an export exists. The export is not built.
 23. **Backup and restore.** Not tested. Production migrations stay off until a backup exists and the operator types the confirmation phrase in [`DEPLOY.md`](DEPLOY.md).
 24. **`QUEUE_WORK_MAX_TIME`.** Default is 20 seconds so a one-minute cron stays inside the reported 4,000 CPU-second GoGeek cap. Revisit after hosting-check prints the real limits.
-25. **Frontend.** Blade plus Livewire for staff, token-based widget for embeds. Not approved. Livewire is not installed.
+25. **Frontend.** Answered October 23, 2026: the product owner approved Blade plus Livewire. See [`DECISIONS.md`](DECISIONS.md) and [`UI.md`](UI.md).
 26. **Fee after an offline payment.** If a booking was partly paid offline and the balance is later paid through Stripe, does that first Stripe payment carry the full booking fee (literal Section 7.4), or only a fee on the amount paid through Stripe (D8)? The engine currently does the former.

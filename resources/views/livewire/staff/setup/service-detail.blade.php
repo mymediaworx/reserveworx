@@ -1,0 +1,186 @@
+@php
+    use App\Support\Display;
+    $isTour = $service->kind->value === 'tour';
+    $kindLabels = ['base' => 'Per booking', 'per_person' => 'Per person', 'duration' => 'For a length'];
+    $windowLabels = ['always' => 'Every day', 'weekday' => 'Weekdays', 'weekend' => 'Weekends'];
+@endphp
+<div class="page">
+    <p class="crumb"><a href="/staff/setup/services" wire:navigate>Services & prices</a></p>
+    <header class="page-head">
+        <div>
+            <h1>{{ $service->name }}</h1>
+            <p class="lede">{{ $isTour ? 'Tour' : 'Rental' }} at {{ $service->location?->name }}</p>
+        </div>
+    </header>
+
+    <div aria-live="polite">
+        @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
+    </div>
+
+    @php
+        $missing = [];
+        if ($prices->isEmpty()) { $missing[] = 'a price'; }
+        if ($service->requirements->isEmpty()) { $missing[] = 'the gear it uses'; }
+        if (! $isTour && $service->durations->isEmpty()) { $missing[] = 'at least one rental length'; }
+        if ($isTour && $departures->isEmpty()) { $missing[] = 'a departure'; }
+    @endphp
+    @if ($missing !== [])
+        <p class="notice attention">To take bookings, add {{ implode(', ', $missing) }}.</p>
+    @endif
+
+    <div class="split even">
+        <section class="panel">
+            <h2>Prices</h2>
+            <p class="muted small">Every price that matches a booking is added together. For example, $20 per booking plus $15 per person.</p>
+            @if ($prices->isEmpty())
+                <p class="empty">No prices yet.</p>
+            @else
+                <ul class="rows compact">
+                    @foreach ($prices as $rule)
+                        <li class="row">
+                            <span class="grow"><strong>{{ $rule->name }}</strong> <span class="muted">{{ $kindLabels[$rule->kind] ?? $rule->kind }}{{ $rule->duration_minutes ? ' ('.Display::minutes($rule->duration_minutes).')' : '' }}, {{ $windowLabels[$rule->window] ?? $rule->window }}</span></span>
+                            <span class="num">{{ Display::money($rule->amount_cents) }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+            @if ($canManage)
+                <form wire:submit="addPrice" class="stack top-gap">
+                    <div class="form-row">
+                        <label class="field compact grow"><span>Name</span><input type="text" wire:model="priceName" maxlength="80" required placeholder="Half day"></label>
+                        <label class="field compact"><span>Amount ($)</span><input type="number" min="0" step="0.01" wire:model="priceAmount" required></label>
+                    </div>
+                    <div class="form-row">
+                        <label class="field compact"><span>Charged</span>
+                            <select wire:model.live="priceKind">
+                                @foreach ($kindLabels as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                            </select>
+                        </label>
+                        @if ($priceKind === 'duration')
+                            <label class="field compact"><span>Length</span>
+                                <select wire:model="priceDuration">
+                                    <option value="">Choose</option>
+                                    @foreach ($service->durations->sortBy('duration_minutes') as $d)<option value="{{ $d->duration_minutes }}">{{ $d->name }}</option>@endforeach
+                                </select>
+                            </label>
+                        @endif
+                        <label class="field compact"><span>Days</span>
+                            <select wire:model="priceWindow">
+                                @foreach ($windowLabels as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                            </select>
+                        </label>
+                        <button type="submit" class="button">Add price</button>
+                    </div>
+                    @error('priceAmount')<p class="error">{{ $message }}</p>@enderror
+                    @error('priceDuration')<p class="error">Choose which length this price is for. Add lengths first.</p>@enderror
+                </form>
+            @endif
+        </section>
+
+        <section class="panel">
+            <h2>Gear used</h2>
+            @if ($service->requirements->isEmpty())
+                <p class="empty">Not linked to any gear yet, so it cannot be booked.</p>
+            @else
+                <ul class="rows compact">
+                    @foreach ($service->requirements as $req)
+                        <li class="row">
+                            <span class="grow">{{ $resourceNames[$req->resource_id] ?? 'Gear' }}</span>
+                            <span class="muted">{{ $req->quantity }}{{ $req->per_participants ? ' for every '.$req->per_participants.' '.($req->per_participants === 1 ? 'person' : 'people') : ' per booking' }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+            @if ($canManage)
+                @if ($pools->isEmpty() && $assets->isEmpty())
+                    <p class="muted">There is no gear at {{ $service->location?->name }} yet. <a href="/staff/setup/resources" wire:navigate>Add gear</a>.</p>
+                @else
+                    <form wire:submit="addRequirement" class="form-row top-gap">
+                        <label class="field compact grow"><span>Gear</span>
+                            <select wire:model="requirementResource" required>
+                                <option value="">Choose</option>
+                                @foreach ($pools as $pool)<option value="pool:{{ $pool->id }}">{{ $pool->name }} ({{ $pool->quantity }})</option>@endforeach
+                                @foreach ($assets as $asset)<option value="asset:{{ $asset->id }}">{{ $asset->name }}</option>@endforeach
+                            </select>
+                        </label>
+                        <label class="field compact"><span>How many</span><input type="number" min="1" wire:model="requirementQuantity" required></label>
+                        <label class="field compact"><span>For every N people</span><input type="number" min="1" wire:model="requirementPer" placeholder="Per booking"></label>
+                        <button type="submit" class="button">Link gear</button>
+                    </form>
+                    @error('requirementResource')<p class="error">{{ $message }}</p>@enderror
+                @endif
+            @endif
+        </section>
+
+        @if (! $isTour)
+            <section class="panel">
+                <h2>Rental lengths</h2>
+                @if ($service->durations->isEmpty())
+                    <p class="empty">No lengths yet.</p>
+                @else
+                    <ul class="rows compact">
+                        @foreach ($service->durations->sortBy('duration_minutes') as $d)
+                            <li class="row"><span class="grow">{{ $d->name }}</span><span class="muted">{{ Display::minutes($d->duration_minutes) }}</span></li>
+                        @endforeach
+                    </ul>
+                @endif
+                @if ($canManage)
+                    <form wire:submit="addDuration" class="form-row top-gap">
+                        <label class="field compact grow"><span>Label</span><input type="text" wire:model="durationName" maxlength="80" required placeholder="2 hours"></label>
+                        <label class="field compact"><span>Length</span><input type="number" min="1" wire:model="durationQuantity" required></label>
+                        <label class="field compact"><span>Unit</span>
+                            <select wire:model="durationUnit"><option value="hours">Hours</option><option value="minutes">Minutes</option></select>
+                        </label>
+                        <button type="submit" class="button">Add length</button>
+                    </form>
+                    @error('durationQuantity')<p class="error">{{ $message }}</p>@enderror
+                @endif
+            </section>
+        @else
+            <section class="panel">
+                <h2>Departures</h2>
+                @if ($departures->isEmpty())
+                    <p class="empty">No upcoming departures.</p>
+                @else
+                    <ul class="rows compact">
+                        @foreach ($departures as $departure)
+                            <li class="row">
+                                <span class="grow">{{ Display::dateTime($departure->starts_at, $zone) }}</span>
+                                <span class="muted">{{ $departure->private ? 'Private' : $departure->headcount().' of '.$departure->seats }}{{ $departure->status->value === 'cancelled' ? ', cancelled' : '' }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+                @if ($canManage)
+                    <form wire:submit="addDeparture" class="stack top-gap">
+                        <div class="form-row">
+                            <label class="field compact"><span>Date</span><input type="date" wire:model="departureDate" required></label>
+                            <label class="field compact"><span>Time</span><input type="time" wire:model="departureTime" required></label>
+                            <label class="field compact"><span>Minutes</span><input type="number" min="15" max="1440" wire:model="departureMinutes" required></label>
+                        </div>
+                        <div class="form-row">
+                            <label class="check"><input type="checkbox" wire:model.live="departurePrivate"><span>Private (one group)</span></label>
+                            @unless ($departurePrivate)
+                                <label class="field compact"><span>Seats</span><input type="number" min="1" wire:model="departureSeats" required></label>
+                            @endunless
+                            <button type="submit" class="button">Schedule departure</button>
+                        </div>
+                    </form>
+                @endif
+            </section>
+        @endif
+
+        <section class="panel">
+            <h2>Group size and waitlist</h2>
+            <form wire:submit="saveSettings" class="stack">
+                <div class="form-row">
+                    <label class="field compact"><span>Minimum people</span><input type="number" min="1" wire:model="minParticipants" @disabled(! $canManage)></label>
+                    <label class="field compact"><span>Maximum people</span><input type="number" min="1" wire:model="maxParticipants" @disabled(! $canManage)></label>
+                </div>
+                <label class="check"><input type="checkbox" wire:model="waitlist" @disabled(! $canManage)><span>Offer a waitlist when it is full</span></label>
+                @error('maxParticipants')<p class="error">{{ $message }}</p>@enderror
+                @if ($canManage)<button type="submit" class="button">Save</button>@endif
+            </form>
+        </section>
+    </div>
+</div>
