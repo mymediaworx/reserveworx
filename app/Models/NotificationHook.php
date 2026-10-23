@@ -15,6 +15,7 @@ class NotificationHook extends Model
         'tenant_id',
         'booking_id',
         'kind',
+        'dedupe_key',
         'payload',
     ];
 

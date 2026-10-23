@@ -14,6 +14,7 @@ class TenantSetting extends Model
     protected $fillable = [
         'tenant_id',
         'hold_minutes',
+        'guest_cancel_before_minutes',
         'ledger_bucket_minutes',
         'fee_payer',
         'direct_fee_bps',
@@ -31,6 +32,7 @@ class TenantSetting extends Model
     protected $casts = [
         'fee_payer' => FeePayer::class,
         'hold_minutes' => 'integer',
+        'guest_cancel_before_minutes' => 'integer',
         'ledger_bucket_minutes' => 'integer',
         'direct_fee_bps' => 'integer',
         'third_party_fee_bps' => 'integer',

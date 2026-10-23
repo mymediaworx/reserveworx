@@ -27,12 +27,14 @@ class TenantSettingController extends Controller
         $setting = TenantSetting::query()->firstOrFail();
         $before = $setting->only([
             'hold_minutes',
+            'guest_cancel_before_minutes',
             'ledger_bucket_minutes',
             'fee_payer',
         ]);
 
         $setting->fill($request->safe()->only([
             'hold_minutes',
+            'guest_cancel_before_minutes',
             'ledger_bucket_minutes',
             'fee_payer',
         ]));
