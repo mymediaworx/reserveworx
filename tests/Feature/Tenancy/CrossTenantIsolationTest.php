@@ -41,6 +41,13 @@ class CrossTenantIsolationTest extends TestCase
             ['POST', '/api/v1/assets'],
             ['GET', '/api/v1/pools'],
             ['POST', '/api/v1/pools'],
+            ['GET', '/api/v1/schedules'],
+            ['POST', '/api/v1/schedules'],
+            ['GET', '/api/v1/blackouts'],
+            ['POST', '/api/v1/blackouts'],
+            ['GET', '/api/v1/services'],
+            ['POST', '/api/v1/services'],
+            ['GET', '/api/v1/availability'],
         ];
 
         foreach ($endpoints as [$method, $path]) {

@@ -3,6 +3,9 @@
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\AvailabilityController;
+use App\Http\Controllers\Api\V1\AvailabilityScheduleController;
+use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
@@ -11,6 +14,7 @@ use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\PoolController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
+use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use Illuminate\Support\Facades\Route;
 
@@ -56,6 +60,17 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/pools', [PoolController::class, 'store']);
             Route::get('/pools/{pool}', [PoolController::class, 'show']);
             Route::patch('/pools/{pool}', [PoolController::class, 'update']);
+            Route::get('/schedules', [AvailabilityScheduleController::class, 'index']);
+            Route::post('/schedules', [AvailabilityScheduleController::class, 'store']);
+            Route::delete('/schedules/{availability_schedule}', [AvailabilityScheduleController::class, 'destroy']);
+            Route::get('/blackouts', [BlackoutController::class, 'index']);
+            Route::post('/blackouts', [BlackoutController::class, 'store']);
+            Route::delete('/blackouts/{blackout}', [BlackoutController::class, 'destroy']);
+            Route::get('/services', [ServiceController::class, 'index']);
+            Route::post('/services', [ServiceController::class, 'store']);
+            Route::get('/services/{service}', [ServiceController::class, 'show']);
+            Route::post('/services/{service}/requirements', [ServiceController::class, 'storeRequirement']);
+            Route::get('/availability', [AvailabilityController::class, 'show']);
         });
     });
 });
