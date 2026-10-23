@@ -1,6 +1,6 @@
 # One-shot read-only SiteGround report. This file stays off main.
-# Pushing it is the trigger because this GitHub App cannot call workflow_dispatch.
-# The log records only secret shape (empty / short / private key), never values.
+# The private key was found in SG_SSH_PASSPHRASE; SG_SSH_KEY is empty.
+# This run normalizes that key and records ssh-keygen's error without printing it.
 name: Hosting check once
 
 on:
@@ -39,119 +39,89 @@ jobs:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}
           SG_PORT: ${{ secrets.SG_PORT }}
-          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
-          PROBE_SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
-          PROBE_SG_SSH_PRIVATE_KEY: ${{ secrets.SG_SSH_PRIVATE_KEY }}
-          PROBE_SG_PRIVATE_KEY: ${{ secrets.SG_PRIVATE_KEY }}
-          PROBE_SG_KEY: ${{ secrets.SG_KEY }}
-          PROBE_SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          PROBE_SITEGROUND_SSH_KEY: ${{ secrets.SITEGROUND_SSH_KEY }}
-          PROBE_SG_DEPLOY_KEY: ${{ secrets.SG_DEPLOY_KEY }}
-          PROBE_DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
-          PROBE_SSH_KEY: ${{ secrets.SSH_KEY }}
-          PROBE_SG_ID_RSA: ${{ secrets.SG_ID_RSA }}
-          PROBE_PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          PROBE_SG_SSH_KEY_B64: ${{ secrets.SG_SSH_KEY_B64 }}
-          PROBE_SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          SG_SSH_KEY_SLOT: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE_SLOT: ${{ secrets.SG_SSH_PASSPHRASE }}
         run: |
           set -euo pipefail
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
           python3 - << 'PY'
-          import base64, os
-          names = [
-              "PROBE_SG_SSH_KEY",
-              "PROBE_SG_SSH_PRIVATE_KEY",
-              "PROBE_SG_PRIVATE_KEY",
-              "PROBE_SG_KEY",
-              "PROBE_SSH_PRIVATE_KEY",
-              "PROBE_SITEGROUND_SSH_KEY",
-              "PROBE_SG_DEPLOY_KEY",
-              "PROBE_DEPLOY_KEY",
-              "PROBE_SSH_KEY",
-              "PROBE_SG_ID_RSA",
-              "PROBE_PRIVATE_KEY",
-              "PROBE_SG_SSH_KEY_B64",
-              "PROBE_SG_SSH_PASSPHRASE",
-          ]
-          def shape(val: str) -> str:
-              if val == "":
-                  return "empty"
-              stripped = val.strip()
-              decoded = b""
-              try:
-                  decoded = base64.b64decode(stripped, validate=True)
-              except Exception:
-                  decoded = b""
-              keyish = (
-                  "PRIVATE KEY" in val[:400]
-                  or stripped.startswith("-----BEGIN")
-                  or b"PRIVATE KEY" in decoded[:400]
-              )
-              if keyish and b"PRIVATE KEY" in decoded[:400] and "PRIVATE KEY" not in val[:400]:
-                  kind = "base64_private_key"
-              elif keyish:
-                  kind = "private_key"
-              elif len(val) >= 200:
-                  kind = "long"
-              else:
-                  kind = "short"
-              return f"{kind} lines={val.count(chr(10))} bytes={len(val.encode())}"
-          chosen = ""
-          for name in names:
-              val = os.environ.get(name, "")
-              info = shape(val)
-              print(f"{name} {info}")
-              if chosen == "" and info.startswith(("private_key", "base64_private_key")) and name != "PROBE_SG_SSH_PASSPHRASE":
-                  chosen = name
-          if chosen == "" and shape(os.environ.get("PROBE_SG_SSH_PASSPHRASE", "")).startswith(("private_key", "base64_private_key")):
-              chosen = "PROBE_SG_SSH_PASSPHRASE"
-          print(f"chosen={chosen or 'none'}")
-          open("/tmp/sg-chosen", "w").write(chosen)
+          import os, re, subprocess, tempfile
+          from pathlib import Path
+
+          slot_key = os.environ.get("SG_SSH_KEY_SLOT", "")
+          slot_pass = os.environ.get("SG_SSH_PASSPHRASE_SLOT", "")
+
+          def header(text: str) -> str:
+              match = re.search(r"-----BEGIN ([A-Z0-9 ]+)-----", text)
+              return match.group(1) if match else "none"
+
+          def variants(raw: str):
+              found = []
+              seen = set()
+              def add(label, value):
+                  if value in seen:
+                      return
+                  seen.add(value)
+                  found.append((label, value))
+              add("as_is", raw)
+              add("literal_newlines", raw.replace("\\n", "\n"))
+              text = raw.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n")
+              text = text.replace("\ufeff", "").strip()
+              if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+                  text = text[1:-1]
+              add("normalized", text if text.endswith("\n") else text + "\n")
+              match = re.search(r"(-----BEGIN [A-Z0-9 ]+-----.*?-----END [A-Z0-9 ]+-----)", text, re.S)
+              if match:
+                  add("pem_block", match.group(1) + "\n")
+              return found
+
+          source_name = "SG_SSH_KEY" if "PRIVATE KEY" in slot_key[:400] or slot_key.strip().startswith("-----BEGIN") else "SG_SSH_PASSPHRASE"
+          raw = slot_key if source_name == "SG_SSH_KEY" else slot_pass
+          print(f"key_source={source_name}")
+          print(f"key_header={header(raw)}")
+          print(f"key_lines={raw.count(chr(10))}")
+          print(f"key_bytes={len(raw.encode())}")
+          print(f"key_crlf={'yes' if chr(13) in raw else 'no'}")
+          print(f"key_literal_backslash_n={'yes' if '\\n' in raw else 'no'}")
+
+          chosen_path = ""
+          with tempfile.TemporaryDirectory() as tmp:
+              for label, value in variants(raw):
+                  path = Path(tmp) / label
+                  path.write_text(value)
+                  path.chmod(0o600)
+                  proc = subprocess.run(
+                      ["ssh-keygen", "-y", "-f", str(path), "-P", ""],
+                      stdout=subprocess.DEVNULL,
+                      stderr=subprocess.PIPE,
+                      text=True,
+                      check=False,
+                  )
+                  err = proc.stderr.strip().replace(str(path), "keyfile")
+                  if "PRIVATE" in err or len(err) > 240:
+                      err = "suppressed"
+                  print(f"try={label} exit={proc.returncode} stderr={err or 'none'}")
+                  if proc.returncode == 0 and not chosen_path:
+                      chosen_path = str(Path("/tmp") / "sg_normalized_key")
+                      Path(chosen_path).write_text(value)
+                      os.chmod(chosen_path, 0o600)
+                      print(f"accepted={label}")
+          open("/tmp/sg-key-ok", "w").write("yes" if chosen_path else "no")
           PY
-          chosen="$(cat /tmp/sg-chosen)"
-          rm -f /tmp/sg-chosen
-          if [ "$chosen" = "none" ] || [ -z "$chosen" ]; then
-            echo "No private-key secret is available to this workflow. SSH was not attempted." >&2
+          if [ "$(cat /tmp/sg-key-ok)" != "yes" ]; then
+            echo "The secret that looks like a private key was not accepted by ssh-keygen with an empty passphrase. SSH was not attempted." >&2
             exit 1
           fi
-          case "$chosen" in
-            PROBE_SG_SSH_KEY) SG_SSH_KEY="$PROBE_SG_SSH_KEY" ;;
-            PROBE_SG_SSH_PRIVATE_KEY) SG_SSH_KEY="$PROBE_SG_SSH_PRIVATE_KEY" ;;
-            PROBE_SG_PRIVATE_KEY) SG_SSH_KEY="$PROBE_SG_PRIVATE_KEY" ;;
-            PROBE_SG_KEY) SG_SSH_KEY="$PROBE_SG_KEY" ;;
-            PROBE_SSH_PRIVATE_KEY) SG_SSH_KEY="$PROBE_SSH_PRIVATE_KEY" ;;
-            PROBE_SITEGROUND_SSH_KEY) SG_SSH_KEY="$PROBE_SITEGROUND_SSH_KEY" ;;
-            PROBE_SG_DEPLOY_KEY) SG_SSH_KEY="$PROBE_SG_DEPLOY_KEY" ;;
-            PROBE_DEPLOY_KEY) SG_SSH_KEY="$PROBE_DEPLOY_KEY" ;;
-            PROBE_SSH_KEY) SG_SSH_KEY="$PROBE_SSH_KEY" ;;
-            PROBE_SG_ID_RSA) SG_SSH_KEY="$PROBE_SG_ID_RSA" ;;
-            PROBE_PRIVATE_KEY) SG_SSH_KEY="$PROBE_PRIVATE_KEY" ;;
-            PROBE_SG_SSH_KEY_B64) SG_SSH_KEY="$PROBE_SG_SSH_KEY_B64" ;;
-            PROBE_SG_SSH_PASSPHRASE)
-              SG_SSH_KEY="$PROBE_SG_SSH_PASSPHRASE"
-              SG_SSH_PASSPHRASE=""
-              ;;
-            *)
-              echo "Unrecognized key selector. SSH was not attempted." >&2
-              exit 1
-              ;;
-          esac
-          export SG_SSH_KEY SG_SSH_PASSPHRASE
-          unset PROBE_SG_SSH_KEY PROBE_SG_SSH_PRIVATE_KEY PROBE_SG_PRIVATE_KEY PROBE_SG_KEY \
-            PROBE_SSH_PRIVATE_KEY PROBE_SITEGROUND_SSH_KEY PROBE_SG_DEPLOY_KEY PROBE_DEPLOY_KEY \
-            PROBE_SSH_KEY PROBE_SG_ID_RSA PROBE_PRIVATE_KEY PROBE_SG_SSH_KEY_B64 PROBE_SG_SSH_PASSPHRASE
-          if [[ "$SG_SSH_KEY" != *"PRIVATE KEY"* && "$SG_SSH_KEY" != *"-----BEGIN"* ]]; then
-            decoded="$(printf '%s' "$SG_SSH_KEY" | base64 -d 2>/dev/null || true)"
-            if [[ "$decoded" == *"PRIVATE KEY"* ]]; then
-              SG_SSH_KEY="$decoded"
-              unset decoded
-            fi
-          fi
+          SG_SSH_KEY="$(cat /tmp/sg_normalized_key)"
+          rm -f /tmp/sg_normalized_key /tmp/sg-key-ok
+          export SG_SSH_KEY
+          # The passphrase secret holds the key. No separate passphrase is available.
+          export SG_SSH_PASSPHRASE=""
+          unset SG_SSH_KEY_SLOT SG_SSH_PASSPHRASE_SLOT
           {
             echo "## SiteGround hosting check"
             echo
             echo "Read-only report for spec Section 2.2. Secrets are not printed."
-            echo "key_secret=${chosen}"
             echo
             echo '```'
             scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/hosting-check-remote.sh
