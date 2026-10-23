@@ -66,6 +66,7 @@ class GuestSelfServiceTest extends TestCase
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame('cancelled', Booking::query()->findOrFail($bookingId)->status->value);
         $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.guest_cancelled')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.cancelled')->count());
         app(TenantManager::class)->forget();
 
         $soon = $this->hold($token, '12:30', 'guest-soon');

@@ -18,6 +18,7 @@ use App\Models\Hold;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
+use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
 use App\Models\NotificationHook;
@@ -273,6 +274,7 @@ class TenantExporter
             WaiverVersion::class,
             WaiverSignature::class,
             MaintenanceWindow::class,
+            MaintenanceRecord::class,
             Incident::class,
             RentalCheckout::class,
             WidgetToken::class,

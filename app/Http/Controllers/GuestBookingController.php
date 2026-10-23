@@ -81,7 +81,7 @@ class GuestBookingController extends Controller
             return $this->manageResponse($token, $booking, $block, 409);
         }
 
-        $this->allocator->cancel($booking);
+        $this->allocator->cancel($booking, false);
         $this->hooks->record(
             $booking->tenant_id,
             $booking->id,

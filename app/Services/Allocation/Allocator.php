@@ -26,6 +26,7 @@ use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Inventory\OpeningHours;
+use App\Services\Notifications\BookingEvents;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -43,6 +44,7 @@ class Allocator
         private readonly OpeningHours $hours,
         private readonly BucketPlanner $buckets,
         private readonly TenantManager $tenants,
+        private readonly BookingEvents $events,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -93,7 +95,7 @@ class Allocator
 
     public function confirm(Booking $booking): Booking
     {
-        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
+        $confirmed = $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
 
@@ -151,6 +153,10 @@ class Allocator
 
             return $booking->load(['allocations', 'lineItems']);
         }));
+
+        $this->events->confirmed($confirmed);
+
+        return $confirmed;
     }
 
     /**
@@ -222,9 +228,9 @@ class Allocator
         return ['booking' => $saved, 'offers' => []];
     }
 
-    public function cancel(Booking $booking): Booking
+    public function cancel(Booking $booking, bool $recordHook = true): Booking
     {
-        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
+        $cancelled = $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
             $intent = $this->intentFromBooking($booking);
@@ -238,6 +244,12 @@ class Allocator
 
             return $booking;
         }));
+
+        if ($recordHook) {
+            $this->events->cancelled($cancelled);
+        }
+
+        return $cancelled;
     }
 
     public function noShow(Booking $booking): Booking
@@ -365,7 +377,7 @@ class Allocator
 
     public function checkout(Booking $booking): Booking
     {
-        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
+        $checkedOut = $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
 
@@ -399,6 +411,10 @@ class Allocator
 
             return $booking->load('checkouts');
         }));
+
+        $this->events->checkedOut($checkedOut);
+
+        return $checkedOut;
     }
 
     /**
@@ -406,7 +422,7 @@ class Allocator
      */
     public function returnRental(Booking $booking): array
     {
-        return $this->retry(fn (): array => $this->transaction(function () use ($booking): array {
+        $returned = $this->retry(fn (): array => $this->transaction(function () use ($booking): array {
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
             $open = RentalCheckout::query()
@@ -480,6 +496,10 @@ class Allocator
                 'released_end' => $released ? $releasedEnd : null,
             ];
         }));
+
+        $this->events->returned($returned['booking']);
+
+        return $returned;
     }
 
     /**
