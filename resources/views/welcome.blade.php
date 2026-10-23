@@ -1,17 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{{ config('app.name', 'ReserveWorx') }}</title>
-        <style>
-            body { font-family: Georgia, serif; margin: 2rem auto; max-width: 40rem; line-height: 1.5; color: #1b1b18; }
-            h1 { font-size: 1.8rem; }
-        </style>
-    </head>
-    <body>
+<head>
+    @include('layouts.partials.head')
+    <title>ReserveWorx</title>
+</head>
+<body class="auth">
+    <main class="auth-panel">
+        <p class="auth-tenant">BrandWorx</p>
         <h1>ReserveWorx</h1>
-        <p>Multi-tenant booking and rental operations for BrandWorx. This host is the platform application. Workspace data is served only from a verified tenant domain.</p>
-        <p>The admin interface has not been chosen yet. See <code>docs/DECISIONS.md</code>.</p>
-    </body>
+        <p>Bookings, rentals, and tours for paddle and boat operators, with shared inventory that never double-books.</p>
+        <p class="muted">Each operator works on their own address. Customers book through the operator’s booking link.</p>
+        <p class="top-gap"><a class="button primary" href="/platform/login">Platform sign in</a></p>
+    </main>
+</body>
 </html>
