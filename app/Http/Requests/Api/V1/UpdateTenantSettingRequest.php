@@ -28,6 +28,7 @@ class UpdateTenantSettingRequest extends FormRequest
         return [
             'hold_minutes' => ['sometimes', 'integer', 'between:5,120'],
             'guest_cancel_before_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,43200'],
+            'late_fee_per_minute_cents' => ['sometimes', 'nullable', 'integer', 'between:0,100000'],
             'ledger_bucket_minutes' => ['sometimes', 'integer', Rule::in([5, 10, 15, 30, 60])],
             'fee_payer' => ['sometimes', Rule::enum(FeePayer::class)],
             'direct_fee_bps' => ['prohibited'],

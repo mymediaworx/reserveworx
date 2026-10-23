@@ -23,6 +23,7 @@ class Booking extends Model
         'customer_id',
         'created_by',
         'guide_user_id',
+        'attention_reason',
         'status',
         'payment_status',
         'operational_status',

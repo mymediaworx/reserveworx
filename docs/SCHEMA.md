@@ -102,17 +102,21 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 `widget_tokens` stores the SHA-256 hash of an embed token. The plain token is returned once when a member with `bookings.manage` creates it. `revoked_at` or a past `expires_at` makes the public booking pages 404. The token is not a cookie and is not a Stripe secret. `tenant_settings.guest_cancel_before_minutes` is null until the workspace turns guest cancellation on. `notification_hooks.dedupe_key` is unique when set, so a repeated guest cancel does not queue a second hook.
 
+## Operations
+
+`maintenance_windows` name one asset or one pool and a half-open interval. Creating one sets `bookings.attention_reason` on future held and confirmed bookings whose allocations overlap that resource. It does not cancel them. `incidents` store a short summary and `occurred_at`. `waiver_versions` are unique on `(tenant_id, name, version)` and store `content_hash`. `waiver_signatures` copy that hash and store IP, user agent, and a guardian name when the participant is a minor. `tenant_settings.late_fee_per_minute_cents` is null until set. `rental_checkouts.late_fee_cents` is the stored whole-minute amount and is not a Stripe charge.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
 - service_variants
 - participants
-- rental_returns, maintenance_records, incidents
+- rental_returns beyond `rental_checkouts`, and maintenance inspections beyond `maintenance_windows`
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - refunds, platform_fee_refunds
-- waiver_templates, waiver_signatures
-- notifications
+- waiver PDF export and a retention job
+- notification delivery beyond `notification_hooks`
 - ghl_connections, ghl_mappings, integration_outbox, integration_logs
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
