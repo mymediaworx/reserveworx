@@ -35,6 +35,9 @@ The product owner also created the subdomain `app.reserveworx.com` as the applic
 | Hold expiry | Must be enforced at read time once the engine exists | Cron may be slower than one minute. The engine is not written yet |
 | Inventory permissions | `inventory.view` for owner, manager, and staff. `inventory.manage` for owner and manager | Staff can see resources. They cannot change quantity, status, or buffers |
 | Location timezone | Timezone is stored on `locations`, not tenants | Spec Section 4 and SCHEMA.md |
+| Opening hours | A location with no schedule rows is open all day. Pickup and the instant before return must sit in a window. Overnight between those instants does not have to. Equal open and close times are an empty window | Matches a shop that must be open when a rental leaves and comes back. The product owner can require the whole interval to be inside opening hours later |
+| Blackouts | A blackout blocks every local date the half-open customer interval touches. A null location applies to every location of the tenant | Spec Section 4.2. Buffers are not what the blackout is measured against |
+| Resource requirements | `quantity` is per booking. `per_participants` scales it with `ceil(participants / per_participants) * quantity` | Covers "1 guide per 8 participants" without a separate rule language |
 | Roles | System roles `owner`, `manager`, `staff` | Foundation default so policies can be tested. Not a product-owner staffing model |
 | Laravel major | 12.x, PHP ^8.2, Composer platform `8.2.35` | Managed PHP 8.2.35 was reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site. Laravel 12 supports PHP 8.2. Laravel 13 requires PHP 8.3 |
 | Test databases | MySQL 8.0 and MariaDB 11.8, user `reserveworx`, password `reserveworx` | Disposable CI credentials. The row-lock test runs on both. SQLite is not used because it ignores row locks |

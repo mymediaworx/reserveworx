@@ -82,6 +82,8 @@ Foundation migration: `database/migrations/2026_10_23_170000_create_foundation_t
 
 `locations.timezone` is the IANA zone for that place. Tenants do not have a timezone. `assets` are individually tracked and `pools.quantity` is the live capacity. Buffers are minutes on the asset or pool. Status is `active`, `blocked`, or `maintenance`.
 
+`availability_schedules` belong to a location, asset, or pool (`owner_type`, `owner_id`). `weekday` is Carbon's `0` Sunday through `6` Saturday. `blackouts.location_id` null covers the whole tenant. `services.kind` is `rental` or `tour`. `resource_requirements` point at one asset or pool.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -89,7 +91,6 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - customers
 - services, service_variants, resource_requirements
 - capacity_ledger `(tenant_id, pool_id, bucket_start_utc)`
-- availability_schedules, blackouts
 - tours, departures
 - bookings, participants, booking_line_items
 - allocations, holds

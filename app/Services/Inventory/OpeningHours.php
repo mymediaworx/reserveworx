@@ -1,0 +1,123 @@
+<?php
+
+namespace App\Services\Inventory;
+
+use App\Enums\ScheduleOwnerType;
+use App\Models\AvailabilitySchedule;
+use App\Models\Blackout;
+use App\Models\Location;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Collection;
+
+class OpeningHours
+{
+    /**
+     * Pickup and return must fall in an open window. A location with no rows is open all day.
+     * A resource with no rows adds no extra limit. A blackout covers each local date the
+     * half-open interval touches.
+     *
+     * @return array{open: bool, blackout: bool}
+     */
+    public function assess(Location $location, CarbonImmutable $startUtc, CarbonImmutable $endUtc, ?string $resourceType = null, ?string $resourceId = null): array
+    {
+        $start = $startUtc->utc();
+        $end = $endUtc->utc();
+        $pickup = $start->timezone($location->timezone);
+        $return = $end->subSecond()->timezone($location->timezone);
+
+        $blackout = $this->coversBlackout($location, $pickup, $return);
+        $open = $this->instantOpen(ScheduleOwnerType::Location, $location->id, $pickup, true)
+            && $this->instantOpen(ScheduleOwnerType::Location, $location->id, $return, true);
+
+        if ($resourceType !== null && $resourceId !== null) {
+            $owner = ScheduleOwnerType::from($resourceType);
+            $open = $open
+                && $this->instantOpen($owner, $resourceId, $pickup, false)
+                && $this->instantOpen($owner, $resourceId, $return, false);
+        }
+
+        return ['open' => $open && ! $blackout, 'blackout' => $blackout];
+    }
+
+    private function coversBlackout(Location $location, CarbonImmutable $pickup, CarbonImmutable $return): bool
+    {
+        $dates = [];
+        $cursor = $pickup->startOfDay();
+        $last = $return->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($last)) {
+            $dates[] = $cursor->toDateString();
+            $cursor = $cursor->addDay();
+        }
+
+        /** @var Collection<int, Blackout> $rows */
+        $rows = Blackout::query()
+            ->where(function ($query) use ($location): void {
+                $query->whereNull('location_id')->orWhere('location_id', $location->id);
+            })
+            ->get();
+
+        foreach ($rows as $row) {
+            $from = $row->starts_on->toDateString();
+            $until = $row->ends_on->toDateString();
+
+            foreach ($dates as $date) {
+                if ($date >= $from && $date <= $until) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function instantOpen(ScheduleOwnerType $ownerType, string $ownerId, CarbonImmutable $instant, bool $emptyMeansOpen): bool
+    {
+        $rows = AvailabilitySchedule::query()
+            ->where('owner_type', $ownerType)
+            ->where('owner_id', $ownerId)
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return $emptyMeansOpen;
+        }
+
+        $time = $instant->format('H:i:s');
+        $weekday = $instant->dayOfWeek;
+        $previous = $instant->subDay()->dayOfWeek;
+
+        foreach ($rows as $row) {
+            $opens = $this->clock($row->opens_local);
+            $closes = $this->clock($row->closes_local);
+
+            if ($closes === $opens) {
+                continue;
+            }
+
+            if ($closes > $opens && $row->weekday === $weekday && $time >= $opens && $time < $closes) {
+                return true;
+            }
+
+            if ($closes < $opens && $row->weekday === $weekday && $time >= $opens) {
+                return true;
+            }
+
+            if ($closes < $opens && $row->weekday === $previous && $time < $closes) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function clock(mixed $value): string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('H:i:s');
+        }
+
+        $text = (string) $value;
+
+        return strlen($text) === 5 ? $text.':00' : $text;
+    }
+}
