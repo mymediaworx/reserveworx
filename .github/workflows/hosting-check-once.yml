@@ -1,0 +1,82 @@
+# One-shot read-only SiteGround report. This file stays off main.
+# A push of this file is the trigger because this GitHub App cannot dispatch workflows.
+name: Hosting check once
+
+on:
+  push:
+    branches:
+      - cursor/first-install-681b
+    paths:
+      - .github/workflows/hosting-check-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: SiteGround hosting report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
+          if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
+          if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
+          if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+
+      - name: Collect hosting report
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          umask 077
+          key_file="$(mktemp)"
+          printf '%s\n' "$SG_SSH_KEY" | sed 's/\\n/\n/g' > "$key_file"
+          chmod 600 "$key_file"
+          python3 - "$key_file" << 'PY'
+          import re, sys
+          text = open(sys.argv[1], errors="replace").read()
+          match = re.search(r"-----BEGIN ([A-Z0-9 ]+)-----", text)
+          print("key_header=" + (match.group(1) if match else "none"))
+          print("key_bytes=" + str(len(text.encode())))
+          print("key_lines=" + str(text.count("\n")))
+          print("passphrase_set=" + ("yes" if __import__("os").environ.get("SG_SSH_PASSPHRASE") else "no"))
+          PY
+          set +e
+          key_err="$(ssh-keygen -y -f "$key_file" -P "$SG_SSH_PASSPHRASE" 2>&1 >/dev/null)"
+          key_code=$?
+          set -e
+          rm -f "$key_file"
+          key_err="${key_err//$key_file/keyfile}"
+          if [[ "$key_err" == *"PRIVATE KEY"* || ${#key_err} -gt 300 ]]; then
+            key_err="suppressed"
+          fi
+          echo "ssh_keygen_exit=${key_code}"
+          echo "ssh_keygen_stderr=${key_err:-none}"
+          if [[ "$key_code" -ne 0 ]]; then
+            echo "SSH was not attempted because the private key was not accepted." >&2
+            exit 1
+          fi
+          {
+            echo "## SiteGround hosting check"
+            echo
+            echo "Read-only report for spec Section 2.2. Secrets are not printed."
+            echo
+            echo '```'
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/hosting-check-remote.sh
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
