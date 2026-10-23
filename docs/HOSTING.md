@@ -1,6 +1,6 @@
 # Hosting checklist
 
-Status: **not verified**. This file is the Section 2.2 checklist. It does not claim that the SiteGround account was inspected.
+Status: **partially verified** on October 23, 2026 by an SSH session from GitHub Actions. Cells that the session did not measure stay marked unverified. No secret values are stored in this file.
 
 The product owner created `app.reserveworx.com` and stored GitHub Actions secrets `SG_HOST`, `SG_USER`, `SG_PORT` (value stated as 18765), `SG_SSH_KEY`, and possibly `SG_SSH_PASSPHRASE`. Those secrets were not read while this repository was built. The workflows that use them are `.github/workflows/hosting-check.yml` and `.github/workflows/deploy.yml`. Run the hosting check from `main` after merge, then replace the "unverified" cells below with the job summary. Do not paste secrets into this file.
 
@@ -16,21 +16,21 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Check | Result |
 |---|---|
 | Plan name (StartUp, GrowBig, GoGeek, or Cloud) | GoGeek, reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site |
-| PHP versions this account can run | Managed PHP 8.2.35, same citation. Not yet verified for this site. The app targets that version |
-| `memory_limit` | Still unverified until hosting-check runs |
-| `max_execution_time` | Still unverified until hosting-check runs |
-| PHP extensions | Unverified |
-| MySQL or MariaDB version | Exact version still unverified until hosting-check runs. CI runs MySQL 8.0 and MariaDB 11.8, including the row-lock test |
+| PHP versions this account can run | CLI `/usr/bin/php` and `/usr/local/bin/php` are 8.2.35. CGI binaries exist at `/usr/local/php74`, `php82`, `php83`, `php84`, `php85`, and `php86`. The `php82` CGI binary is also 8.2.35. Those CGI binaries reject `php -r` |
+| `memory_limit` | CLI 8.2.35 reports 768M. The `php82` CGI binary reports 128M. The per-site PHP selection in Site Tools was not read |
+| `max_execution_time` | CLI reports 0. The `php82` CGI probe printed an empty value. The web limit is still unverified |
+| PHP extensions | CLI 8.2.35 includes bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pdo_mysql, tokenizer, xml, and zip |
+| MySQL or MariaDB version | Client is MySQL 8.4.10. The server version is unverified. Login returned error 1045, using password NO. There is no `~/.my.cnf` |
 | InnoDB, transactions, and `SELECT … FOR UPDATE` | Unverified on the host. CI covers the row lock on both engines |
-| Minimum cron interval | Every minute via Site Tools, same citation. Not yet verified for this site |
-| SSH | Attempted October 23, 2026 from GitHub Actions. No session was opened. See “First install attempt” below |
-| Git on the server | Unverified. Deploys do not need server-side git |
-| Composer on the server | Unknown. Deploys build `vendor` on the runner and do not run Composer on the server |
-| Process limits | GoGeek caps from the same report: 600,000 inode hard cap (that account already exceeded it once), 4,000 CPU-seconds/hour, 4,000 executions/hour. Not yet verified for this site |
+| Minimum cron interval | `crontab` is not available over SSH. The every-minute Site Tools schedule remains a report, not a measurement |
+| SSH | Opened October 23, 2026. Host key fingerprint `SHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A`. See the install section below |
+| Git on the server | git 2.56.0. Deploys do not use it |
+| Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
+| Process limits | This session's `ulimit`: 80 processes, 5060 open files, about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement |
 | Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
-| Custom domains and SSL for `app.reserveworx.com` | Subdomain was created by the product owner. Document root layout below is reported, not verified here. HTTPS must be enforced per subdomain |
+| Custom domains and SSL for `app.reserveworx.com` | `www/app.reserveworx.com/public_html` exists and contains only `Default.html`. HTTPS enforcement in Site Tools was not changed |
 | Wildcard subdomains and wildcard SSL | Unverified |
-| Outbound HTTPS to Stripe and HighLevel | Unverified. The check records only the HTTP status and TLS verify result |
+| Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
 | Inbound webhook WAF or rate limits | Not observable from SSH. An external curl that receives HTTP 202 is SiteGround's bot check, not proof the application answered |
 
 ## Public background, not this account
@@ -45,7 +45,7 @@ These are published SiteGround statements. They are not measurements of `app.res
 
 ## Reported layout
 
-Reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site.
+Verified October 23, 2026. The home directory is the account home. `www/reserveworx.com` is also present and was not modified. `~/reserveworx` does not exist. The Laravel tree has not been created yet.
 
 ```text
 /home/customer/www/<domain>/public_html
@@ -62,26 +62,28 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12 on PHP 8.2.35. `memory_limit`, `max_execution_time`, and the exact database version stay unverified until a hosting check completes an SSH session.
+Laravel 12 on PHP 8.2.35. The server MySQL version, the web `max_execution_time`, and InnoDB on this host stay unverified until a database login exists.
 
-## First install attempt, October 23, 2026
+## First install, October 23, 2026
 
-The install did not reach the server. `https://app.reserveworx.com/up`, requested from outside SiteGround, returned HTTP 202 with `sg-captcha: challenge`. That is the SiteGround bot check, not a Laravel `/up` response.
+SSH works. Actions run [39995571872](https://github.com/mymediaworx/reserveworx/actions/runs/39995571872) collected the table above. `SG_SSH_KEY` is an encrypted OpenSSH private key and `SG_SSH_PASSPHRASE` unlocks it. The first connection attempt returned `Permission denied (publickey)` because `IdentitiesOnly` ignored the agent. The script fix is in pull request #6.
 
-Actions runs [39993759232](https://github.com/mymediaworx/reserveworx/actions/runs/39993759232), [39994222015](https://github.com/mymediaworx/reserveworx/actions/runs/39994222015), and [39994373852](https://github.com/mymediaworx/reserveworx/actions/runs/39994373852) are the evidence. No secret values are copied here.
+The install stopped at MySQL. Actions run [39995891632](https://github.com/mymediaworx/reserveworx/actions/runs/39995891632) tried the client with no password, on the default socket and on `127.0.0.1`. Both returned error 1045, using password NO. No database or user was created. `www/app.reserveworx.com/laravel/shared/.env` was not written. Migrations and seeders did not run.
 
-| Secret | Result |
+`https://app.reserveworx.com/up` from outside SiteGround still returns HTTP 202 with `sg-captcha: challenge`. From the server, the same URL returned HTTP 404, which matches the `Default.html` placeholder. There is no demo login. The only seeder creates roles and permissions, not tenants or users.
+
+SiteGround does not let this SSH user create a database. Their tutorial (updated October 28, 2024) says database names and usernames are generated in Site Tools and cannot be chosen or renamed: [Create User and Database](https://www.siteground.com/tutorials/php-mysql/create-user-database). Do this for the **app.reserveworx.com** site, not for `reserveworx.com`:
+
+1. Site Tools → Site → MySQL → Databases → Create Database. Copy the generated database name.
+2. Site Tools → Site → MySQL → Users → Create User. Copy the generated username and password from the notice SiteGround shows.
+3. On that user, Add New Database, select the new database, enable every privilege, and confirm. The user must not receive privileges on any other database.
+
+Store the three generated values as Actions secrets. Do not send them in chat.
+
+| Secret | Value |
 |---|---|
-| `SG_HOST`, `SG_USER`, `SG_PORT` | Present |
-| `SG_SSH_KEY` | Empty. Nothing was written into the key file |
-| `SG_SSH_PASSPHRASE` | Present, but the value is an encrypted OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`, 8 lines, 444 bytes). `ssh-keygen -y -P ""` returned `incorrect passphrase supplied to decrypt private key` |
+| `SG_DB_DATABASE` | Generated database name |
+| `SG_DB_USERNAME` | Generated username |
+| `SG_DB_PASSWORD` | Generated password |
 
-The database was not queried. No database or user was created. The shared `.env` was not written. Migrations and seeders did not run.
-
-What has to change before the next attempt:
-
-1. Store the SiteGround private key in the Actions secret `SG_SSH_KEY`.
-2. If that key is encrypted, store only its passphrase in `SG_SSH_PASSPHRASE`. That secret currently holds the key, so Actions has no passphrase to try.
-3. Do not send the key or the passphrase in chat, issues, or this file.
-
-`workflow_dispatch` from the GitHub App used for this repository returns HTTP 403 because the token does not have `actions=write`. A person with permission on the repository can run **Hosting check** from the Actions tab after the secrets are corrected.
+The next install will write those into `www/app.reserveworx.com/laravel/shared/.env` and use host `localhost`, port `3306`. After the app is deployed, two further Site Tools steps remain: enforce HTTPS for `app.reserveworx.com` only, and add an every-minute cron for `schedule:run`. The cron command will be taken from the deploy log so it points at the real `current` release.
