@@ -12,7 +12,7 @@ class Payment extends Model
     use BelongsToTenant, HasUlids;
 
     protected $fillable = [
-        'tenant_id', 'booking_id', 'method', 'kind', 'status', 'amount_cents', 'fee_cents',
+        'tenant_id', 'booking_id', 'idempotency_key', 'payload_hash', 'method', 'kind', 'status', 'amount_cents', 'fee_cents',
         'stripe_checkout_session_id', 'stripe_payment_intent_id',
     ];
 

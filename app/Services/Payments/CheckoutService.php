@@ -12,7 +12,9 @@ use App\Models\PricingSnapshot;
 use App\Models\StripeAccount;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Notifications\BookingEvents;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 final class CheckoutService
@@ -26,8 +28,15 @@ final class CheckoutService
     /**
      * @return array{payment: Payment, url: string|null}
      */
-    public function startCheckout(Booking $booking, string $successUrl, string $cancelUrl): array
+    public function startCheckout(Booking $booking, string $successUrl, string $cancelUrl, ?string $idempotencyKey = null): array
     {
+        $hash = $this->payloadHash('checkout', $booking->id, $successUrl, $cancelUrl);
+        $existing = $this->storedPayment($idempotencyKey, $hash);
+
+        if ($existing instanceof Payment) {
+            return ['payment' => $existing, 'url' => null];
+        }
+
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
 
         if (! $snapshot instanceof PricingSnapshot) {
@@ -63,7 +72,7 @@ final class CheckoutService
             throw new AllocationUnavailableException($exception->getMessage());
         }
 
-        $payment = Payment::query()->create([
+        $payment = $this->createPayment([
             'tenant_id' => $booking->tenant_id,
             'booking_id' => $booking->id,
             'method' => 'stripe',
@@ -72,13 +81,24 @@ final class CheckoutService
             'amount_cents' => $charge,
             'fee_cents' => $fee,
             'stripe_checkout_session_id' => $session['id'],
-        ]);
+        ], $idempotencyKey, $hash);
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '' && ! $payment->wasRecentlyCreated) {
+            return ['payment' => $payment, 'url' => null];
+        }
 
         return ['payment' => $payment, 'url' => $session['url']];
     }
 
-    public function recordOffline(Booking $booking): Payment
+    public function recordOffline(Booking $booking, ?string $idempotencyKey = null): Payment
     {
+        $hash = $this->payloadHash('offline', $booking->id);
+        $existing = $this->storedPayment($idempotencyKey, $hash);
+
+        if ($existing instanceof Payment) {
+            return $existing;
+        }
+
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
 
         if (! $snapshot instanceof PricingSnapshot) {
@@ -86,7 +106,7 @@ final class CheckoutService
         }
 
         $charge = (int) ($snapshot->payload['customer_total_cents'] ?? $snapshot->payload['charge_cents'] ?? 0);
-        $payment = Payment::query()->create([
+        $payment = $this->createPayment([
             'tenant_id' => $booking->tenant_id,
             'booking_id' => $booking->id,
             'method' => 'offline',
@@ -94,7 +114,11 @@ final class CheckoutService
             'status' => 'paid',
             'amount_cents' => $charge,
             'fee_cents' => 0,
-        ]);
+        ], $idempotencyKey, $hash);
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '' && ! $payment->wasRecentlyCreated) {
+            return $payment;
+        }
 
         if ($booking->status->value === 'held') {
             $booking = $this->allocator->confirm($booking);
@@ -108,5 +132,73 @@ final class CheckoutService
         $this->events->paymentCompleted($payment);
 
         return $payment;
+    }
+
+    private function payloadHash(string $action, string $bookingId, ?string $successUrl = null, ?string $cancelUrl = null): string
+    {
+        $fields = [
+            'action' => $action,
+            'booking_id' => $bookingId,
+        ];
+
+        if ($cancelUrl !== null) {
+            $fields['cancel_url'] = $cancelUrl;
+        }
+
+        if ($successUrl !== null) {
+            $fields['success_url'] = $successUrl;
+        }
+
+        $encoded = json_encode($fields, JSON_THROW_ON_ERROR);
+
+        return hash('sha256', $encoded);
+    }
+
+    private function storedPayment(?string $key, string $hash): ?Payment
+    {
+        if ($key === null || $key === '') {
+            return null;
+        }
+
+        $existing = Payment::query()->where('idempotency_key', $key)->first();
+
+        if (! $existing instanceof Payment) {
+            return null;
+        }
+
+        $stored = $existing->payload_hash;
+
+        if (! is_string($stored) || ! hash_equals($stored, $hash)) {
+            throw new IdempotencyConflictException;
+        }
+
+        return $existing;
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function createPayment(array $attributes, ?string $key, string $hash): Payment
+    {
+        if ($key !== null && $key !== '') {
+            $attributes['idempotency_key'] = $key;
+            $attributes['payload_hash'] = $hash;
+        }
+
+        try {
+            return Payment::query()->create($attributes);
+        } catch (QueryException $exception) {
+            if ((int) ($exception->errorInfo[1] ?? 0) !== 1062 || $key === null || $key === '') {
+                throw $exception;
+            }
+
+            $existing = $this->storedPayment($key, $hash);
+
+            if (! $existing instanceof Payment) {
+                throw $exception;
+            }
+
+            return $existing;
+        }
     }
 }

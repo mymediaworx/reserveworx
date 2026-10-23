@@ -323,6 +323,78 @@ class PricingCheckoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_repeated_payment_key_returns_the_original_row(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $first = $this->hold($service, '-a');
+        $second = $this->hold($service, '-b', '2026-06-15T17:00:00Z', '2026-06-15T18:00:00Z');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$first.'/pricing'))->assertOk();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/pricing'))->assertOk();
+
+        $paid = $this->postJson(
+            $this->tenantUrl('dock.test', '/api/v1/bookings/'.$first.'/offline-payment'),
+            [],
+            ['Idempotency-Key' => 'offline-1'],
+        )->assertOk();
+        $again = $this->postJson(
+            $this->tenantUrl('dock.test', '/api/v1/bookings/'.$first.'/offline-payment'),
+            [],
+            ['Idempotency-Key' => 'offline-1'],
+        )->assertOk();
+
+        $this->assertSame($paid->json('data.payment_id'), $again->json('data.payment_id'));
+        $this->postJson(
+            $this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/offline-payment'),
+            ['idempotency_key' => 'offline-1'],
+        )->assertStatus(409);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        $this->assertSame(1, Payment::query()->count());
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        app(TenantManager::class)->forget();
+
+        $checkout = [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'card-1',
+        ];
+        $started = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/checkout-session'), $checkout)
+            ->assertOk();
+        $replay = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/checkout-session'), $checkout)
+            ->assertOk();
+
+        $this->assertSame($started->json('data.payment_id'), $replay->json('data.payment_id'));
+        $this->assertSame('https://checkout.stripe.test/pay/cs_test_123', $started->json('data.checkout_url'));
+        $this->assertNull($replay->json('data.checkout_url'));
+        $this->assertCount(1, $fake->sessions);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/checkout-session'), [
+            'success_url' => 'https://dock.test/other',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'card-1',
+        ])->assertStatus(409)->assertJsonPath('message', 'That idempotency key was already used for a different request.');
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
     public function test_an_unconfigured_webhook_is_rejected(): void
     {
         $this->postJson('http://localhost/api/v1/stripe/webhook', ['id' => 'evt_x'], [
@@ -343,14 +415,14 @@ class PricingCheckoutTest extends TestCase
         ], ['Stripe-Signature' => 'test-signature']);
     }
 
-    private function hold(Service $service): string
+    private function hold(Service $service, string $suffix = '', string $starts = '2026-06-15T15:00:00Z', string $ends = '2026-06-15T16:00:00Z'): string
     {
         return $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
             'service_id' => $service->id,
-            'starts_at' => '2026-06-15T15:00:00Z',
-            'ends_at' => '2026-06-15T16:00:00Z',
+            'starts_at' => $starts,
+            'ends_at' => $ends,
             'participants' => 2,
-            'idempotency_key' => 'pay-'.$service->id,
+            'idempotency_key' => 'pay-'.$service->id.$suffix,
             'customer_name' => 'Ada',
             'customer_email' => 'ada@example.com',
         ])->assertCreated()->json('data.id');
