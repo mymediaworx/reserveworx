@@ -6,9 +6,12 @@ use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\Web\HomeController;
+use App\Http\Controllers\Web\PlatformAuthController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
+use App\Livewire\Platform\TenantDetail;
+use App\Livewire\Platform\Tenants;
 use App\Livewire\Staff\BookingLinks;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
@@ -27,6 +30,20 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 Route::get('/', HomeController::class);
 Route::get('/ui/app.css', [UiAssetController::class, 'stylesheet']);
+
+/*
+| Platform administration, on the platform host only.
+*/
+Route::middleware('platform.host')->prefix('platform')->group(function (): void {
+    Route::get('/login', [PlatformAuthController::class, 'show'])->name('platform.login');
+    Route::post('/login', [PlatformAuthController::class, 'login'])->middleware('throttle:login');
+    Route::post('/logout', [PlatformAuthController::class, 'logout'])->middleware('auth');
+
+    Route::middleware(['auth', 'platform.admin'])->group(function (): void {
+        Route::get('/', Tenants::class);
+        Route::get('/tenants/{tenant}', TenantDetail::class);
+    });
+});
 
 /*
 | Staff area on a tenant's verified domain (Blade + Livewire). ResolveTenant sets

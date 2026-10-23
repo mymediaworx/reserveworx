@@ -138,6 +138,8 @@ code { font-size: 0.95em; background: var(--stone-wash); padding: 0 0.3em; borde
 @media (max-width: 960px) { .split, .split.even { grid-template-columns: 1fr; } }
 
 .stack { display: grid; gap: 1rem; align-content: start; }
+.stack > .button { justify-self: start; }
+.auth-panel .stack > .button { justify-self: stretch; }
 
 .panel {
     background: var(--surface);
