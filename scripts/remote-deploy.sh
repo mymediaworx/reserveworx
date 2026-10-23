@@ -74,7 +74,9 @@ find_php() {
 
   for candidate in "${candidates[@]}"; do
     [[ -x "$candidate" ]] || continue
-    version="$("$candidate" -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;')"
+    # SiteGround's /usr/local/php*/bin/php binaries are CGI and reject -r.
+    version="$("$candidate" -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;' 2>/dev/null)" || continue
+    [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] || continue
     major="${version%%.*}"
     minor="${version#*.}"
     if [[ "$major" -gt 8 ]] || [[ "$major" -eq 8 && "$minor" -ge 2 ]]; then

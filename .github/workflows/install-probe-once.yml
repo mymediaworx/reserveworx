@@ -1,0 +1,166 @@
+# One-shot. Stays off main. Asks the server whether this SSH user can create
+# the application database, and records the public_html placeholder name.
+# Passwords are generated on the server and are not printed.
+name: Install probe once
+
+on:
+  push:
+    branches:
+      - cursor/first-install-681b
+    paths:
+      - .github/workflows/install-probe-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Database and docroot probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
+          if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
+          if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
+          if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+
+      - name: Probe MySQL and the document root
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          {
+            echo "## Install probe"
+            echo
+            echo '```'
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s << 'REMOTE'
+          set -u
+          echo "my_cnf=$([[ -f "$HOME/.my.cnf" ]] && echo present || echo absent)"
+          docroot="$HOME/www/app.reserveworx.com/public_html"
+          echo "docroot_entries:"
+          if [[ -d "$docroot" ]]; then
+            find "$docroot" -mindepth 1 -maxdepth 1 -printf '%y %f\n' | sort
+          else
+            echo "missing"
+          fi
+          echo "php82_file_probe:"
+          tmp="$(mktemp)"
+          printf '%s\n' '<?php echo "memory_limit=".ini_get("memory_limit")." max_execution_time=".ini_get("max_execution_time")." version=".PHP_VERSION, "\n";' > "$tmp"
+          /usr/local/php82/bin/php "$tmp" 2>/dev/null || echo "php82_file_probe=failed"
+          rm -f "$tmp"
+          classify_mysql() {
+            local err="$1"
+            local code="none"
+            if [[ "$err" =~ ERROR\ ([0-9]+) ]]; then
+              code="${BASH_REMATCH[1]}"
+            fi
+            echo "mysql_error=${code}"
+            if [[ "$err" == *"using password: NO"* ]]; then
+              echo "mysql_password=no"
+            elif [[ "$err" == *"using password: YES"* ]]; then
+              echo "mysql_password=yes"
+            else
+              echo "mysql_password=unknown"
+            fi
+          }
+          try_mysql() {
+            local label="$1"
+            shift
+            local err
+            if err="$("$@" --batch --skip-column-names -e "SELECT VERSION();" 2>&1 >/dev/null)"; then
+              echo "${label}=ok"
+              echo "${label}_version=$( "$@" --batch --skip-column-names -e "SELECT VERSION();" 2>/dev/null | head -n 1 )"
+              return 0
+            fi
+            echo "${label}=failed"
+            classify_mysql "$err"
+            return 1
+          }
+          if try_mysql mysql_default mysql; then
+            echo "mysql_login=default"
+          elif try_mysql mysql_tcp mysql --protocol=TCP -h 127.0.0.1; then
+            echo "mysql_login=tcp"
+          else
+            echo "db_create=not_attempted"
+            echo "db_reason=no_mysql_login"
+            exit 0
+          fi
+          # The login above succeeded. Create only the reserveworx database.
+          # The password is generated here and written only into shared/.env.
+          pass="$(php -r 'echo rtrim(strtr(base64_encode(random_bytes(24)), "+/", "AB"), "=");')"
+          sql_err="$(mysql --batch -e "CREATE DATABASE IF NOT EXISTS reserveworx CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>&1)" || true
+          if [[ -n "$sql_err" ]]; then
+            code="none"
+            if [[ "$sql_err" =~ ERROR\ ([0-9]+) ]]; then
+              code="${BASH_REMATCH[1]}"
+            fi
+            echo "db_create=denied"
+            echo "db_error=${code}"
+            exit 0
+          fi
+          user_err="$(mysql --batch << SQL
+          CREATE USER IF NOT EXISTS 'reserveworx'@'localhost' IDENTIFIED BY '${pass}';
+          GRANT ALL PRIVILEGES ON reserveworx.* TO 'reserveworx'@'localhost';
+          FLUSH PRIVILEGES;
+          SQL
+          )" || true
+          if [[ -n "$user_err" ]]; then
+            code="none"
+            if [[ "$user_err" =~ ERROR\ ([0-9]+) ]]; then
+              code="${BASH_REMATCH[1]}"
+            fi
+            echo "db_create=database_only"
+            echo "db_user_error=${code}"
+            exit 0
+          fi
+          shared="$HOME/www/app.reserveworx.com/laravel/shared"
+          umask 077
+          mkdir -p "$shared"
+          app_key="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
+          cat > "$shared/.env" << ENV
+          APP_NAME=ReserveWorx
+          APP_ENV=production
+          APP_KEY=${app_key}
+          APP_DEBUG=false
+          APP_URL=https://app.reserveworx.com
+          LOG_CHANNEL=stack
+          LOG_LEVEL=error
+          DB_CONNECTION=mysql
+          DB_HOST=localhost
+          DB_PORT=3306
+          DB_DATABASE=reserveworx
+          DB_USERNAME=reserveworx
+          DB_PASSWORD=${pass}
+          SESSION_DRIVER=database
+          SESSION_LIFETIME=120
+          QUEUE_CONNECTION=database
+          QUEUE_WORK_MAX_TIME=20
+          CACHE_STORE=database
+          MAIL_MAILER=log
+          PLATFORM_DOMAINS=app.reserveworx.com
+          ENV
+          chmod 600 "$shared/.env"
+          unset pass app_key
+          echo "db_create=ok"
+          echo "db_name=reserveworx"
+          echo "db_user=reserveworx"
+          echo "db_host=localhost"
+          echo "shared_env=written"
+          REMOTE
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
