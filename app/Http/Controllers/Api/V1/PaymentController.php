@@ -11,6 +11,7 @@ use App\Models\PlatformFee;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Services\Allocation\AllocationUnavailableException;
+use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Payments\CheckoutService;
 use Illuminate\Http\JsonResponse;
@@ -77,11 +78,17 @@ class PaymentController extends Controller
         $validated = $request->validate([
             'success_url' => ['required', 'url', 'max:255'],
             'cancel_url' => ['required', 'url', 'max:255'],
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
         ]);
 
         try {
-            $started = $this->checkout->startCheckout($booking->load('service'), $validated['success_url'], $validated['cancel_url']);
-        } catch (AllocationUnavailableException $exception) {
+            $started = $this->checkout->startCheckout(
+                $booking->load('service'),
+                $validated['success_url'],
+                $validated['cancel_url'],
+                $this->idempotencyKey($request, $validated['idempotency_key'] ?? null),
+            );
+        } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
 
@@ -96,10 +103,16 @@ class PaymentController extends Controller
     public function offline(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
+        ]);
 
         try {
-            $payment = $this->checkout->recordOffline($booking);
-        } catch (AllocationUnavailableException $exception) {
+            $payment = $this->checkout->recordOffline(
+                $booking,
+                $this->idempotencyKey($request, $validated['idempotency_key'] ?? null),
+            );
+        } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
 
@@ -125,5 +138,13 @@ class PaymentController extends Controller
             'net_cents' => (int) $fees->sum('amount_cents') - (int) $fees->sum('refunded_cents'),
             'count' => $fees->count(),
         ]]);
+    }
+
+    private function idempotencyKey(Request $request, mixed $body): ?string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+        $key = is_string($header) && $header !== '' ? $header : $body;
+
+        return is_string($key) && $key !== '' ? $key : null;
     }
 }
