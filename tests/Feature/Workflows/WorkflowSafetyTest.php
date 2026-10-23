@@ -22,6 +22,12 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringNotContainsString('public_html/app.reserveworx.com', $remote);
         $this->assertStringContainsString('Successful purge', $remote);
         $this->assertStringContainsString('HTTP 202', $remote);
+        $this->assertStringContainsString('2>/dev/null)" || continue', $remote);
+        $this->assertStringContainsString("tr '[:upper:]' '[:lower:]'", $remote);
+
+        $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
+        $this->assertStringContainsString('sg_key.pub', $prepare);
+        $this->assertStringContainsString('IdentitiesOnly=yes', $prepare);
     }
 
     public function test_ci_declares_the_required_checks(): void

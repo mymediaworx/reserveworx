@@ -68,13 +68,23 @@ EOF
   export SSH_ASKPASS="$askpass"
   export SSH_ASKPASS_REQUIRE=force
   export DISPLAY="${DISPLAY:-:0}"
-  if ! setsid ssh-add "$key_file" </dev/null >/dev/null; then
+  if ! setsid ssh-add "$key_file" </dev/null >/dev/null 2>&1; then
     echo "Could not unlock the SiteGround SSH key. The key and passphrase were not printed." >&2
     rm -f "$key_file" "$askpass"
     return 1
   fi
   rm -f "$askpass"
   unset SSH_ASKPASS SSH_ASKPASS_REQUIRE
+  # IdentitiesOnly ignores keys that are only loaded in the agent. Name the
+  # public key so ssh offers this identity and the agent supplies the private half.
+  pub_file="${ssh_dir}/sg_key.pub"
+  if ! ssh-keygen -y -f "$key_file" -P "$SG_SSH_PASSPHRASE" > "$pub_file" 2>/dev/null; then
+    echo "Could not read the SiteGround public key. The key and passphrase were not printed." >&2
+    rm -f "$key_file" "$pub_file"
+    return 1
+  fi
+  chmod 600 "$pub_file"
+  identity_opt="-i ${pub_file}"
 else
   identity_opt="-i ${key_file}"
 fi
