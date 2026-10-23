@@ -1,0 +1,32 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('disclosure_versions', function (Blueprint $table) {
+            $table->ulid('id')->primary();
+            $table->foreignUlid('tenant_id')->constrained()->cascadeOnDelete();
+            $table->string('kind', 48);
+            $table->unsignedInteger('version');
+            $table->string('fee_payer', 32);
+            $table->string('rules_version', 64);
+            $table->text('body');
+            $table->char('content_hash', 64);
+            $table->timestamp('published_at');
+            $table->timestamps();
+
+            $table->unique(['tenant_id', 'kind', 'version']);
+            $table->index(['tenant_id', 'kind', 'published_at'], 'disclosures_current_idx');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('disclosure_versions');
+    }
+};
