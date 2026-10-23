@@ -28,7 +28,7 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
 | Process limits | This session's `ulimit`: 80 processes, 5060 open files, about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement |
 | Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
-| Custom domains and SSL for `app.reserveworx.com` | `www/app.reserveworx.com/public_html` exists and contains only `Default.html`. HTTPS enforcement in Site Tools was not changed |
+| Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed |
 | Wildcard subdomains and wildcard SSL | Unverified |
 | Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
 | Inbound webhook WAF or rate limits | Not observable from SSH. An external curl that receives HTTP 202 is SiteGround's bot check, not proof the application answered |
@@ -52,7 +52,7 @@ Verified October 23, 2026. The home directory is the account home. `www/reservew
 /home/customer/www/<domain>/laravel
 ```
 
-For this application the domain is `app.reserveworx.com`. Deploy writes only there. `public_html` is a symlink to `../laravel/current/public`. See [`DEPLOY.md`](DEPLOY.md).
+For this application the domain is `app.reserveworx.com`. Deploy writes only there. `public_html` is a real directory. See [`DEPLOY.md`](DEPLOY.md).
 
 ## Queue budget
 
@@ -68,22 +68,19 @@ Laravel 12 on PHP 8.2.35. The server MySQL version, the web `max_execution_time`
 
 SSH works. Actions run [39995571872](https://github.com/mymediaworx/reserveworx/actions/runs/39995571872) collected the table above. `SG_SSH_KEY` is an encrypted OpenSSH private key and `SG_SSH_PASSPHRASE` unlocks it. The first connection attempt returned `Permission denied (publickey)` because `IdentitiesOnly` ignored the agent. The script fix is in pull request #6.
 
-The install stopped at MySQL. Actions run [39995891632](https://github.com/mymediaworx/reserveworx/actions/runs/39995891632) tried the client with no password, on the default socket and on `127.0.0.1`. Both returned error 1045, using password NO. No database or user was created. `www/app.reserveworx.com/laravel/shared/.env` was not written. Migrations and seeders did not run.
+SSH could not create the database (error 1045, using password NO). The product owner created it in Site Tools for `reserveworx.com`, which owns the `app.reserveworx.com` subdomain, and stored `SG_DB_DATABASE`, `SG_DB_USERNAME`, and `SG_DB_PASSWORD`. Actions run [40000689467](https://github.com/mymediaworx/reserveworx/actions/runs/40000689467) then wrote `laravel/shared/.env`, migrated the empty database, and seeded two demo tenants. From outside SiteGround, `/up` returned HTTP 200 with “Application up”, and `/` returned HTTP 200 with the ReserveWorx welcome page. Demo passwords are only in `laravel/shared/demo-logins.txt` on the server.
 
-`https://app.reserveworx.com/up` from outside SiteGround still returns HTTP 202 with `sg-captcha: challenge`. From the server, the same URL returned HTTP 404, which matches the `Default.html` placeholder. There is no demo login. The only seeder creates roles and permissions, not tenants or users.
+Demo owners, with passwords only in the server file above:
 
-SiteGround does not let this SSH user create a database. Their tutorial (updated October 28, 2024) says database names and usernames are generated in Site Tools and cannot be chosen or renamed: [Create User and Database](https://www.siteground.com/tutorials/php-mysql/create-user-database). Do this for the **app.reserveworx.com** site, not for `reserveworx.com`:
+| Workspace | Fee payer | Email | Hostname |
+|---|---|---|---|
+| Harbor Demo | `customer_paid` | `harbor-owner@demo.reserveworx.test` | `harbor-demo.reserveworx.test` |
+| Inland Demo | `operator_absorbed` | `inland-owner@demo.reserveworx.test` | `inland-demo.reserveworx.test` |
 
-1. Site Tools → Site → MySQL → Databases → Create Database. Copy the generated database name.
-2. Site Tools → Site → MySQL → Users → Create User. Copy the generated username and password from the notice SiteGround shows.
-3. On that user, Add New Database, select the new database, enable every privilege, and confirm. The user must not receive privileges on any other database.
+Those hostnames are not public DNS. They exist so a request with that `Host` header resolves the tenant.
 
-Store the three generated values as Actions secrets. Do not send them in chat.
+Still only in Site Tools, and not done by the deploy script:
 
-| Secret | Value |
-|---|---|
-| `SG_DB_DATABASE` | Generated database name |
-| `SG_DB_USERNAME` | Generated username |
-| `SG_DB_PASSWORD` | Generated password |
-
-The next install will write those into `www/app.reserveworx.com/laravel/shared/.env` and use host `localhost`, port `3306`. After the app is deployed, two further Site Tools steps remain: enforce HTTPS for `app.reserveworx.com` only, and add an every-minute cron for `schedule:run`. The cron command will be taken from the deploy log so it points at the real `current` release.
+1. Security → HTTPS Enforce for `app.reserveworx.com` only.
+2. Cron, every minute: `/usr/local/bin/php /home/customer/www/app.reserveworx.com/laravel/current/artisan schedule:run`
+3. If a stale page appears, Speed → Caching → Dynamic Cache, flush `app.reserveworx.com` only. The on-server purge to `127.0.0.1` could not connect.

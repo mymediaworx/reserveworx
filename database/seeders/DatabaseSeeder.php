@@ -7,10 +7,13 @@ use Illuminate\Database\Seeder;
 class DatabaseSeeder extends Seeder
 {
     /**
-     * Seed reference data only. This seeder does not create users or tenants.
+     * Roles first, then two demo workspaces. Demo passwords go to DEMO_LOGIN_FILE.
      */
     public function run(): void
     {
-        $this->call(RoleAndPermissionSeeder::class);
+        $this->call([
+            RoleAndPermissionSeeder::class,
+            DemoTenantSeeder::class,
+        ]);
     }
 }

@@ -137,17 +137,61 @@ link_shared() {
   ln -sfn "${shared}/storage/app/public" "${target}/public/storage"
 }
 
-switch_docroot() {
-  local relative="../laravel/current/public"
+install_front_controller() {
+  local release_public
+  release_public="$(readlink -f "$current")/public"
+  mkdir -p "$docroot"
+  cat > "${docroot}/index.php" << 'PHP'
+<?php
 
+use Illuminate\Foundation\Application;
+use Illuminate\Http\Request;
+
+define('LARAVEL_START', microtime(true));
+
+$root = __DIR__.'/../laravel/current';
+
+if (file_exists($maintenance = $root.'/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
+
+require $root.'/vendor/autoload.php';
+
+/** @var Application $app */
+$app = require_once $root.'/bootstrap/app.php';
+
+$app->handleRequest(Request::capture());
+PHP
+  if [[ -f "${release_public}/.htaccess" ]]; then
+    cp "${release_public}/.htaccess" "${docroot}/.htaccess"
+  fi
+  if [[ -f "${release_public}/robots.txt" ]]; then
+    cp "${release_public}/robots.txt" "${docroot}/robots.txt"
+  fi
+  if [[ -f "${release_public}/favicon.ico" ]]; then
+    cp "${release_public}/favicon.ico" "${docroot}/favicon.ico"
+  fi
+  chmod 755 "$docroot"
+  chmod 644 "${docroot}/index.php" "${docroot}/.htaccess" "${docroot}/robots.txt" "${docroot}/favicon.ico" 2>/dev/null || true
+  echo "document_root=directory ${docroot} front_controller=../laravel/current"
+}
+
+switch_docroot() {
+  # Nginx on this host returns 403 for a symlinked document root. public_html
+  # stays a real directory whose index.php boots ../laravel/current.
   if [[ -L "$docroot" ]]; then
-    ln -sfn "$relative" "$docroot"
-    echo "document_root=symlink ${docroot} -> ${relative}"
+    rm -f "$docroot"
+  fi
+
+  if [[ -d "$docroot" && -f "${docroot}/index.php" ]] && grep -q "laravel/current" "${docroot}/index.php"; then
+    install_front_controller
     return 0
   fi
 
   if [[ -d "$docroot" ]]; then
-    local allowed=1 name
+    local allowed=1 name list
+    list="$(mktemp)"
+    find "$docroot" -mindepth 1 -maxdepth 1 -printf '%f\n' > "$list"
     while IFS= read -r name; do
       [[ -z "$name" ]] && continue
       lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
@@ -155,7 +199,8 @@ switch_docroot() {
         index.html|index.php|cgi-bin|.well-known|default.html) ;;
         *) allowed=0 ;;
       esac
-    done < <(find "$docroot" -mindepth 1 -maxdepth 1 -printf '%f\n')
+    done < "$list"
+    rm -f "$list"
 
     if [[ "$allowed" -ne 1 ]]; then
       echo "document_root=left unchanged because ${docroot} contains files outside the placeholder list. No other site was touched." >&2
@@ -170,8 +215,7 @@ switch_docroot() {
     return 1
   fi
 
-  ln -sfn "$relative" "$docroot"
-  echo "document_root=symlink ${docroot} -> ${relative}"
+  install_front_controller
 }
 
 purge_dynamic_cache() {
@@ -316,7 +360,7 @@ echo "composer_on_server=not run"
 echo "caches=written"
 
 switch_docroot
-purge_dynamic_cache
+purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
 health_check
 echo "deploy=complete"
 echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
