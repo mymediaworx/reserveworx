@@ -2,11 +2,14 @@
 # Activate a release for app.reserveworx.com only, or roll back to the one
 # previous release. Migrations run only for action=deploy when
 # RUN_MIGRATIONS=true, MIGRATION_CONFIRMATION is exactly "I have a backup",
-# and shared .env exists. Rollback never runs migrate:rollback.
+# shared .env exists, and mysqldump has written a private gzip under
+# laravel/backups. The dump runs before the previous release is deleted and
+# before the document root changes. Rollback never runs migrate:rollback.
 #
 # Inode budget: at most the current release tree and one previous release tree.
 # The upload archive is deleted after extract. Vendor lives only inside those
-# release trees. Composer is not run on the server.
+# release trees. Composer is not run on the server. Database dumps are at most
+# two gzip files under laravel/backups, outside public_html.
 set -euo pipefail
 
 : "${ACTION:?ACTION is required}"
@@ -256,6 +259,212 @@ health_check() {
   return 1
 }
 
+find_dump() {
+  local candidate
+  local candidates=()
+  shopt -s nullglob
+  if command -v mysqldump >/dev/null 2>&1; then
+    candidates+=("$(command -v mysqldump)")
+  fi
+  if command -v mariadb-dump >/dev/null 2>&1; then
+    candidates+=("$(command -v mariadb-dump)")
+  fi
+  candidates+=(
+    /usr/bin/mysqldump
+    /usr/bin/mariadb-dump
+    /usr/local/bin/mysqldump
+    /usr/local/mariadb/bin/mysqldump
+  )
+  shopt -u nullglob
+
+  for candidate in "${candidates[@]}"; do
+    [[ -x "$candidate" ]] || continue
+    printf '%s\n' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+# Read DB_* from shared .env inside PHP so the password never enters this
+# script's arguments or its log. The client defaults file is mode 600 and is
+# removed before the function returns. The gzip stays under laravel/backups,
+# which is not public_html and is not another site.
+backup_database() {
+  local backups outfile cnf namefile dump_bin size marker db_name
+  local -a dump_args=()
+  backups="${laravel}/backups"
+  mkdir -p "$backups"
+  chmod 700 "$backups"
+  outfile="${backups}/reserveworx-$(date -u +%Y%m%dT%H%M%SZ)-$$.sql.gz"
+  cnf="$(mktemp "${backups}/.client.XXXXXX")"
+  namefile="$(mktemp "${backups}/.dbname.XXXXXX")"
+  chmod 600 "$cnf" "$namefile"
+  RW_BACKUP_CNF="$cnf"
+  RW_BACKUP_NAME="$namefile"
+  rm_backup_secrets() {
+    rm -f "${RW_BACKUP_CNF:-}" "${RW_BACKUP_NAME:-}"
+    unset RW_BACKUP_CNF RW_BACKUP_NAME
+  }
+  trap rm_backup_secrets EXIT
+
+  case "$outfile" in
+    */www/app.reserveworx.com/laravel/backups/reserveworx-*.sql.gz) ;;
+    *)
+      echo "backup=failed path" >&2
+      return 1
+      ;;
+  esac
+  case "$outfile" in
+    *public_html*|*www/reserveworx.com/*)
+      echo "backup=failed path" >&2
+      return 1
+      ;;
+  esac
+
+  if ! RW_ENV_FILE="${shared}/.env" RW_CNF="$cnf" RW_DB_NAME_FILE="$namefile" "$php_bin" -r '
+ini_set("display_errors", "0");
+try {
+    $path = getenv("RW_ENV_FILE");
+    $cnf = getenv("RW_CNF");
+    $nameFile = getenv("RW_DB_NAME_FILE");
+    if (!is_string($path) || !is_string($cnf) || !is_string($nameFile) || !is_readable($path)) {
+        throw new RuntimeException("unreadable");
+    }
+    $raw = file_get_contents($path);
+    if (!is_string($raw) || $raw === "") {
+        throw new RuntimeException("empty");
+    }
+    $vals = [];
+    foreach (preg_split("/\r\n|\n|\r/", $raw) as $line) {
+        if (!is_string($line)) {
+            continue;
+        }
+        $eq = strpos($line, "=");
+        if ($eq === false) {
+            continue;
+        }
+        $key = substr($line, 0, $eq);
+        if (!in_array($key, ["DB_HOST", "DB_PORT", "DB_DATABASE", "DB_USERNAME", "DB_PASSWORD"], true)) {
+            continue;
+        }
+        $value = substr($line, $eq + 1);
+        $quoted = strlen($value) >= 2 && $value[0] === "\"" && str_ends_with($value, "\"");
+        if ($quoted) {
+            $value = substr($value, 1, -1);
+            $value = str_replace(["\\\"", "\\\\"], ["\"", "\\"], $value);
+        }
+        $vals[$key] = $value;
+    }
+    foreach (["DB_HOST", "DB_PORT", "DB_DATABASE", "DB_USERNAME", "DB_PASSWORD"] as $key) {
+        if (!isset($vals[$key]) || $vals[$key] === "") {
+            throw new RuntimeException("missing");
+        }
+    }
+    $host = $vals["DB_HOST"];
+    $port = $vals["DB_PORT"];
+    $name = $vals["DB_DATABASE"];
+    $user = $vals["DB_USERNAME"];
+    $pass = $vals["DB_PASSWORD"];
+    if (!preg_match("/^[A-Za-z0-9._-]+$/", $host)) {
+        throw new RuntimeException("host");
+    }
+    if (!preg_match("/^[0-9]+$/", $port) || (int) $port < 1 || (int) $port > 65535) {
+        throw new RuntimeException("port");
+    }
+    if (!preg_match("/^[A-Za-z0-9_]+$/", $name) || !preg_match("/^[A-Za-z0-9_]+$/", $user)) {
+        throw new RuntimeException("name");
+    }
+    $quote = static function (string $value): string {
+        return "\"".str_replace(["\\", "\""], ["\\\\", "\\\""], $value)."\"";
+    };
+    $ini = "[client]\nhost=".$quote($host)."\nport=".$quote($port)."\nuser=".$quote($user)."\npassword=".$quote($pass)."\n";
+    if (file_put_contents($cnf, $ini, LOCK_EX) === false || file_put_contents($nameFile, $name, LOCK_EX) === false) {
+        throw new RuntimeException("write");
+    }
+    chmod($cnf, 0600);
+    chmod($nameFile, 0600);
+} catch (Throwable $exception) {
+    fwrite(STDERR, "backup=failed settings\n");
+    exit(1);
+}
+'; then
+    return 1
+  fi
+
+  if ! dump_bin="$(find_dump)"; then
+    echo "backup=failed client" >&2
+    return 1
+  fi
+
+  db_name="$(tr -d '\r\n' < "$namefile")"
+  if [[ ! "$db_name" =~ ^[A-Za-z0-9_]+$ ]]; then
+    echo "backup=failed settings" >&2
+    return 1
+  fi
+
+  dump_args=(
+    --defaults-extra-file="$cnf"
+    --single-transaction
+    --quick
+    --skip-lock-tables
+    --default-character-set=utf8mb4
+  )
+  if "$dump_bin" --help 2>&1 | grep -q 'no-tablespaces'; then
+    dump_args+=(--no-tablespaces)
+  fi
+  if "$dump_bin" --help 2>&1 | grep -q 'column-statistics'; then
+    dump_args+=(--column-statistics=0)
+  fi
+
+  if ! "$dump_bin" "${dump_args[@]}" --databases "$db_name" | gzip -c > "$outfile"; then
+    rm -f "$outfile"
+    echo "backup=failed dump" >&2
+    return 1
+  fi
+
+  if ! gzip -t "$outfile"; then
+    rm -f "$outfile"
+    echo "backup=failed archive" >&2
+    return 1
+  fi
+
+  size="$(wc -c < "$outfile" | tr -d ' ')"
+  if [[ ! "$size" =~ ^[0-9]+$ ]] || [[ "$size" -lt 100 ]]; then
+    rm -f "$outfile"
+    echo "backup=failed archive" >&2
+    return 1
+  fi
+
+  marker="$(gzip -dc "$outfile" | head -n 40 || true)"
+  if ! grep -q -E 'MySQL dump|MariaDB dump|CREATE TABLE|Dump completed' <<<"$marker"; then
+    rm -f "$outfile"
+    echo "backup=failed unrecognized" >&2
+    unset marker db_name
+    return 1
+  fi
+  unset marker db_name
+
+  chmod 600 "$outfile"
+  rm_backup_secrets
+  echo "backup_path=${outfile}"
+  echo "backup_bytes=${size}"
+  echo "dump_client=${dump_bin}"
+
+  local count=0 file
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    count=$((count + 1))
+    if [[ "$count" -gt 2 ]]; then
+      rm -f "$file"
+      echo "backup_pruned=1"
+    fi
+  done < <(find "$backups" -maxdepth 1 -type f -name 'reserveworx-*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+}
+
+if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
+  return 0
+fi
+
 echo "https_enforcement=required for app.reserveworx.com only, in Site Tools, Security, HTTPS Enforce"
 
 if [[ "$ACTION" == "rollback" ]]; then
@@ -279,7 +488,7 @@ if [[ "$ACTION" == "rollback" ]]; then
   echo "migrate_rollback=not run"
   echo "current=$(readlink -f "$current")"
   prune_releases
-  purge_dynamic_cache
+  purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
   health_check
   exit 0
 fi
@@ -314,6 +523,14 @@ if [[ ! -f "${shared}/.env" ]]; then
   echo "document_root=not changed. Create ${shared}/.env from .env.example before the document root is switched." >&2
   rm -f "$archive"
   exit 1
+fi
+
+if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
+  if ! backup_database; then
+    rm -f "$archive"
+    echo "Migrations were not run. Document root was not changed." >&2
+    exit 1
+  fi
 fi
 
 drop_old_rollback

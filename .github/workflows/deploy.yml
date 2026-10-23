@@ -17,7 +17,7 @@ on:
         required: true
         default: false
       migration_confirmation:
-        description: 'Required only when migrations are enabled. Type exactly: I have a backup'
+        description: 'Required only when migrations are enabled. Type exactly: I have a backup. The job also runs mysqldump before migrate.'
         type: string
         required: false
         default: ""
