@@ -32,8 +32,10 @@ class StoreAssetRequest extends FormRequest
             'name' => ['required', 'string', 'max:120'],
             'status' => ['sometimes', Rule::enum(ResourceStatus::class)],
             'capacity' => ['sometimes', 'integer', 'between:1,10000'],
+            'is_guide' => ['sometimes', 'boolean'],
             'prep_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
             'return_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
+            'turnaround_minutes' => ['sometimes', 'integer', 'between:0,1440'],
         ];
     }
 

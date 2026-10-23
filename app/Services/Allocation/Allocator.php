@@ -19,8 +19,10 @@ use App\Models\Departure;
 use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Models\RentalCheckout;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
+use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Inventory\OpeningHours;
@@ -33,7 +35,7 @@ use Illuminate\Support\Str;
 
 /**
  * @phpstan-type Demand array{type: ResourceType, id: string, quantity: int, buffer_start: CarbonImmutable, buffer_end: CarbonImmutable, name: string, buckets: list<int>}
- * @phpstan-type Plan array{demands: list<Demand>, bucket_minutes: int, location: Location, starts_at: CarbonImmutable, ends_at: CarbonImmutable}
+ * @phpstan-type Plan array{demands: list<Demand>, bucket_minutes: int, location: Location, starts_at: CarbonImmutable, ends_at: CarbonImmutable, guide_user_id: ?string, departure_id: ?string}
  */
 class Allocator
 {
@@ -65,9 +67,19 @@ class Allocator
             $this->claimDeparture($intent);
 
             if ($this->joiningOccupiedDeparture($intent)) {
+                $this->lockGuide($intent->guideUserId);
+                $this->assertGuideFree(
+                    $intent->guideUserId,
+                    $intent->startsAt,
+                    $intent->endsAt,
+                    $intent->departureId,
+                    null,
+                );
+
                 return $this->createSeatBooking($intent)->load(['holds', 'lineItems']);
             }
 
+            $this->assertDuration($intent);
             $plan = $this->plan($intent);
             $this->lock($plan);
             $this->recheck($plan, null);
@@ -92,7 +104,9 @@ class Allocator
             $intent = $this->intentFromBooking($booking);
             $holds = Hold::query()->where('booking_id', $booking->id)->get();
             $unexpired = $holds->isNotEmpty() && $holds->every(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
-            $seatOnly = $holds->isNotEmpty() && $holds->every(fn (Hold $hold): bool => $hold->asset_id === null && $hold->pool_id === null);
+            $seatOnly = $booking->departure_id !== null
+                && $holds->isNotEmpty()
+                && $holds->every(fn (Hold $hold): bool => $hold->asset_id === null && $hold->pool_id === null);
 
             if ($unexpired && $seatOnly) {
                 Hold::query()->where('booking_id', $booking->id)->delete();
@@ -172,7 +186,10 @@ class Allocator
                     null,
                     null,
                     null,
+                    $booking->departure_id,
+                    $booking->guide_user_id,
                 );
+                $this->assertDuration($intent);
                 $plan = $this->plan($intent);
                 $this->lock($plan);
 
@@ -281,7 +298,10 @@ class Allocator
                 null,
                 null,
                 null,
+                null,
+                $booking->guide_user_id,
             );
+            $this->assertDuration($intent);
             $plan = $this->plan($intent);
             $this->lock($plan);
 
@@ -343,6 +363,161 @@ class Allocator
         }));
     }
 
+    public function checkout(Booking $booking): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if ($booking->status !== BookingStatus::Confirmed) {
+                throw new AllocationUnavailableException('Only a confirmed booking can be checked out.');
+            }
+
+            $existing = RentalCheckout::query()->where('booking_id', $booking->id)->exists();
+
+            if ($existing) {
+                return $booking->load('checkouts');
+            }
+
+            $allocations = Allocation::query()->where('booking_id', $booking->id)->get();
+
+            if ($allocations->isEmpty()) {
+                throw new AllocationUnavailableException('This booking has nothing to check out.');
+            }
+
+            foreach ($allocations as $allocation) {
+                RentalCheckout::query()->create([
+                    'tenant_id' => $booking->tenant_id,
+                    'booking_id' => $booking->id,
+                    'asset_id' => $allocation->asset_id,
+                    'pool_id' => $allocation->pool_id,
+                    'quantity' => $allocation->quantity,
+                    'checked_out_at' => now(),
+                    'due_at' => $booking->ends_at,
+                ]);
+            }
+
+            return $booking->load('checkouts');
+        }));
+    }
+
+    /**
+     * @return array{booking: Booking, released_start: ?CarbonImmutable, released_end: ?CarbonImmutable}
+     */
+    public function returnRental(Booking $booking): array
+    {
+        return $this->retry(fn (): array => $this->transaction(function () use ($booking): array {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+            $open = RentalCheckout::query()
+                ->where('booking_id', $booking->id)
+                ->whereNull('returned_at')
+                ->get();
+
+            if ($open->isEmpty()) {
+                throw new AllocationUnavailableException('Check this booking out before returning it.');
+            }
+
+            $intent = $this->intentFromBooking($booking);
+            $plan = $this->plan($intent);
+            $this->lock($plan);
+            $now = CarbonImmutable::now()->utc();
+            $releasedStart = $now;
+            $releasedEnd = $now;
+            $released = false;
+
+            foreach (Allocation::query()->where('booking_id', $booking->id)->get() as $allocation) {
+                $previousEnd = CarbonImmutable::instance($allocation->ends_at)->utc();
+                $updatedEnd = $now->addMinutes($this->turnaroundFor($allocation->asset_id, $allocation->pool_id));
+                $allocation->ends_at = Carbon::instance($updatedEnd);
+                $allocation->save();
+
+                if ($updatedEnd->lessThan($previousEnd)) {
+                    $releasedStart = ! $released || $updatedEnd->lessThan($releasedStart) ? $updatedEnd : $releasedStart;
+                    $releasedEnd = ! $released || $previousEnd->greaterThan($releasedEnd) ? $previousEnd : $releasedEnd;
+                    $released = true;
+                }
+
+                BookingLineItem::query()
+                    ->where('booking_id', $booking->id)
+                    ->where('resource_id', $allocation->asset_id ?? $allocation->pool_id)
+                    ->update(['buffered_ends_at' => $updatedEnd]);
+            }
+
+            RentalCheckout::query()
+                ->where('booking_id', $booking->id)
+                ->whereNull('returned_at')
+                ->update(['returned_at' => $now]);
+
+            foreach ($plan['demands'] as $index => $demand) {
+                if ($demand['type'] !== ResourceType::Pool) {
+                    continue;
+                }
+
+                $allocation = Allocation::query()
+                    ->where('booking_id', $booking->id)
+                    ->where('pool_id', $demand['id'])
+                    ->first();
+
+                if ($allocation === null) {
+                    continue;
+                }
+
+                $bufferEnd = CarbonImmutable::instance($allocation->ends_at)->utc();
+                $plan['demands'][$index]['buffer_end'] = $bufferEnd;
+                $plan['demands'][$index]['buckets'] = $this->buckets->covering(
+                    $demand['buffer_start'],
+                    $bufferEnd,
+                    $plan['bucket_minutes'],
+                );
+            }
+
+            $this->refreshCounters($plan);
+
+            return [
+                'booking' => $booking->load(['allocations', 'checkouts']),
+                'released_start' => $released ? $releasedStart : null,
+                'released_end' => $released ? $releasedEnd : null,
+            ];
+        }));
+    }
+
+    /**
+     * @return array{duration_ok: bool, offered_durations: list<array{name: string, quantity: int, unit: string, duration_minutes: int}>, available: bool}
+     */
+    public function hint(AllocationIntent $intent): array
+    {
+        $service = Service::query()->with('durations')->find($intent->serviceId);
+        $offered = [];
+
+        if ($service instanceof Service) {
+            foreach ($service->durations as $duration) {
+                $offered[] = [
+                    'name' => $duration->name,
+                    'quantity' => $duration->quantity,
+                    'unit' => $duration->unit->value,
+                    'duration_minutes' => $duration->duration_minutes,
+                ];
+            }
+        }
+
+        $durationOk = $this->durationMatches($intent, $service);
+
+        try {
+            $plan = $this->plan($intent);
+            $this->recheck($plan, null);
+            $free = true;
+        } catch (AllocationUnavailableException) {
+            $free = false;
+        }
+
+        return [
+            'duration_ok' => $durationOk,
+            'offered_durations' => $offered,
+            'available' => $free && $durationOk,
+        ];
+    }
+
     /**
      * @param  Plan  $plan
      * @return Plan
@@ -376,7 +551,7 @@ class Allocator
             $plan['demands'][$index]['id'] = $to->id;
             $plan['demands'][$index]['name'] = $to->name;
             $plan['demands'][$index]['buffer_start'] = $plan['starts_at']->subMinutes($to->prep_buffer_minutes);
-            $plan['demands'][$index]['buffer_end'] = $plan['ends_at']->addMinutes($to->return_buffer_minutes);
+            $plan['demands'][$index]['buffer_end'] = $plan['ends_at']->addMinutes($this->tailMinutes($to));
             $replaced = true;
         }
 
@@ -514,7 +689,7 @@ class Allocator
      */
     private function plan(AllocationIntent $intent): array
     {
-        $service = Service::query()->with(['location', 'requirements'])->find($intent->serviceId);
+        $service = Service::query()->with(['location', 'requirements', 'durations'])->find($intent->serviceId);
 
         if ($service === null || $service->location === null) {
             throw new AllocationUnavailableException('That service is not available.');
@@ -538,7 +713,10 @@ class Allocator
                 : 'That time is outside opening hours.');
         }
 
-        if ($service->requirements->isEmpty()) {
+        $guideUserId = $this->presentId($intent->guideUserId);
+        $departureId = $this->presentId($intent->departureId);
+
+        if ($service->requirements->isEmpty() && $guideUserId === null) {
             throw new AllocationUnavailableException('This service has no resources.');
         }
 
@@ -558,7 +736,7 @@ class Allocator
             }
 
             $bufferStart = $intent->startsAt->subMinutes($resource->prep_buffer_minutes);
-            $bufferEnd = $intent->endsAt->addMinutes($resource->return_buffer_minutes);
+            $bufferEnd = $intent->endsAt->addMinutes($this->tailMinutes($resource));
             $resourceOpen = $this->hours->assess(
                 $service->location,
                 $intent->startsAt,
@@ -610,6 +788,8 @@ class Allocator
             'location' => $service->location,
             'starts_at' => $intent->startsAt,
             'ends_at' => $intent->endsAt,
+            'guide_user_id' => $guideUserId,
+            'departure_id' => $departureId,
         ];
     }
 
@@ -632,6 +812,7 @@ class Allocator
             'location_id' => $service->location_id,
             'service_id' => $service->id,
             'departure_id' => $intent->departureId,
+            'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $this->customerId($intent),
             'status' => BookingStatus::Held,
             'payment_status' => PaymentStatus::Unpaid,
@@ -764,6 +945,8 @@ class Allocator
                 throw new AllocationUnavailableException;
             }
         }
+
+        $this->lockGuide($plan['guide_user_id']);
     }
 
     /**
@@ -782,7 +965,11 @@ class Allocator
         foreach ($plan['demands'] as $demand) {
             if ($demand['type'] === ResourceType::Asset) {
                 if ($this->assetTaken($demand['id'], $demand['buffer_start'], $demand['buffer_end'], $ignoreBookingId)) {
-                    throw new AllocationUnavailableException;
+                    $asset = Asset::query()->find($demand['id']);
+
+                    throw new AllocationUnavailableException(
+                        $asset instanceof Asset && $asset->is_guide ? 'That guide is already booked.' : 'That time is no longer available.',
+                    );
                 }
 
                 continue;
@@ -804,6 +991,9 @@ class Allocator
                 }
             }
         }
+
+        [$guideStart, $guideEnd] = $this->guideWindow($plan);
+        $this->assertGuideFree($plan['guide_user_id'], $guideStart, $guideEnd, $plan['departure_id'], $ignoreBookingId);
     }
 
     private function assetTaken(string $assetId, CarbonImmutable $start, CarbonImmutable $end, ?string $ignoreBookingId): bool
@@ -823,7 +1013,7 @@ class Allocator
             ->when($ignoreBookingId !== null, fn ($query) => $query->where('booking_id', '!=', $ignoreBookingId))
             ->exists();
 
-        return $allocations || $holds;
+        return $allocations || $holds || $this->checkoutOverlapsAsset($assetId, $start, $end, $ignoreBookingId);
     }
 
     private function poolUsed(string $poolId, CarbonImmutable $start, CarbonImmutable $end, ?string $ignoreBookingId): int
@@ -843,7 +1033,7 @@ class Allocator
             ->when($ignoreBookingId !== null, fn ($query) => $query->where('booking_id', '!=', $ignoreBookingId))
             ->sum('quantity');
 
-        return $allocated + $held;
+        return $allocated + $held + $this->checkoutUnits($poolId, $start, $end, $ignoreBookingId);
     }
 
     /**
@@ -858,7 +1048,8 @@ class Allocator
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
-            'departure_id' => $intent->departureId !== '' ? $intent->departureId : null,
+            'departure_id' => $this->presentId($intent->departureId),
+            'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $customerId,
             'status' => $status,
             'payment_status' => PaymentStatus::Unpaid,
@@ -905,6 +1096,17 @@ class Allocator
             } else {
                 Allocation::query()->create($attributes);
             }
+        }
+
+        if ($plan['demands'] === [] && $hold && $plan['guide_user_id'] !== null) {
+            Hold::query()->create([
+                'tenant_id' => $booking->tenant_id,
+                'booking_id' => $booking->id,
+                'quantity' => $booking->participants,
+                'starts_at' => $plan['starts_at'],
+                'ends_at' => $plan['ends_at'],
+                'expires_at' => $expires,
+            ]);
         }
     }
 
@@ -986,6 +1188,7 @@ class Allocator
             null,
             null,
             $booking->departure_id,
+            $booking->guide_user_id,
         );
     }
 
@@ -1006,12 +1209,12 @@ class Allocator
                 $resource = $demand['type'] === ResourceType::Asset
                     ? Asset::query()->find($demand['id'])
                     : Pool::query()->find($demand['id']);
-                $buffer = $resource === null ? 0 : $resource->return_buffer_minutes;
+                $buffer = $resource === null ? 0 : $this->tailMinutes($resource);
                 $shorterPlan['demands'][$index]['buffer_end'] = $shorter->addMinutes($buffer);
                 if ($demand['type'] === ResourceType::Pool) {
                     $shorterPlan['demands'][$index]['buckets'] = $this->buckets->covering(
                         $demand['buffer_start'],
-                        $shorter->addMinutes($buffer),
+                        $shorterPlan['demands'][$index]['buffer_end'],
                         $plan['bucket_minutes'],
                     );
                 }
@@ -1067,5 +1270,212 @@ class Allocator
         }
 
         return array_values(array_unique($ids));
+    }
+
+    private function presentId(?string $id): ?string
+    {
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        return $id;
+    }
+
+    private function tailMinutes(Asset|Pool $resource): int
+    {
+        return $resource->return_buffer_minutes + $resource->turnaround_minutes;
+    }
+
+    private function turnaroundFor(?string $assetId, ?string $poolId): int
+    {
+        if ($assetId !== null) {
+            $asset = Asset::query()->find($assetId);
+
+            return $asset instanceof Asset ? $asset->turnaround_minutes : 0;
+        }
+
+        if ($poolId !== null) {
+            $pool = Pool::query()->find($poolId);
+
+            return $pool instanceof Pool ? $pool->turnaround_minutes : 0;
+        }
+
+        return 0;
+    }
+
+    private function assertDuration(AllocationIntent $intent): void
+    {
+        $service = Service::query()->with('durations')->find($intent->serviceId);
+
+        if (! $this->durationMatches($intent, $service instanceof Service ? $service : null)) {
+            throw new AllocationUnavailableException('Choose a rental length offered for this service.');
+        }
+    }
+
+    private function durationMatches(AllocationIntent $intent, ?Service $service): bool
+    {
+        if (! $service instanceof Service || $this->presentId($intent->departureId) !== null) {
+            return true;
+        }
+
+        if ($service->durations->isEmpty()) {
+            return true;
+        }
+
+        $elapsed = $intent->endsAt->utc()->getTimestamp() - $intent->startsAt->utc()->getTimestamp();
+
+        if ($elapsed <= 0 || $elapsed % 60 !== 0) {
+            return false;
+        }
+
+        $minutes = intdiv($elapsed, 60);
+
+        return $service->durations->contains(
+            fn (ServiceDuration $duration): bool => $duration->duration_minutes === $minutes,
+        );
+    }
+
+    private function lockGuide(?string $guideUserId): void
+    {
+        if ($guideUserId === null || $guideUserId === '') {
+            return;
+        }
+
+        $rows = DB::select('select id from users where id = ? for update', [$guideUserId]);
+
+        if ($rows === []) {
+            throw new AllocationUnavailableException('That guide is already booked.');
+        }
+    }
+
+    private function assertGuideFree(
+        ?string $guideUserId,
+        CarbonImmutable $start,
+        CarbonImmutable $end,
+        ?string $departureId,
+        ?string $ignoreBookingId,
+    ): void {
+        if ($guideUserId === null || $guideUserId === '') {
+            return;
+        }
+
+        $conflict = Booking::query()
+            ->where('guide_user_id', $guideUserId)
+            ->when($ignoreBookingId !== null, fn ($query) => $query->where('id', '!=', $ignoreBookingId))
+            ->when($departureId !== null && $departureId !== '', function ($query) use ($departureId): void {
+                $query->where(function ($inner) use ($departureId): void {
+                    $inner->whereNull('departure_id')->orWhere('departure_id', '!=', $departureId);
+                });
+            })
+            ->where(function ($query) use ($start, $end): void {
+                $query->where(function ($customer) use ($start, $end): void {
+                    $customer->where('starts_at', '<', $end)->where('ends_at', '>', $start);
+                })->orWhereHas('allocations', function ($rows) use ($start, $end): void {
+                    $rows->where('starts_at', '<', $end)->where('ends_at', '>', $start);
+                })->orWhereHas('holds', function ($rows) use ($start, $end): void {
+                    $rows->where('expires_at', '>', now())
+                        ->where('starts_at', '<', $end)
+                        ->where('ends_at', '>', $start);
+                });
+            })
+            ->where(function ($query): void {
+                $query->where('status', BookingStatus::Confirmed)
+                    ->orWhere(function ($held): void {
+                        $held->where('status', BookingStatus::Held)
+                            ->whereHas('holds', fn ($holds) => $holds->where('expires_at', '>', now()));
+                    });
+            })
+            ->exists();
+
+        if ($conflict) {
+            throw new AllocationUnavailableException('That guide is already booked.');
+        }
+    }
+
+    /**
+     * @param  Plan  $plan
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private function guideWindow(array $plan): array
+    {
+        if ($plan['demands'] === []) {
+            return [$plan['starts_at'], $plan['ends_at']];
+        }
+
+        $start = $plan['demands'][0]['buffer_start'];
+        $end = $plan['demands'][0]['buffer_end'];
+
+        foreach ($plan['demands'] as $demand) {
+            if ($demand['buffer_start']->lessThan($start)) {
+                $start = $demand['buffer_start'];
+            }
+
+            if ($demand['buffer_end']->greaterThan($end)) {
+                $end = $demand['buffer_end'];
+            }
+        }
+
+        return [$start, $end];
+    }
+
+    private function checkoutOverlapsAsset(string $assetId, CarbonImmutable $start, CarbonImmutable $end, ?string $ignoreBookingId): bool
+    {
+        $checkouts = RentalCheckout::query()
+            ->where('asset_id', $assetId)
+            ->whereNull('returned_at')
+            ->when($ignoreBookingId !== null, fn ($query) => $query->where('booking_id', '!=', $ignoreBookingId))
+            ->get();
+
+        foreach ($checkouts as $checkout) {
+            $occupiedStart = CarbonImmutable::parse($checkout->checked_out_at)->utc();
+            $occupiedEnd = $this->activeCheckoutEnd($checkout);
+
+            if ($occupiedStart->lessThan($end) && $occupiedEnd->greaterThan($start)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function checkoutUnits(string $poolId, CarbonImmutable $start, CarbonImmutable $end, ?string $ignoreBookingId): int
+    {
+        $extra = 0;
+        $checkouts = RentalCheckout::query()
+            ->where('pool_id', $poolId)
+            ->whereNull('returned_at')
+            ->when($ignoreBookingId !== null, fn ($query) => $query->where('booking_id', '!=', $ignoreBookingId))
+            ->get();
+
+        foreach ($checkouts as $checkout) {
+            $occupiedStart = CarbonImmutable::parse($checkout->checked_out_at)->utc();
+            $occupiedEnd = $this->activeCheckoutEnd($checkout);
+
+            if ($occupiedStart->greaterThanOrEqualTo($end) || $occupiedEnd->lessThanOrEqualTo($start)) {
+                continue;
+            }
+
+            $covered = Allocation::query()
+                ->where('booking_id', $checkout->booking_id)
+                ->where('pool_id', $poolId)
+                ->where('starts_at', '<', $end)
+                ->where('ends_at', '>', $start)
+                ->exists();
+
+            if (! $covered) {
+                $extra += $checkout->quantity;
+            }
+        }
+
+        return $extra;
+    }
+
+    private function activeCheckoutEnd(RentalCheckout $checkout): CarbonImmutable
+    {
+        $due = CarbonImmutable::parse($checkout->due_at)->utc();
+        $now = CarbonImmutable::now()->utc();
+        $until = $due->greaterThan($now) ? $due : $now;
+
+        return $until->addMinutes($this->turnaroundFor($checkout->asset_id, $checkout->pool_id));
     }
 }

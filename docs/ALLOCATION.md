@@ -16,9 +16,9 @@ Locations own the timezone. Tenants do not. Timestamps are stored in UTC.
 
 Booking intervals are half-open: `[start, end)`.
 
-The buffered interval that must be free is `[start - prep_buffer, end + return_buffer)`. Buffers live on the asset or the pool.
+The buffered interval that must be free is `[start - prep_buffer, end + return_buffer + turnaround)`. Prep and return buffers and the turnaround gap live on the asset or the pool. Turnaround is the gap after one rental before the next.
 
-A unit is free only when it is eligible for the service, active, not blocked, not in maintenance, the location is open, the date is not a blackout, and no allocation, active rental, or unexpired hold overlaps the buffered interval.
+A unit is free only when it is eligible for the service, active, not blocked, not in maintenance, the location is open, the date is not a blackout, and no allocation, active rental, or unexpired hold overlaps the buffered interval. An active checkout (`returned_at` null) occupies `[checked_out_at, max(due_at, now()) + turnaround)`. That is what extends the block when a rental runs past its due time. Returning the rental sets each allocation end to `now() + turnaround` and the checkout stops counting. A pool checkout is not added again for a bucket the same booking's allocation already covers.
 
 An unexpired hold is one with `expires_at > now()`. Expired holds do not count, even if the cleanup job has not run.
 
@@ -34,8 +34,9 @@ Pools use a ledger keyed by `(tenant_id, pool_id, bucket_start_utc)`.
 
 One transaction, one global order, so two composite bookings cannot deadlock by taking the same locks in opposite orders:
 
-1. Pool ids ascending. For each pool, bucket starts ascending.
+1. Pool ids ascending. For each pool, the pool row, then bucket starts ascending.
 2. Asset ids ascending.
+3. The guide user id, when the booking names one. `SELECT users.id FOR UPDATE` runs after every asset lock.
 
 Lazy-create missing ledger rows with insert-ignore, then `SELECT … FOR UPDATE`. Insert-ignore is not itself the lock.
 
@@ -43,7 +44,9 @@ The transaction isolation is `READ COMMITTED`. A repeatable-read snapshot taken 
 
 For each pool, the pool row is locked before its buckets so `pools.quantity` cannot change during the recheck. That stays inside the pool-then-asset order.
 
-A booking that names a departure locks that departure row first, before any pool or asset. Seat and private-tour checks run under that lock. Two departures cannot deadlock with each other, and a booking without a departure never waits on a departure row.
+A booking that names a departure locks that departure row first, before any pool or asset. Seat and private-tour checks run under that lock. Two departures cannot deadlock with each other, and a booking without a departure never waits on a departure row. A later party on that departure does not allocate the shared resources again, but it still locks and conflict-checks its guide user. Other bookings on the same departure do not count as a guide conflict.
+
+Waitlist promotion runs only after the freeing transaction has committed. It calls the same `hold()` path, so it takes this lock order under `READ COMMITTED`. It does not send email. It queues a notification hook.
 
 Set `innodb_lock_wait_timeout` to 3 seconds for the transaction. On MySQL deadlock `1213` or lock-wait timeout `1205`, retry up to 3 times with jitter. After that, return a clean "no longer available" response. Do not surface the SQL error. Individually tracked assets are exclusive for the buffered interval. `assets.capacity` is stored and does not allow a second overlap.
 

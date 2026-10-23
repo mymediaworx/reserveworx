@@ -23,6 +23,7 @@ class PoolResource extends JsonResource
             'status' => $this->status->value,
             'prep_buffer_minutes' => $this->prep_buffer_minutes,
             'return_buffer_minutes' => $this->return_buffer_minutes,
+            'turnaround_minutes' => $this->turnaround_minutes,
         ];
     }
 }

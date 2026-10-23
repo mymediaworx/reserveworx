@@ -22,15 +22,19 @@ class Asset extends Model
         'name',
         'status',
         'capacity',
+        'is_guide',
         'prep_buffer_minutes',
         'return_buffer_minutes',
+        'turnaround_minutes',
     ];
 
     protected $casts = [
         'status' => ResourceStatus::class,
         'capacity' => 'integer',
+        'is_guide' => 'boolean',
         'prep_buffer_minutes' => 'integer',
         'return_buffer_minutes' => 'integer',
+        'turnaround_minutes' => 'integer',
     ];
 
     /**
