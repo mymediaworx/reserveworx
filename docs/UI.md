@@ -44,3 +44,29 @@ The customer widget at `/book/{token}` takes a widget token. Tokens are stored a
 ## Demo data
 
 `DemoShopSeeder` gives the two demo tenants a shop: Harbor Point Marina (kayaks, paddleboards, a guided sunset tour with departures, and promo code `WELCOME10`) and Mill Creek Landing (canoes). It runs only for demo tenants that have no locations yet.
+
+## Putting a demo workspace on a real address
+
+Tenant pages are served only on a verified tenant domain, so a demo needs a real hostname, for example `harbor.reserveworx.com` for Harbor Demo.
+
+1. **SiteGround, Site Tools → Domain → Subdomains:** create `harbor.reserveworx.com`. Then **Security → SSL Manager:** issue a Let's Encrypt certificate for it, and turn on **HTTPS Enforce** for that subdomain only.
+2. **Front controller:** in the new subdomain's `public_html`, add an `index.php` that boots the live app. It is the same file the deploy writes for `app.reserveworx.com`, with an absolute root:
+
+   ```php
+   <?php
+   use Illuminate\Foundation\Application;
+   use Illuminate\Http\Request;
+   define('LARAVEL_START', microtime(true));
+   $root = '/home/customer/www/app.reserveworx.com/laravel/current';
+   if (file_exists($maintenance = $root.'/storage/framework/maintenance.php')) { require $maintenance; }
+   require $root.'/vendor/autoload.php';
+   /** @var Application $app */
+   $app = require_once $root.'/bootstrap/app.php';
+   $app->handleRequest(Request::capture());
+   ```
+
+   Copy `.htaccess` from `app.reserveworx.com/public_html` too. Deploys never write outside `app.reserveworx.com`, so this file is a one-time manual step per subdomain. Because it points at `laravel/current`, it follows every deploy and rollback.
+3. **Platform admin:** sign in at `https://app.reserveworx.com/platform`. Open Harbor Demo, add `harbor.reserveworx.com`, and mark it verified. The first platform admin is granted over SSH with `php artisan reserveworx:grant-platform-admin <email>` (see [`RUNBOOK.md`](RUNBOOK.md)).
+4. **Try it:** staff sign in at `https://harbor.reserveworx.com/staff/login` with the Harbor Demo login from `laravel/shared/demo-logins.txt`. Make a link under **Booking links** to see the customer side.
+
+Wildcard subdomains would remove step 2 for every new operator. Whether SiteGround supports them is still open question 9.
