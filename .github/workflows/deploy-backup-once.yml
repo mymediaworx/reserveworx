@@ -24,7 +24,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
+          path: deploy-src
+
+      - uses: actions/checkout@v4
+        with:
           ref: main
+          path: release-src
 
       - name: Mask connection secrets
         env:
@@ -46,10 +52,12 @@ jobs:
           tools: composer:v2
 
       - name: Install production dependencies
+        working-directory: release-src
         run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
       - name: Pack main
         id: release
+        working-directory: release-src
         run: |
           set -euo pipefail
           release="$(git rev-parse HEAD)"
@@ -82,9 +90,9 @@ jobs:
           RELEASE: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
-          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "test -d www/app.reserveworx.com && test ! -d www/reserveworx.com/laravel && mkdir -p www/app.reserveworx.com/laravel/incoming"
-          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat > www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
+          chmod +x release-src/scripts/ssh-siteground.sh release-src/scripts/prepare-siteground-ssh.sh
+          release-src/scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "test -d www/app.reserveworx.com && test ! -d www/reserveworx.com/laravel && mkdir -p www/app.reserveworx.com/laravel/incoming"
+          release-src/scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat > www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
           rm -f "/tmp/reserveworx-${RELEASE}.tar.gz"
 
       - name: Back up the database, migrate, and activate
@@ -97,11 +105,11 @@ jobs:
           RELEASE: ${{ steps.release.outputs.sha }}
         run: |
           set -euo pipefail
-          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/remote-deploy.sh
+          chmod +x release-src/scripts/ssh-siteground.sh release-src/scripts/prepare-siteground-ssh.sh deploy-src/scripts/remote-deploy.sh
           remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q MIGRATION_CONFIRMATION=%q bash -s' \
             deploy "$RELEASE" true "I have a backup")"
           set +e
-          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/deploy-out.txt
+          release-src/scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < deploy-src/scripts/remote-deploy.sh | tee /tmp/deploy-out.txt
           deploy_exit=${PIPESTATUS[0]}
           set -e
           echo "deploy_script_exit=${deploy_exit}"
@@ -133,7 +141,7 @@ jobs:
           if grep -q '^current=' /tmp/deploy-out.txt; then
             echo "health=failed. Rolling the code release back. migrate:rollback is not run." >&2
             rollback_cmd="$(printf 'ACTION=%q bash -s' rollback)"
-            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$rollback_cmd" < scripts/remote-deploy.sh | tee /tmp/rollback-out.txt
+            release-src/scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$rollback_cmd" < deploy-src/scripts/remote-deploy.sh | tee /tmp/rollback-out.txt
             exit 1
           fi
 
