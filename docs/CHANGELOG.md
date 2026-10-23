@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A platform administrator can export one workspace to a private JSON file. Closing that workspace for good stays refused until the file exists.
 - Today's report can be downloaded as CSV from the staff page and from `GET /api/v1/reports/today/export`.
 - Staff can refund a Stripe booking. A full refund returns the application fee with Stripe's flag. A partial refund returns the calculator's fee in a separate application-fee refund. A lost dispute does the same. Nothing is sent until the platform secret is set.
 - GoHighLevel events queue in an outbox and are not sent. A mismatched workspace is refused. Notification hooks are marked skipped when no email provider is configured. `integrations:dispatch` does both.

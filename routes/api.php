@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
+use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\PoolController;
 use App\Http\Controllers\Api\V1\PricingController;
 use App\Http\Controllers\Api\V1\RefundController;
@@ -42,6 +43,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/tenants', [PlatformTenantController::class, 'store']);
             Route::get('/tenants/{tenant}', [PlatformTenantController::class, 'show']);
             Route::patch('/tenants/{tenant}', [PlatformTenantController::class, 'update']);
+            Route::post('/tenants/{tenant}/exports', [TenantExportController::class, 'store']);
+            Route::get('/tenants/{tenant}/exports/{export}', [TenantExportController::class, 'download']);
             Route::post('/tenants/{tenant}/domains', [DomainController::class, 'store']);
             Route::post('/tenants/{tenant}/domains/{domain}/verify', [DomainController::class, 'verify']);
             Route::patch('/tenants/{tenant}/fees', [FeeSettingsController::class, 'update']);
