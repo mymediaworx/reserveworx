@@ -23,7 +23,7 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | MySQL or MariaDB version | Exact version still unverified until hosting-check runs. CI runs MySQL 8.0 and MariaDB 11.8, including the row-lock test |
 | InnoDB, transactions, and `SELECT … FOR UPDATE` | Unverified on the host. CI covers the row lock on both engines |
 | Minimum cron interval | Every minute via Site Tools, same citation. Not yet verified for this site |
-| SSH | Product owner says Actions can connect. Not exercised by this change |
+| SSH | Attempted October 23, 2026 from GitHub Actions. No session was opened. See “First install attempt” below |
 | Git on the server | Unverified. Deploys do not need server-side git |
 | Composer on the server | Unknown. Deploys build `vendor` on the runner and do not run Composer on the server |
 | Process limits | GoGeek caps from the same report: 600,000 inode hard cap (that account already exceeded it once), 4,000 CPU-seconds/hour, 4,000 executions/hour. Not yet verified for this site |
@@ -62,4 +62,26 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12 on PHP 8.2.35. `memory_limit`, `max_execution_time`, and the exact database version stay unverified until **Hosting check** runs on this site.
+Laravel 12 on PHP 8.2.35. `memory_limit`, `max_execution_time`, and the exact database version stay unverified until a hosting check completes an SSH session.
+
+## First install attempt, October 23, 2026
+
+The install did not reach the server. `https://app.reserveworx.com/up`, requested from outside SiteGround, returned HTTP 202 with `sg-captcha: challenge`. That is the SiteGround bot check, not a Laravel `/up` response.
+
+Actions runs [39993759232](https://github.com/mymediaworx/reserveworx/actions/runs/39993759232), [39994222015](https://github.com/mymediaworx/reserveworx/actions/runs/39994222015), and [39994373852](https://github.com/mymediaworx/reserveworx/actions/runs/39994373852) are the evidence. No secret values are copied here.
+
+| Secret | Result |
+|---|---|
+| `SG_HOST`, `SG_USER`, `SG_PORT` | Present |
+| `SG_SSH_KEY` | Empty. Nothing was written into the key file |
+| `SG_SSH_PASSPHRASE` | Present, but the value is an encrypted OpenSSH private key (`BEGIN OPENSSH PRIVATE KEY`, 8 lines, 444 bytes). `ssh-keygen -y -P ""` returned `incorrect passphrase supplied to decrypt private key` |
+
+The database was not queried. No database or user was created. The shared `.env` was not written. Migrations and seeders did not run.
+
+What has to change before the next attempt:
+
+1. Store the SiteGround private key in the Actions secret `SG_SSH_KEY`.
+2. If that key is encrypted, store only its passphrase in `SG_SSH_PASSPHRASE`. That secret currently holds the key, so Actions has no passphrase to try.
+3. Do not send the key or the passphrase in chat, issues, or this file.
+
+`workflow_dispatch` from the GitHub App used for this repository returns HTTP 403 because the token does not have `actions=write`. A person with permission on the repository can run **Hosting check** from the Actions tab after the secrets are corrected.
