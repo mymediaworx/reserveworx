@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use App\Http\Controllers\Api\V1\WaitlistController;
+use App\Http\Controllers\Api\V1\WidgetTokenController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -106,6 +107,9 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
+            Route::get('/widget-tokens', [WidgetTokenController::class, 'index']);
+            Route::post('/widget-tokens', [WidgetTokenController::class, 'store']);
+            Route::post('/widget-tokens/{widget_token}/revoke', [WidgetTokenController::class, 'revoke']);
         });
     });
 });
