@@ -145,6 +145,14 @@ done
 section "Inbound webhooks"
 echo "waf_and_rate_rules=not observable from SSH"
 
+section "Application URL"
+echo "http_202_means=SiteGround bot check, not a healthy application"
+code="$(curl -sS -o /dev/null --max-time 20 -w '%{http_code}' -H 'Cache-Control: no-cache' https://app.reserveworx.com/up || true)"
+echo "app_reserveworx_up_http=${code:-none}"
+if [[ "$code" == "202" ]]; then
+  echo "app_reserveworx_up=not proven"
+fi
+
 echo
 echo "hosting_check=complete"
 exit 0

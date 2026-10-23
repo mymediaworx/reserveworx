@@ -5,17 +5,22 @@ namespace App\Models;
 use App\Enums\MembershipStatus;
 use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\MembershipFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['tenant_id', 'user_id', 'role_id', 'status'])]
 class Membership extends Model
 {
     /** @use HasFactory<MembershipFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
+
+    protected $fillable = [
+        'tenant_id',
+        'user_id',
+        'role_id',
+        'status',
+    ];
 
     protected $casts = [
         'status' => MembershipStatus::class,

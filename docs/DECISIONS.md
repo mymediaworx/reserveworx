@@ -31,11 +31,12 @@ The product owner also created the subdomain `app.reserveworx.com` as the applic
 | Platform hosts | `app.reserveworx.com` never implies a tenant | Local tests also allow `localhost` and `127.0.0.1`. Production `.env` must not |
 | Domain verification | Interim platform attestation, audited | DNS automation is not built. This is not a claim that DNS was checked |
 | Password hashing | bcrypt via Laravel's default | argon2id waits until `memory_limit` is known |
-| Queue | `database` driver, `schedule:run` from cron, `queue:work database --stop-when-empty --tries=3 --max-time` | Spec Section 2.3. Default max time is 50 seconds (`QUEUE_WORK_MAX_TIME`) |
+| Queue | `database` driver, `schedule:run` from cron, `queue:work database --stop-when-empty --tries=3 --max-time` | Spec Section 2.3. Default max time is 20 seconds so a one-minute cron stays inside the reported GoGeek CPU cap |
 | Hold expiry | Must be enforced at read time once the engine exists | Cron may be slower than one minute. The engine is not written yet |
 | Roles | System roles `owner`, `manager`, `staff` | Foundation default so policies can be tested. Not a product-owner staffing model |
-| Laravel major | 13.x, PHP ^8.3 | Current release. Security support runs through March 17, 2028. Contingent on the host offering PHP 8.3 |
-| Test database | MySQL 8, user `reserveworx`, password `reserveworx` | Disposable CI credential. SQLite is not used because it ignores row locks |
+| Laravel major | 12.x, PHP ^8.2, Composer platform `8.2.35` | Managed PHP 8.2.35 was reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site. Laravel 12 supports PHP 8.2. Laravel 13 requires PHP 8.3 |
+| Test databases | MySQL 8.0 and MariaDB 11.8, user `reserveworx`, password `reserveworx` | Disposable CI credentials. The row-lock test runs on both. SQLite is not used because it ignores row locks |
+| Release files | Current release plus one rollback, archive deleted after extract, vendor only inside those two trees | Reported GoGeek inode cap is 600,000 and that account already exceeded it. Deploy never writes outside `app.reserveworx.com` |
 | Branch names | This change uses `cursor/reserveworx-foundation-681b` | Spec Section 16 prefers `feature/<issue>-<slug>`. No GitHub issue was opened for this run |
 
 ## Proposals awaiting product-owner approval
@@ -52,7 +53,7 @@ Livewire is not installed. Do not add it until this proposal is approved.
 
 ### Transactional email
 
-Use Postmark. Laravel 13 documents the Postmark transport (`symfony/postmark-mailer`, `POSTMARK_API_KEY`, `message_stream_id`). Postmark webhooks cover Delivery, Bounce, and Spam Complaint. Postmark's comparison with Amazon SES says transactional and broadcast mail use separate streams and that Postmark does not require a sending-quota increase. Cost was not compared.
+Use Postmark. Laravel 12 documents the Postmark transport (`symfony/postmark-mailer`, `POSTMARK_API_KEY`, `message_stream_id`). Postmark webhooks cover Delivery, Bounce, and Spam Complaint. Postmark's comparison with Amazon SES says transactional and broadcast mail use separate streams and that Postmark does not require a sending-quota increase. Cost was not compared.
 
 Mailgun and Amazon SES remain acceptable. The default mailer stays `log`. Do not install an email package, and do not use PHP `mail()`.
 
@@ -62,9 +63,9 @@ Use a Marketplace OAuth app, start Private, target Sub-account, and store locati
 
 This is open question 7. Details and citations are in [`INTEGRATIONS.md`](INTEGRATIONS.md).
 
-### Laravel 12 fallback
+### PHP version
 
-If the hosting check shows that this account cannot run PHP 8.3 or newer, the scaffold should move to Laravel 12, which supports PHP 8.2 and is security-only until February 24, 2027. Do not downgrade until that report exists.
+The scaffold is Laravel 12 because managed PHP 8.2.35 was reported for what is likely this account. That report is not a measurement of `app.reserveworx.com`. Hosting check still has to print the binary, `memory_limit`, and `max_execution_time`. Laravel 12 receives security fixes until February 24, 2027. Do not move back to Laravel 13 unless this site can select PHP 8.3 or newer.
 
 ## Explicitly not decided
 

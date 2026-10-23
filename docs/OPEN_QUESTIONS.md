@@ -19,9 +19,9 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 
 ## Found while scaffolding
 
-13. **PHP 8.3 on this account.** Laravel 13 requires it. SiteGround's managed default has been documented publicly as 8.2. The hosting check must show the binaries this account can actually run.
-14. **Cron minimum.** SiteGround's public fair-use note for shared plans says at least 30 minutes between cron runs. If the check confirms that, hold expiry still has to be enforced at read time, and a Cloud plan or a small VPS is the upgrade to discuss. Do not migrate without approval.
-15. **MySQL or MariaDB on the host.** Version, InnoDB, transactions, and `SELECT … FOR UPDATE` are unverified. CI uses MySQL 8.0.
+13. **PHP on this site.** Managed PHP 8.2.35 was reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site. The app is Laravel 12 because of that report. Hosting check must still print the binary, `memory_limit`, and `max_execution_time`.
+14. **Cron minimum.** The same report says Site Tools cron runs every minute on GoGeek. SiteGround's public fair-use note for shared plans still says at least 30 minutes between cron runs. Hosting check must show the real crontab. Hold expiry still has to be enforced at read time.
+15. **MySQL or MariaDB on the host.** The exact version, InnoDB, transactions, and `SELECT … FOR UPDATE` are unverified until hosting-check runs. CI uses MySQL 8.0 and MariaDB 11.8.
 16. **Outbound HTTPS and inbound WAF.** The hosting check can probe outbound TLS to Stripe and HighLevel. It cannot see WAF rules that would block inbound webhooks.
 17. **Process limits and long-running processes.** Assumed unavailable until the check says otherwise. No persistent workers and no WebSockets.
 18. **DNS verification of tenant domains.** Verification is interim platform attestation. Automated DNS is not built.
@@ -30,5 +30,5 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 21. **Stripe API version and fee collector.** Do not pin an API version until payments are implemented. Before charging, confirm the connected account's fee collector (`controller.fees.payer` or Accounts v2 `defaults.responsibilities.fees_collector`).
 22. **Data export before termination.** Terminating a tenant returns HTTP 409 until an export exists. The export is not built.
 23. **Backup and restore.** Not tested. Production migrations stay off until a backup exists and the operator types the confirmation phrase in [`DEPLOY.md`](DEPLOY.md).
-24. **`QUEUE_WORK_MAX_TIME`.** Default 50 seconds. Revisit if cron is 30 minutes.
+24. **`QUEUE_WORK_MAX_TIME`.** Default is 20 seconds so a one-minute cron stays inside the reported 4,000 CPU-second GoGeek cap. Revisit after hosting-check prints the real limits.
 25. **Frontend.** Blade plus Livewire for staff, token-based widget for embeds. Not approved. Livewire is not installed.

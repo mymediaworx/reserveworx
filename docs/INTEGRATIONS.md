@@ -117,4 +117,4 @@ Marketplace OAuth app, distribution starting Private, target Sub-account, locati
 
 ## Email
 
-Postmark is the proposed transactional provider. Laravel 13's mail documentation describes the Postmark transport and `POSTMARK_API_KEY`. The package is not installed. Default mailer is `log`. See [`DECISIONS.md`](DECISIONS.md).
+Postmark is the proposed transactional provider. Laravel 12's mail documentation describes the Postmark transport and `POSTMARK_API_KEY`. The package is not installed. Default mailer is `log`. See [`DECISIONS.md`](DECISIONS.md).

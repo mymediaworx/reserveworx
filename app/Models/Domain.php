@@ -4,16 +4,22 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\DomainFactory;
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-#[Fillable(['tenant_id', 'hostname', 'type', 'verified_at', 'is_primary'])]
 class Domain extends Model
 {
     /** @use HasFactory<DomainFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
+
+    protected $fillable = [
+        'tenant_id',
+        'hostname',
+        'type',
+        'verified_at',
+        'is_primary',
+    ];
 
     protected $casts = [
         'verified_at' => 'datetime',

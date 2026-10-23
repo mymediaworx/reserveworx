@@ -6,12 +6,12 @@ This repository is the Phase 1 architecture package and the Phase 2 foundation: 
 
 ## Requirements
 
-- PHP 8.3 or newer
+- PHP 8.2 or newer (production target is the reported managed PHP 8.2.35)
 - Composer 2
-- MySQL 8 for the application and the test suite
+- MySQL 8 or MariaDB 11 for the application. CI runs both MySQL 8.0 and MariaDB 11.8
 - No Node process at runtime. The current UI is a static Blade page.
 
-Laravel 13 is installed. It requires PHP 8.3. Whether this SiteGround account can select PHP 8.3 is still unverified. See [`docs/HOSTING.md`](docs/HOSTING.md) and [`docs/DECISIONS.md`](docs/DECISIONS.md).
+Laravel 12 is installed, with Composer `platform.php` set to `8.2.35`. That PHP version was reported by BrandWorx Dev for distrosku.com on October 23, 2026, and is not yet verified for this site. `memory_limit`, `max_execution_time`, and the exact database version are still unknown until the hosting check runs. See [`docs/HOSTING.md`](docs/HOSTING.md).
 
 ## Local setup
 
@@ -21,7 +21,7 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-Set `DB_*` in `.env` to a local MySQL database, then:
+Set `DB_*` in `.env` to a local MySQL 8 or MariaDB 11 database, then:
 
 ```bash
 php artisan migrate
@@ -38,7 +38,7 @@ php artisan reserveworx:grant-platform-admin you@example.com
 
 ## Tests
 
-PHPUnit uses MySQL, not SQLite. The disposable test credential is `reserveworx` / `reserveworx` on database `reserveworx_test` at `127.0.0.1`. It is not a production secret.
+PHPUnit uses MySQL or MariaDB, not SQLite. CI runs the same suite on MySQL 8.0 and MariaDB 11.8, including the row-lock test. The disposable test credential is `reserveworx` / `reserveworx` on database `reserveworx_test` at `127.0.0.1`. It is not a production secret.
 
 ```bash
 php artisan test
@@ -71,7 +71,7 @@ Both workflows are manual and run only from `main` after this pull request is me
 2. Open `https://github.com/mymediaworx/reserveworx/actions`.
 3. Choose **Hosting check**, then **Run workflow**, and select branch `main`.
 4. Open the run and read the job summary at the top. Copy the facts into `docs/HOSTING.md` in a follow-up change. Do not paste secrets.
-5. Deploy only after the hosting report is acceptable and `$HOME/reserveworx/shared/.env` exists on the server. Actions → **Deploy** → **Run workflow** → branch `main` → action `deploy`. Leave **Run migrations** off.
+5. Deploy only after the hosting report is acceptable and `$HOME/www/app.reserveworx.com/laravel/shared/.env` exists on the server. Actions → **Deploy** → **Run workflow** → branch `main` → action `deploy`. Leave **Run migrations** off. HTTPS must already be enforced for that subdomain in Site Tools.
 6. Rollback: the same workflow, action `rollback`. Rollback does not reverse schema changes.
 
 Migrations stay off unless a current SiteGround backup exists and the operator types `I have a backup` in the confirmation field. Details are in [`docs/DEPLOY.md`](docs/DEPLOY.md).

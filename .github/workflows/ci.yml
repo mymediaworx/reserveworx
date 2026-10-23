@@ -19,7 +19,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.2"
           coverage: none
           tools: composer:v2
 
@@ -42,7 +42,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.2"
           coverage: none
           tools: composer:v2
 
@@ -65,7 +65,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.2"
           coverage: none
           tools: composer:v2
 
@@ -80,21 +80,35 @@ jobs:
       - run: composer audit
 
   tests:
-    name: Tests
+    name: Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: MySQL 8.0
+            image: mysql:8.0
+            health: mysqladmin ping -h 127.0.0.1 -ureserveworx -preserveworx
+          - name: MariaDB 11.8
+            image: mariadb:11.8
+            health: healthcheck.sh --connect --innodb_initialized
     services:
-      mysql:
-        image: mysql:8.0
+      database:
+        image: ${{ matrix.image }}
         env:
           MYSQL_DATABASE: reserveworx_test
           MYSQL_USER: reserveworx
           MYSQL_PASSWORD: reserveworx
           MYSQL_ROOT_PASSWORD: reserveworx
+          MARIADB_DATABASE: reserveworx_test
+          MARIADB_USER: reserveworx
+          MARIADB_PASSWORD: reserveworx
+          MARIADB_ROOT_PASSWORD: reserveworx
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -ureserveworx -preserveworx"
+          --health-cmd="${{ matrix.health }}"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -103,7 +117,7 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.3"
+          php-version: "8.2"
           extensions: mbstring, xml, curl, zip, bcmath, intl, pdo_mysql
           coverage: none
           tools: composer:v2
