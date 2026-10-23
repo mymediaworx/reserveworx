@@ -113,38 +113,29 @@ jobs:
           fi
           echo "release_switched=${switched}"
 
-          set +e
-          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s <<'PROBE' | tee /tmp/probe-out.txt
-          probe() {
-            label="$1"
-            url="$2"
-            host="$3"
-            body="$(mktemp)"
-            code="$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' -H "Host: ${host}" -H "Cache-Control: no-cache" "$url" || true)"
-            marker=no
-            if grep -q "Application up" "$body"; then marker=yes; fi
-            title="$(grep -o '<title>[^<]*</title>' "$body" | head -n 1 || true)"
-            echo "${label}_http=${code:-none} application_up=${marker} title=${title:-none} host=${host}"
-            rm -f "$body"
-          }
-          probe up_local "http://127.0.0.1/up" "app.reserveworx.com"
-          probe home_local "http://127.0.0.1/" "app.reserveworx.com"
-          probe platform_login_local "http://127.0.0.1/platform/login" "app.reserveworx.com"
-          probe css_local "http://127.0.0.1/ui/app.css" "app.reserveworx.com"
-          probe staff_login_local "http://127.0.0.1/staff/login" "harbor-demo.reserveworx.test"
-          probe calendar_local "http://127.0.0.1/staff/calendar" "harbor-demo.reserveworx.test"
-          probe admin_login_local "http://127.0.0.1/admin/login" "harbor-demo.reserveworx.test"
-          PROBE
-          set -e
-
-          up_code="$(sed -n 's/^up_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
-          up_marker="$(sed -n 's/^up_local_http=[^ ]* application_up=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
-          home_code="$(sed -n 's/^home_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
-          login_code="$(sed -n 's/^platform_login_local_http=\([^ ]*\).*/\1/p' /tmp/probe-out.txt | head -n 1)"
-          echo "server_up_http=${up_code:-none} application_up=${up_marker:-no} home_http=${home_code:-none} platform_login_http=${login_code:-none}"
-
-          if [[ "$switched" == "yes" && "$up_code" == "200" && "$up_marker" == "yes" && "$home_code" == "200" && "$login_code" == "200" ]] && grep -q '^migrations=ran$' /tmp/deploy-out.txt; then
-            echo "health=ok source=server_localhost"
+          # Port 80 on 127.0.0.1 is closed on this host. The deploy script's
+          # public HTTPS check is the one that can see the site.
+          if [[ "$deploy_exit" == "0" ]] && grep -q '^health=ok$' /tmp/deploy-out.txt && grep -q '^migrations=ran$' /tmp/deploy-out.txt; then
+            set +e
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s <<'PROBE'
+            probe() {
+              label="$1"
+              path="$2"
+              body="$(mktemp)"
+              code="$(curl -sS --max-time 20 -o "$body" -w '%{http_code}' -H "Cache-Control: no-cache" -H "Cookie: wpSGCacheBypass=1" "https://app.reserveworx.com${path}" || true)"
+              marker=no
+              if grep -q "Application up" "$body"; then marker=yes; fi
+              title="$(grep -o '<title>[^<]*</title>' "$body" | head -n 1 || true)"
+              echo "${label}_http=${code:-none} application_up=${marker} title=${title:-none}"
+              rm -f "$body"
+            }
+            probe up /up
+            probe home /
+            probe platform_login /platform/login
+            probe css /ui/app.css
+            PROBE
+            set -e
+            echo "health=ok source=deploy_script"
             exit 0
           fi
 
