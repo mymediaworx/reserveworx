@@ -68,6 +68,27 @@ final class StripeSdkGateway implements StripeGateway
         ];
     }
 
+    public function createRefund(string $accountId, array $params, string $idempotencyKey): array
+    {
+        $refund = $this->client()->refunds->create($params, [
+            'stripe_account' => $accountId,
+            'idempotency_key' => $idempotencyKey,
+        ]);
+
+        return ['id' => $refund->id];
+    }
+
+    public function createApplicationFeeRefund(string $feeId, int $amount, string $idempotencyKey): array
+    {
+        $refund = $this->client()->applicationFees->createRefund($feeId, [
+            'amount' => $amount,
+        ], [
+            'idempotency_key' => $idempotencyKey,
+        ]);
+
+        return ['id' => $refund->id];
+    }
+
     private function client(): StripeClient
     {
         return new StripeClient([

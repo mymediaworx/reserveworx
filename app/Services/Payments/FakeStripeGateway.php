@@ -17,6 +17,12 @@ final class FakeStripeGateway implements StripeGateway
     /** @var list<array{account: string, params: array<string, mixed>}> */
     public array $sessions = [];
 
+    /** @var list<array{account: string, params: array<string, mixed>, idempotency_key: string}> */
+    public array $refunds = [];
+
+    /** @var list<array{fee: string, amount: int, idempotency_key: string}> */
+    public array $feeRefunds = [];
+
     public string $accountId = 'acct_test_123';
 
     public string $sessionId = 'cs_test_123';
@@ -67,5 +73,27 @@ final class FakeStripeGateway implements StripeGateway
             'account' => is_string($decoded['account'] ?? null) ? $decoded['account'] : null,
             'object' => is_array($object) ? $object : [],
         ];
+    }
+
+    public function createRefund(string $accountId, array $params, string $idempotencyKey): array
+    {
+        $this->refunds[] = [
+            'account' => $accountId,
+            'params' => $params,
+            'idempotency_key' => $idempotencyKey,
+        ];
+
+        return ['id' => 're_test_'.count($this->refunds)];
+    }
+
+    public function createApplicationFeeRefund(string $feeId, int $amount, string $idempotencyKey): array
+    {
+        $this->feeRefunds[] = [
+            'fee' => $feeId,
+            'amount' => $amount,
+            'idempotency_key' => $idempotencyKey,
+        ];
+
+        return ['id' => 'fr_test_'.count($this->feeRefunds)];
     }
 }

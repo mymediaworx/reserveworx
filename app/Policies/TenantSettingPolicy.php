@@ -14,6 +14,13 @@ class TenantSettingPolicy
         private readonly TenantManager $tenants,
     ) {}
 
+    public function viewAny(User $user): bool
+    {
+        $tenantId = $this->tenants->id();
+
+        return is_string($tenantId) && $this->access->allows($user, $tenantId, 'settings.view');
+    }
+
     public function view(User $user, TenantSetting $setting): bool
     {
         return $this->matchesContext($setting)

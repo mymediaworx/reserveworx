@@ -1,6 +1,6 @@
 # Fees
 
-Product rules D1–D8 and spec Sections 7.4–7.8. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). Checkout disclosures are published with a pricing snapshot. Stripe checkout and webhooks are wired and stay inert until the platform secret exists. Refund execution against Stripe is not implemented. Settings are persisted and rates change through a platform-only API.
+Product rules D1–D8 and spec Sections 7.4–7.8. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). Checkout disclosures are published with a pricing snapshot. Stripe checkout, refunds, and webhooks are wired and stay inert until the platform secret exists. Settings are persisted and rates change through a platform-only API.
 
 ## What is stored
 
@@ -128,8 +128,8 @@ The browser return URL does not confirm a booking. `checkout.session.completed` 
 
 Without `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET`, the gateway is `UnconfiguredStripeGateway`. Checkout returns 409. The webhook returns 400. Tests use `FakeStripeGateway` plus one real HMAC check in `StripeSdkGateway`. No live Stripe call is made.
 
-Refund execution against Stripe is still not wired. The refund calculator remains the source for the amounts. Receipt rendering is the disclosure partials; sending a receipt waits on an email provider.
+`POST /api/v1/bookings/{booking}/refunds` runs the calculator and then Stripe. A full refund with nothing refunded before sends `refund_application_fee=true`. Every other fee refund omits that flag and creates an application fee refund for the calculator's amount. `charge.dispute.closed` uses `dispute_lost` or `dispute_won`. Without the platform secret the endpoint returns 409 and does not write a refund. Receipt rendering is the disclosure partials; sending a receipt waits on an email provider. A platform-only manual fee refund, separate from these reason codes, is not built.
 
 ## Not in this repository
 
-No live Stripe keys, no application-fee refund API call, and no receipt email. Settings tests cover authorization and persistence only.
+No live Stripe keys and no receipt email. The application-fee refund call exists and is covered by `FakeStripeGateway`. Settings tests cover authorization and persistence only.

@@ -2,7 +2,7 @@
 
 Research for Stripe Connect and GoHighLevel, retrieved October 23, 2026 from the official docs linked below. No live API calls were made. Nothing in this file is implemented except empty `STRIPE_*` and `GHL_*` keys in `.env.example`. Do not copy sample client secrets from HighLevel's OAuth examples into this repository.
 
-Payment state, when it exists, will come only from verified Stripe webhooks. A browser redirect is not payment proof. A GoHighLevel outage must not change bookings, payments, or inventory (spec Section 1.3 and D10). The outbox pattern is Phase 6 and is not coded.
+Payment state, when it exists, will come only from verified Stripe webhooks. A browser redirect is not payment proof. A GoHighLevel outage must not change bookings, payments, or inventory (spec Section 1.3 and D10). The outbox stores events and refuses a different workspace. It does not call HighLevel. Marketplace OAuth is still unapproved.
 
 ## Stripe Connect
 
