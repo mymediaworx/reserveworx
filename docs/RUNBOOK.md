@@ -34,9 +34,9 @@ Typical causes:
 
 ## A migration ran and the app is broken
 
-Rollback of code does not undo the migration. Restore the SiteGround database backup taken before the confirmation phrase was typed. Then roll the code back if the backup matches the previous release.
+Rollback of code does not undo the migration. When migrations were enabled, the deploy wrote a gzip under `$HOME/www/app.reserveworx.com/laravel/backups/` before `artisan migrate`. The job log shows `backup_path` and `backup_bytes`. Restore that file only inside this site's database, then roll the code back if the backup matches the previous release. Do not copy the gzip into `public_html` or into another site.
 
-There is no tested restore drill yet (open question 23). Do not enable migrations against a database that already has customer data until that drill exists.
+A restore from that gzip has not been drilled (open question 23).
 
 ## Tenant is unavailable or a user cannot sign in
 

@@ -54,10 +54,11 @@ Default is off. `php artisan migrate --force` runs only when all of these are tr
 - **Run migrations** is true
 - the confirmation field is exactly `I have a backup`
 - shared `.env` exists
+- `mysqldump` (or `mariadb-dump`) has written a gzip of that database
 
-Anything else skips migrations or fails the job without migrating. There is no production data in this foundation schema yet. Do not point the application at a database that already has customer data and then migrate until a restore drill is written.
+The dump runs on the server before the previous release is deleted and before `public_html` changes. It reads `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` from `laravel/shared/.env` inside PHP. The password is not passed on the command line and is not printed. The client defaults file is mode 600 and is deleted before `artisan migrate`. The gzip is written to `$HOME/www/app.reserveworx.com/laravel/backups/reserveworx-<utc>-<pid>.sql.gz` (mode 600, directory mode 700). That path is not `public_html` and is not `www/reserveworx.com`. The log records `backup_path` and `backup_bytes` only. The two newest dumps are kept. If the client is missing, the dump is empty, or the file is not a database dump, the script deletes the upload and stops. Migrations do not run, and the document root does not change.
 
-Take the backup in SiteGround's backup tool before typing the phrase. The workflow does not take a backup for you.
+The confirmation phrase is still required. A restore from this gzip has not been drilled (open question 23).
 
 ## Cron and the GoGeek budget
 
