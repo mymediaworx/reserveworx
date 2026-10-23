@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\PoolController;
 use App\Http\Controllers\Api\V1\PricingController;
+use App\Http\Controllers\Api\V1\RefundController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\ServiceController;
@@ -112,6 +113,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/pricing', [PricingController::class, 'priceBooking']);
             Route::post('/bookings/{booking}/checkout-session', [PaymentController::class, 'checkout']);
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
+            Route::post('/bookings/{booking}/refunds', [RefundController::class, 'store']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
             Route::get('/integrations/outbox', [OutboxController::class, 'index']);

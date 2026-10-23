@@ -26,4 +26,14 @@ final class UnconfiguredStripeGateway implements StripeGateway
     {
         throw new StripeNotConfiguredException;
     }
+
+    public function createRefund(string $accountId, array $params, string $idempotencyKey): array
+    {
+        throw new StripeNotConfiguredException;
+    }
+
+    public function createApplicationFeeRefund(string $feeId, int $amount, string $idempotencyKey): array
+    {
+        throw new StripeNotConfiguredException;
+    }
 }
