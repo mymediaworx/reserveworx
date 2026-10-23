@@ -186,6 +186,18 @@ input[type="date"], input[type="time"], input[type="datetime-local"], input[type
     min-height: 2.6rem;
     width: 100%;
 }
+textarea {
+    font: inherit;
+    font-size: var(--step--1);
+    color: var(--ink);
+    background: var(--stone-wash);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.65rem;
+    width: 100%;
+    resize: vertical;
+}
+.panel.new-link { border-color: var(--water); box-shadow: inset 4px 0 0 var(--water); margin-bottom: 1.25rem; }
 input:focus, select:focus { border-color: var(--water); outline: 2px solid var(--water-wash); outline-offset: 0; }
 input:disabled, select:disabled { background: var(--stone-wash); color: var(--muted); }
 input.count { width: 6rem; }

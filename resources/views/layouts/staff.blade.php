@@ -11,6 +11,7 @@
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'match' => 'staff/setup/locations*'],
         ['href' => '/staff/setup/resources', 'label' => 'Boats & gear', 'match' => 'staff/setup/resources*'],
         ['href' => '/staff/setup/services', 'label' => 'Services & prices', 'match' => 'staff/setup/services*'],
+        ['href' => '/staff/booking-links', 'label' => 'Booking links', 'match' => 'staff/booking-links'],
         ['href' => '/staff/settings', 'label' => 'Settings', 'match' => 'staff/settings'],
     ];
     $isActive = function (array $item): bool {
@@ -46,7 +47,6 @@
             </nav>
             <div class="rail-user">
                 <span>{{ $staffUser?->name }}</span>
-                <a href="/" target="_blank" rel="noopener">Booking page</a>
                 <form method="POST" action="/staff/logout">
                     @csrf
                     <button type="submit" class="link-button">Sign out</button>

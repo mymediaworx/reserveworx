@@ -9,6 +9,7 @@ use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
+use App\Livewire\Staff\BookingLinks;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
 use App\Livewire\Staff\Calendar;
@@ -47,6 +48,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
+        Route::get('/booking-links', BookingLinks::class);
     });
 });
 
