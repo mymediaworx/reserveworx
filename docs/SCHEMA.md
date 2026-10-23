@@ -114,6 +114,10 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 `integration_outbox` queues a GoHighLevel event for the current workspace only. `dedupe_key` is unique per tenant when set. `attempts` and `available_at` are the backoff. `status` stays `queued` until five attempts, then `held`. Nothing in this table is sent to HighLevel. `notification_hooks.delivery_status` stays `queued` until `integrations:dispatch` marks it `skipped` with `delivery_error` because no email provider is configured.
 
+## Refunds
+
+`refunds` stores one Section 7.7 outcome: the reason, the customer amount, the application fee amount, the subtotal and tax that were refunded, and the Stripe refund ids when a call was made. `idempotency_key` is unique per tenant when set. The row is written only after Stripe accepts the call, or immediately when the reason refunds nothing.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -122,7 +126,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - participants
 - rental_returns beyond `rental_checkouts`, and maintenance inspections beyond `maintenance_windows`
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
-- refunds, platform_fee_refunds
+- a platform-only manual fee refund separate from the Section 7.7 reason codes
 - waiver PDF export and a retention job
 - a mail transport and delivery webhooks
 - ghl_connections, ghl_mappings, integration_logs, and a live HighLevel client

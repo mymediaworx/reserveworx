@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments;
 
+use App\Domain\Fees\Refunds\RefundReason;
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Enums\PaymentStatus;
@@ -16,6 +17,7 @@ use App\Services\Allocation\Allocator;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Database\QueryException;
+use InvalidArgumentException;
 
 final class WebhookProcessor
 {
@@ -23,6 +25,7 @@ final class WebhookProcessor
         private readonly StripeGateway $stripe,
         private readonly Allocator $allocator,
         private readonly TenantManager $tenants,
+        private readonly RefundService $refunds,
     ) {}
 
     public function handle(string $payload, string $signature): void
@@ -59,6 +62,7 @@ final class WebhookProcessor
             'checkout.session.completed', 'checkout.session.async_payment_succeeded' => $this->fulfill($event['object']),
             'application_fee.created' => $this->rememberFee($event['object']),
             'application_fee.refunded' => $this->rememberFeeRefund($event['object']),
+            'charge.dispute.closed' => $this->rememberDispute($event['object']),
             default => $this->rememberCapability($event['object']),
         };
 
@@ -254,6 +258,49 @@ final class WebhookProcessor
         PlatformFee::withoutGlobalScope(TenantScope::class)
             ->where('stripe_fee_id', $feeId)
             ->update(['refunded_cents' => $amount]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispute
+     */
+    private function rememberDispute(array $dispute): void
+    {
+        $reason = match ($dispute['status'] ?? null) {
+            'lost' => RefundReason::DisputeLost,
+            'won', 'warning_closed' => RefundReason::DisputeWon,
+            default => null,
+        };
+        $intent = $dispute['payment_intent'] ?? null;
+        $disputeId = $dispute['id'] ?? null;
+
+        if ($reason === null || ! is_string($intent) || $intent === '' || ! is_string($disputeId) || $disputeId === '') {
+            return;
+        }
+
+        $payment = Payment::withoutGlobalScope(TenantScope::class)
+            ->where('stripe_payment_intent_id', $intent)
+            ->first();
+
+        if (! $payment instanceof Payment) {
+            return;
+        }
+
+        $booking = Booking::withoutGlobalScope(TenantScope::class)->find($payment->booking_id);
+        $tenant = $booking instanceof Booking ? Tenant::query()->find($booking->tenant_id) : null;
+
+        if (! $booking instanceof Booking || ! $tenant instanceof Tenant) {
+            return;
+        }
+
+        $this->tenants->set($tenant);
+
+        try {
+            $this->refunds->issue($booking, $reason, 0, 0, 'dispute:'.$disputeId, null);
+        } catch (RefundException|InvalidArgumentException) {
+            return;
+        } finally {
+            $this->tenants->forget();
+        }
     }
 
     /**
