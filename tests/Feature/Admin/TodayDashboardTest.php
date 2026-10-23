@@ -12,6 +12,8 @@ use App\Models\Departure;
 use App\Models\Location;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\RentalCheckout;
 use App\Models\Service;
 use Carbon\Carbon;
@@ -103,6 +105,28 @@ class TodayDashboardTest extends TestCase
             'refunded_cents' => 100,
             'channel' => 'direct',
         ]);
+        PricingSnapshot::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $today->id,
+            'currency' => 'usd',
+            'rules_version' => 'spec-1.0/7.4-7.5',
+            'payload' => [
+                'services_cents' => 10_000,
+                'tax_cents' => 800,
+                'fee_cents' => 300,
+            ],
+        ]);
+        Refund::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $today->id,
+            'reason' => 'operator_cancelled',
+            'rules_version' => 'spec-1.0/7.7',
+            'customer_refund_cents' => 1_500,
+            'customer_fee_refund_cents' => 0,
+            'application_fee_refund_cents' => 0,
+            'refund_subtotal_cents' => 1_400,
+            'refund_tax_cents' => 100,
+        ]);
 
         $this->get($this->tenantUrl('dock.test', '/admin'))->assertRedirect(route('admin.login'));
 
@@ -121,6 +145,10 @@ class TodayDashboardTest extends TestCase
             ->assertJsonPath('data.overdue_checkouts', 1)
             ->assertJsonPath('data.payments.stripe_cents', 10300)
             ->assertJsonPath('data.payments.offline_cents', 5000)
+            ->assertJsonPath('data.totals.gross_cents', 10000)
+            ->assertJsonPath('data.totals.tax_cents', 800)
+            ->assertJsonPath('data.totals.booking_fee_cents', 300)
+            ->assertJsonPath('data.totals.refunds_cents', 1500)
             ->assertJsonPath('data.fees.net_cents', 200);
 
         $this->get($this->tenantUrl('dock.test', '/api/v1/reports/today/export'))

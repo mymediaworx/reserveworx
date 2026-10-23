@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Today's report separates gross booking value, tax, booking fees, card payments, offline payments, and customer refunds.
 - A signed waiver can be downloaded as a PDF of the stored text, hash, and signature record. That file is not an electronic-signature certificate.
 - A platform administrator can export one workspace to a private JSON file. Closing that workspace for good stays refused until the file exists.
 - Today's report can be downloaded as CSV from the staff page and from `GET /api/v1/reports/today/export`.

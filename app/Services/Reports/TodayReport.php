@@ -9,11 +9,14 @@ use App\Models\Departure;
 use App\Models\Location;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\RentalCheckout;
 use App\Models\Service;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use DateTimeZone;
+use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -83,6 +86,7 @@ final class TodayReport
             'open_checkouts' => RentalCheckout::query()->whereNull('returned_at')->count(),
             'overdue_checkouts' => RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
             'payments' => $payments,
+            'totals' => $this->totals($bookings, $windowStart, $windowEnd, $clockZone, $reportDate),
             'fees' => [
                 'charged_cents' => $charged,
                 'refunded_cents' => $refunded,
@@ -153,6 +157,11 @@ final class TodayReport
         fputcsv($handle, ['checkout', 'overdue', '', '', 'overdue', $report['overdue_checkouts'] ?? 0, '']);
         fputcsv($handle, ['payment', 'stripe', '', '', 'card', '', $payments['stripe_cents'] ?? 0]);
         fputcsv($handle, ['payment', 'offline', '', '', 'offline', '', $payments['offline_cents'] ?? 0]);
+        $totals = is_array($report['totals'] ?? null) ? $report['totals'] : [];
+        fputcsv($handle, ['total', 'gross', '', '', 'services', '', $totals['gross_cents'] ?? 0]);
+        fputcsv($handle, ['total', 'tax', '', '', 'tax', '', $totals['tax_cents'] ?? 0]);
+        fputcsv($handle, ['total', 'booking_fee', '', '', 'booking fee', '', $totals['booking_fee_cents'] ?? 0]);
+        fputcsv($handle, ['total', 'refunds', '', '', 'customer refund', '', $totals['refunds_cents'] ?? 0]);
         fputcsv($handle, ['fee', 'net', '', '', 'all_time', '', $fees['net_cents'] ?? 0]);
         rewind($handle);
         $csv = stream_get_contents($handle);
@@ -245,6 +254,50 @@ final class TodayReport
         return [
             'stripe_cents' => $stripe,
             'offline_cents' => $offline,
+        ];
+    }
+
+    /**
+     * Gross, tax, and booking fee follow bookings that start on the report date.
+     * Refunds follow the day the refund row was recorded, in the report timezone.
+     *
+     * @param  Collection<int, Booking>  $bookings
+     * @return array{gross_cents: int, tax_cents: int, booking_fee_cents: int, refunds_cents: int}
+     */
+    private function totals(Collection $bookings, CarbonImmutable $windowStart, CarbonImmutable $windowEnd, string $clockZone, string $reportDate): array
+    {
+        $gross = 0;
+        $tax = 0;
+        $fee = 0;
+        $ids = $bookings->pluck('id')->all();
+
+        if ($ids !== []) {
+            foreach (PricingSnapshot::query()->whereIn('booking_id', $ids)->get() as $snapshot) {
+                $payload = $snapshot->payload;
+                $services = $payload['services_cents'] ?? $payload['basis_cents'] ?? 0;
+                $taxAmount = $payload['tax_cents'] ?? 0;
+                $feeAmount = $payload['fee_cents'] ?? 0;
+                $gross += is_numeric($services) ? (int) $services : 0;
+                $tax += is_numeric($taxAmount) ? (int) $taxAmount : 0;
+                $fee += is_numeric($feeAmount) ? (int) $feeAmount : 0;
+            }
+        }
+
+        $refunds = 0;
+
+        foreach (Refund::query()->where('created_at', '>=', $windowStart)->where('created_at', '<', $windowEnd)->get() as $refund) {
+            if (! $this->onDate($refund->created_at, $clockZone, $reportDate)) {
+                continue;
+            }
+
+            $refunds += $refund->customer_refund_cents;
+        }
+
+        return [
+            'gross_cents' => $gross,
+            'tax_cents' => $tax,
+            'booking_fee_cents' => $fee,
+            'refunds_cents' => $refunds,
         ];
     }
 
