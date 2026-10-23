@@ -1,6 +1,6 @@
 # Fees
 
-Product rules D1–D8 and spec Sections 7.4–7.7. **The calculation engine, Stripe calls, checkout disclosures, and refund execution are not implemented.** What exists is persistence of the settings and a platform-only API to change rates.
+Product rules D1–D8 and spec Sections 7.4–7.7. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). **Stripe calls, checkout disclosures, and refund execution are not implemented.** Settings are persisted and rates change through a platform-only API.
 
 ## What is stored
 
@@ -48,6 +48,28 @@ Then apply an optional fixed amount and an optional minimum, only when those col
 - If the operator absorbs the fee and the fee is greater than or equal to the charge, refuse checkout. Do not invent a new customer-facing adjustment.
 - If the calculated fee is 0, omit Stripe `application_fee_amount`. Stripe requires that amount to be positive and less than the charge.
 - Online checkout stays blocked until the connected account has `charges_enabled`.
+
+## Calculation engine
+
+`App\Domain\Fees\FeeCalculator` is pure: integer cents, no Stripe calls, no database access. Callers load the rate with `FeeRate::fromTenantSetting()`, build a `FeeBasis` from line items, and store `BookingFeeQuote::toSnapshot()` in the pricing snapshot.
+
+| Method | Rule |
+|---|---|
+| `feeFor(rate, basis)` | Percentage half-up, plus fixed if set, then raised to the minimum if set |
+| `quote(...)` | Fee and customer total for the payer mode |
+| `firstStripePayment(quote, requested)` | Full fee. Deposit ≤ fee is raised to fee + $1.00, capped at the total. Operator-absorbed fee ≥ total throws `FeeExceedsChargeException` |
+| `balanceStripePayment(amount)` | No fee |
+| `quoteIncrease(...)` + `priceIncreaseStripePayment(...)` | Fee on the increase |
+| `offlinePayment(amount)` | No fee |
+
+`PaymentFee::stripeApplicationFeeAmount()` returns null for a zero fee so the caller omits `application_fee_amount`.
+
+Engineering choices the spec does not settle, pending product-owner confirmation:
+
+- **Zero basis.** A booking with a $0 fee basis carries no fee, even when a fixed amount or minimum is enabled.
+- **Increases.** Only the percentage applies to a price increase. The fixed amount and minimum are per booking and are not charged again. The increase is rounded on its own, so the fee on $10.50 plus a $10.50 increase is 32 + 32 cents, not 63.
+- **Raised deposit cap.** A raised deposit never exceeds the customer total.
+- **First Stripe payment after an offline payment.** The engine charges the full booking fee on whatever the caller passes as the first Stripe payment. Whether a booking that was partly paid offline should carry the full fee is open question 26.
 
 ## Who pays
 
