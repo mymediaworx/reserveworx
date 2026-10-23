@@ -6,6 +6,7 @@ use App\Enums\BookingStatus;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\Customer;
 use App\Models\Domain;
 use App\Models\Hold;
 use App\Models\Location;
@@ -169,6 +170,74 @@ class BookingTest extends TestCase
         ])->assertStatus(409)
             ->assertJsonPath('offers.shorter_ends_at', '2026-06-15T16:45:00Z')
             ->assertJsonPath('data.ends_at', '2026-06-15T16:00:00Z');
+    }
+
+    public function test_a_customer_phone_is_stored_without_replacing_one_already_on_file(): void
+    {
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+
+        $first = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
+            'service_id' => $service->id,
+            'starts_at' => '2026-06-15T15:00:00Z',
+            'ends_at' => '2026-06-15T16:00:00Z',
+            'participants' => 1,
+            'idempotency_key' => 'phone-1',
+            'customer_name' => 'Ada',
+            'customer_email' => 'ada@example.com',
+            'customer_phone' => '555-0100',
+        ])->assertCreated();
+
+        $this->assertSame('555-0100', $first->json('data.customer.phone'));
+        $customerId = $first->json('data.customer_id');
+        $this->assertSame($customerId, $first->json('data.customer.id'));
+
+        $second = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
+            'service_id' => $service->id,
+            'starts_at' => '2026-06-15T18:00:00Z',
+            'ends_at' => '2026-06-15T19:00:00Z',
+            'participants' => 1,
+            'idempotency_key' => 'phone-2',
+            'customer_name' => 'Ada Lovelace',
+            'customer_email' => 'Ada@example.com',
+            'customer_phone' => '555-0199',
+        ])->assertCreated();
+
+        $this->assertSame($customerId, $second->json('data.customer_id'));
+        $this->assertSame('555-0100', $second->json('data.customer.phone'));
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
+            'service_id' => $service->id,
+            'starts_at' => '2026-06-15T20:00:00Z',
+            'ends_at' => '2026-06-15T21:00:00Z',
+            'participants' => 1,
+            'idempotency_key' => 'phone-3',
+            'customer_name' => 'Grace',
+            'customer_email' => 'grace@example.com',
+        ])->assertCreated();
+
+        $filled = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings'), [
+            'service_id' => $service->id,
+            'starts_at' => '2026-06-15T22:00:00Z',
+            'ends_at' => '2026-06-15T23:00:00Z',
+            'participants' => 1,
+            'idempotency_key' => 'phone-4',
+            'customer_name' => 'Grace',
+            'customer_email' => 'grace@example.com',
+            'customer_phone' => '555-0133',
+        ])->assertCreated();
+
+        $this->assertSame('555-0133', $filled->json('data.customer.phone'));
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(2, Customer::query()->count());
+        $this->assertSame('555-0100', Customer::query()->where('email', 'ada@example.com')->firstOrFail()->phone);
+        $this->assertSame('Ada', Customer::query()->where('email', 'ada@example.com')->firstOrFail()->name);
+        app(TenantManager::class)->forget();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$first->json('data.id')))
+            ->assertOk()
+            ->assertJsonPath('data.customer.phone', '555-0100');
     }
 
     /**

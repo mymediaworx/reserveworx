@@ -17,6 +17,7 @@ readonly class AllocationIntent
         public ?string $customerEmail,
         public ?string $departureId = null,
         public ?string $guideUserId = null,
+        public ?string $customerPhone = null,
     ) {}
 
     public function payloadHash(): string
