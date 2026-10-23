@@ -4,7 +4,7 @@
 
 @section('content')
     <h1>Today</h1>
-    <p class="muted"><a href="{{ route('admin.integrations') }}">Integrations</a></p>
+    <p class="muted"><a href="{{ route('admin.integrations') }}">Integrations</a> · <a href="{{ route('admin.report.export') }}">Download CSV</a></p>
     @if ($error)
         <p class="error">{{ $error }}</p>
     @endif

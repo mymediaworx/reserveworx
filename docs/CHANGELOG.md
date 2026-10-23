@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Today's report can be downloaded as CSV from the staff page and from `GET /api/v1/reports/today/export`.
 - Staff can refund a Stripe booking. A full refund returns the application fee with Stripe's flag. A partial refund returns the calculator's fee in a separate application-fee refund. A lost dispute does the same. Nothing is sent until the platform secret is set.
 - GoHighLevel events queue in an outbox and are not sent. A mismatched workspace is refused. Notification hooks are marked skipped when no email provider is configured. `integrations:dispatch` does both.
 - Staff can sign in on the tenant host and see today's bookings, departures, open checkouts, overdue rentals, and booking-fee totals. The same figures are available at `GET /api/v1/reports/today`. Heavier metrics stay off this live query.
