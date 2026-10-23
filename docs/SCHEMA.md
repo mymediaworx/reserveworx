@@ -104,7 +104,7 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 ## Operations
 
-`maintenance_windows` name one asset or one pool and a half-open interval. Creating one sets `bookings.attention_reason` on future held and confirmed bookings whose allocations overlap that resource. It does not cancel them. `incidents` store a short summary and `occurred_at`. `waiver_versions` are unique on `(tenant_id, name, version)` and store `content_hash`. `waiver_signatures` copy that hash and store IP, user agent, and a guardian name when the participant is a minor. `tenant_settings.late_fee_per_minute_cents` is null until set. `rental_checkouts.late_fee_cents` is the stored whole-minute amount and is not a Stripe charge.
+`maintenance_windows` name one asset or one pool and a half-open interval. Creating one sets `bookings.attention_reason` on future held and confirmed bookings whose allocations overlap that resource. It does not cancel them. `incidents` store a short summary and `occurred_at`. `waiver_versions` are unique on `(tenant_id, name, version)` and store `content_hash`. `waiver_signatures` copy that hash and store IP, user agent, and a guardian name when the participant is a minor. `GET /api/v1/bookings/{booking}/waivers/{signature}` returns a PDF of that record and the template text. It does not decide how long the signature is kept. `tenant_settings.late_fee_per_minute_cents` is null until set. `rental_checkouts.late_fee_cents` is the stored whole-minute amount and is not a Stripe charge.
 
 ## Reports
 
@@ -131,7 +131,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - rental_returns beyond `rental_checkouts`, and maintenance inspections beyond `maintenance_windows`
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a platform-only manual fee refund separate from the Section 7.7 reason codes
-- waiver PDF export and a retention job
+- a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
 - a mail transport and delivery webhooks
 - ghl_connections, ghl_mappings, integration_logs, and a live HighLevel client
 

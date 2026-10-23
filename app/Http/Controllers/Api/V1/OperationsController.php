@@ -12,9 +12,11 @@ use App\Models\Tenant;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Services\Operations\AffectedBookings;
+use App\Services\Operations\WaiverPdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 
 class OperationsController extends Controller
@@ -144,6 +146,27 @@ class OperationsController extends Controller
             'content_hash' => $signature->content_hash,
             'guardian_name' => $signature->guardian_name,
         ]], 201);
+    }
+
+    public function waiverPdf(Booking $booking, string $signature, WaiverPdf $pdf): Response
+    {
+        $this->authorize('view', $booking);
+        $row = WaiverSignature::query()->where('booking_id', $booking->id)->whereKey($signature)->first();
+
+        if (! $row instanceof WaiverSignature) {
+            abort(404);
+        }
+
+        $version = WaiverVersion::query()->find($row->waiver_version_id);
+
+        if (! $version instanceof WaiverVersion) {
+            abort(404);
+        }
+
+        return response($pdf->render($row, $version), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="waiver-'.$row->id.'.pdf"',
+        ]);
     }
 
     private function tenant(Request $request): Tenant

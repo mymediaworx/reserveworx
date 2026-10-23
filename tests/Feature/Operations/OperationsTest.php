@@ -107,6 +107,17 @@ class OperationsTest extends TestCase
         $this->assertNotNull($signature->ip_address);
         $this->assertSame('ReserveWorxTest', $signature->user_agent);
         app(TenantManager::class)->forget();
+
+        $pdf = $this->get($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/waivers/'.$signature->id));
+        $pdf->assertOk();
+        $this->assertStringStartsWith('%PDF-1.4', (string) $pdf->getContent());
+        $this->assertStringContainsString('Sam', (string) $pdf->getContent());
+        $this->assertStringContainsString('Ada', (string) $pdf->getContent());
+        $this->assertStringContainsString((string) $waiver['content_hash'], (string) $pdf->getContent());
+        $this->assertStringContainsString('not an attorney-approved', (string) $pdf->getContent());
+
+        $this->get($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/waivers/not-a-signature'))
+            ->assertNotFound();
     }
 
     private function confirmed(Service $service, string $start, string $end, string $key): string

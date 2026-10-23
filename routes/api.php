@@ -111,6 +111,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/return', [BookingController::class, 'returnRental']);
             Route::post('/bookings/{booking}/incidents', [OperationsController::class, 'storeIncident']);
             Route::post('/bookings/{booking}/waivers', [OperationsController::class, 'signWaiver']);
+            Route::get('/bookings/{booking}/waivers/{signature}', [OperationsController::class, 'waiverPdf']);
             Route::post('/maintenance-windows', [OperationsController::class, 'storeMaintenance']);
             Route::post('/waiver-versions', [OperationsController::class, 'storeWaiver']);
             Route::post('/bookings/{booking}/pricing', [PricingController::class, 'priceBooking']);
