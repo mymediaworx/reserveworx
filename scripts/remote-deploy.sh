@@ -450,7 +450,10 @@ try {
   echo "backup_bytes=${size}"
   echo "dump_client=${dump_bin}"
 
-  local count=0 file
+  # This host has no /dev/fd, so the file list cannot use process substitution.
+  local count=0 file list
+  list="$(mktemp)"
+  find "$backups" -maxdepth 1 -type f -name 'reserveworx-*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
   while IFS= read -r file; do
     [[ -n "$file" ]] || continue
     count=$((count + 1))
@@ -458,7 +461,8 @@ try {
       rm -f "$file"
       echo "backup_pruned=1"
     fi
-  done < <(find "$backups" -maxdepth 1 -type f -name 'reserveworx-*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+  done < "$list"
+  rm -f "$list"
 }
 
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
