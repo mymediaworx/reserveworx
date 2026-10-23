@@ -395,6 +395,88 @@ class PricingCheckoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_an_unpaid_completion_waits_for_the_paid_event(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $this->app->instance(StripeGateway::class, new FakeStripeGateway);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service, '-async');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+
+        $session = [
+            'id' => 'cs_test_123',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_test_123',
+            'metadata' => [
+                'booking_id' => $bookingId,
+                'tenant_id' => $workspace['tenant']->id,
+            ],
+        ];
+        $this->postWebhook('evt_completed_unpaid', 'checkout.session.completed', [
+            ...$session,
+            'payment_status' => 'unpaid',
+        ], 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'held');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('pending', Payment::query()->firstOrFail()->status);
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        app(TenantManager::class)->forget();
+
+        $this->postWebhook('evt_async_paid', 'checkout.session.async_payment_succeeded', [
+            ...$session,
+            'payment_status' => 'paid',
+        ], 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_async_paid', 'checkout.session.async_payment_succeeded', [
+            ...$session,
+            'payment_status' => 'paid',
+        ], 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_fail_late', 'checkout.session.async_payment_failed', [
+            ...$session,
+            'payment_status' => 'unpaid',
+        ], 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'confirmed')
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('paid', Payment::query()->firstOrFail()->status);
+        $this->assertSame(1, Payment::query()->count());
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.completed')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'payment.failed')->count());
+        app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
     public function test_an_unconfigured_webhook_is_rejected(): void
     {
         $this->postJson('http://localhost/api/v1/stripe/webhook', ['id' => 'evt_x'], [
