@@ -1,6 +1,6 @@
 # Allocation design
 
-This document is the design required by spec Section 4. **This repository contains no allocation engine.** There is no booking, hold, pool, asset, or capacity-ledger write path. A foundation test locks one row with `SELECT … FOR UPDATE` on MySQL so CI is already on a database that honors row locks. The Section 4.7 concurrency suite is Phase 3.
+This document is the design required by spec Section 4. The engine is `App\Services\Allocation\Allocator`. A foundation test locks one row with `SELECT … FOR UPDATE`. The Section 4.7 suite is `tests/Feature/Allocation/ConcurrencyTest.php` and runs on MySQL and MariaDB.
 
 If a simpler mechanism is later shown to be equally correct, propose it in [`DECISIONS.md`](DECISIONS.md) before replacing this design.
 
@@ -39,7 +39,11 @@ One transaction, one global order, so two composite bookings cannot deadlock by 
 
 Lazy-create missing ledger rows with insert-ignore, then `SELECT … FOR UPDATE`. Insert-ignore is not itself the lock.
 
-Set a short `innodb_lock_wait_timeout` for the transaction. On MySQL deadlock `1213` or lock-wait timeout `1205`, retry up to 3 times with jitter. After that, return a clean "no longer available" response. Do not surface the SQL error.
+The transaction isolation is `READ COMMITTED`. A repeatable-read snapshot taken while loading the service would hide a booking that committed while this transaction waited on the lock. The ledger and asset locks are still `SELECT … FOR UPDATE`.
+
+For each pool, the pool row is locked before its buckets so `pools.quantity` cannot change during the recheck. That stays inside the pool-then-asset order.
+
+Set `innodb_lock_wait_timeout` to 3 seconds for the transaction. On MySQL deadlock `1213` or lock-wait timeout `1205`, retry up to 3 times with jitter. After that, return a clean "no longer available" response. Do not surface the SQL error. Individually tracked assets are exclusive for the buffered interval. `assets.capacity` is stored and does not allow a second overlap.
 
 ## Transaction
 

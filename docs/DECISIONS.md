@@ -32,7 +32,10 @@ The product owner also created the subdomain `app.reserveworx.com` as the applic
 | Domain verification | Interim platform attestation, audited | DNS automation is not built. This is not a claim that DNS was checked |
 | Password hashing | bcrypt via Laravel's default | argon2id waits until `memory_limit` is known |
 | Queue | `database` driver, `schedule:run` from cron, `queue:work database --stop-when-empty --tries=3 --max-time` | Spec Section 2.3. Default max time is 20 seconds so a one-minute cron stays inside the reported GoGeek CPU cap |
-| Hold expiry | Must be enforced at read time once the engine exists | Cron may be slower than one minute. The engine is not written yet |
+| Hold expiry | Enforced at read time with `expires_at > now()`. `holds:purge-expired` only deletes rows | Cron may be slower than one minute. A late cleanup must not keep a slot blocked |
+| Allocation transaction | `READ COMMITTED`, pool row then ledger buckets, then assets. Three retries on 1205 and 1213 | A repeatable-read snapshot would miss a commit that landed while this transaction waited |
+| Asset overlap | One asset, one overlapping booking. Capacity on the asset is recorded and does not allow a second overlap | A specific boat or guide is exclusive. Overlapping up to `capacity` is a product decision |
+| Staff bookings | Staff have `bookings.manage` | Spec Section 5 includes staff-created bookings |
 | Inventory permissions | `inventory.view` for owner, manager, and staff. `inventory.manage` for owner and manager | Staff can see resources. They cannot change quantity, status, or buffers |
 | Location timezone | Timezone is stored on `locations`, not tenants | Spec Section 4 and SCHEMA.md |
 | Opening hours | A location with no schedule rows is open all day. Pickup and the instant before return must sit in a window. Overnight between those instants does not have to. Equal open and close times are an empty window | Matches a shop that must be open when a rental leaves and comes back. The product owner can require the whole interval to be inside opening hours later |

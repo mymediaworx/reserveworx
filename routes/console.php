@@ -8,3 +8,5 @@ Schedule::command(sprintf(
     'queue:work database --stop-when-empty --tries=3 --max-time=%d',
     $maxTime,
 ))->everyMinute()->withoutOverlapping();
+
+Schedule::command('holds:purge-expired')->everyMinute()->withoutOverlapping();
