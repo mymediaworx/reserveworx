@@ -25,7 +25,7 @@ class BookingController extends Controller
     {
         $this->authorize('viewAny', Booking::class);
 
-        $bookings = Booking::query()->orderBy('starts_at')->limit(100)->get();
+        $bookings = Booking::query()->with('service')->orderBy('starts_at')->limit(100)->get();
 
         return response()->json(['data' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))]);
     }
@@ -34,7 +34,7 @@ class BookingController extends Controller
     {
         $this->authorize('view', $booking);
 
-        return response()->json(['data' => $this->payload($booking->load(['holds', 'allocations', 'lineItems']))]);
+        return response()->json(['data' => $this->payload($booking->load(['holds', 'allocations', 'lineItems', 'service']))]);
     }
 
     public function store(Request $request): JsonResponse
@@ -74,6 +74,15 @@ class BookingController extends Controller
         } catch (IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
+
+        $user = $request->user();
+
+        if ($booking->created_by === null && $user !== null) {
+            $booking->created_by = $user->id;
+            $booking->save();
+        }
+
+        $booking->load('service');
 
         $this->audit->log('booking.held', $booking, [
             'service_id' => $booking->service_id,
@@ -139,6 +148,57 @@ class BookingController extends Controller
         return response()->json(['data' => $this->payload($cancelled)]);
     }
 
+    public function reschedule(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'starts_at' => ['required', 'date'],
+            'ends_at' => ['required', 'date', 'after:starts_at'],
+        ]);
+
+        try {
+            $saved = $this->allocator->reschedule(
+                $booking,
+                CarbonImmutable::parse($validated['starts_at'])->utc(),
+                CarbonImmutable::parse($validated['ends_at'])->utc(),
+            );
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'offers' => $exception->offers,
+            ], 409);
+        }
+
+        $this->audit->log('booking.rescheduled', $saved, [], request: $request);
+
+        return response()->json(['data' => $this->payload($saved)]);
+    }
+
+    public function reassign(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'from_asset_id' => ['required', 'string'],
+            'to_asset_id' => ['required', 'string'],
+        ]);
+
+        try {
+            $saved = $this->allocator->reassignAsset($booking, $validated['from_asset_id'], $validated['to_asset_id']);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'offers' => $exception->offers,
+            ], 409);
+        }
+
+        $this->audit->log('booking.reassigned', $saved, [
+            'from_asset_id' => $validated['from_asset_id'],
+            'to_asset_id' => $validated['to_asset_id'],
+        ], request: $request);
+
+        return response()->json(['data' => $this->payload($saved)]);
+    }
+
     public function calendar(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
@@ -150,6 +210,7 @@ class BookingController extends Controller
             'status' => ['nullable', 'string'],
             'asset_id' => ['nullable', 'string'],
             'pool_id' => ['nullable', 'string'],
+            'staff_user_id' => ['nullable', 'string'],
         ]);
 
         $view = $validated['view'];
@@ -173,6 +234,7 @@ class BookingController extends Controller
             ->when($validated['location_id'] ?? null, fn ($query, $id) => $query->where('location_id', $id))
             ->when($validated['service_id'] ?? null, fn ($query, $id) => $query->where('service_id', $id))
             ->when($validated['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($validated['staff_user_id'] ?? null, fn ($query, $id) => $query->where('created_by', $id))
             ->when($validated['asset_id'] ?? null, function ($query, string $id): void {
                 $query->where(function ($inner) use ($id): void {
                     $inner->whereHas('allocations', fn ($rows) => $rows->where('asset_id', $id))
@@ -185,6 +247,7 @@ class BookingController extends Controller
                         ->orWhereHas('holds', fn ($rows) => $rows->where('pool_id', $id));
                 });
             })
+            ->with('service')
             ->orderBy('starts_at')
             ->get();
 
@@ -213,8 +276,17 @@ class BookingController extends Controller
             'starts_at' => $booking->starts_at->utc()->format('Y-m-d\TH:i:s\Z'),
             'ends_at' => $booking->ends_at->utc()->format('Y-m-d\TH:i:s\Z'),
             'participants' => $booking->participants,
+            'created_by' => $booking->created_by,
+            'below_minimum' => $this->belowMinimum($booking),
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,
         ];
+    }
+
+    private function belowMinimum(Booking $booking): bool
+    {
+        $minimum = $booking->service?->min_participants;
+
+        return $minimum !== null && $booking->participants < $minimum;
     }
 }

@@ -18,10 +18,14 @@ class Service extends Model
         'location_id',
         'name',
         'kind',
+        'min_participants',
+        'max_participants',
     ];
 
     protected $casts = [
         'kind' => ServiceKind::class,
+        'min_participants' => 'integer',
+        'max_participants' => 'integer',
     ];
 
     /**

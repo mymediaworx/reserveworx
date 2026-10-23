@@ -78,6 +78,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/bookings/{booking}', [BookingController::class, 'show']);
             Route::post('/bookings/{booking}/confirm', [BookingController::class, 'confirm']);
             Route::post('/bookings/{booking}/extend', [BookingController::class, 'extend']);
+            Route::post('/bookings/{booking}/reschedule', [BookingController::class, 'reschedule']);
+            Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
         });
     });

@@ -62,6 +62,7 @@ Availability responses computed outside this transaction are hints. They are not
 - Mutating booking and payment requests carry an idempotency key. Uniqueness is `(tenant_id, idempotency_key)` plus a hash of the payload. The same key with a different payload returns 409.
 - A successful payment never revives an expired hold. Allocate again. If that fails, the booking becomes `payment_exception` and the refund rules in spec Section 7.6 apply.
 - An extension takes the same locks for the extra interval. A conflict rejects the extension and offers a shorter extension or a different asset. A Stripe charge for the extension follows the fee rules.
+- A reschedule or asset reassignment of a confirmed booking takes the same locks for the new interval, excludes that booking from the recheck, and replaces its allocations only when the recheck passes. A conflict leaves the original rows in place. Reassignment stays on an active asset in the same category and location.
 
 ## Phase 3 tests
 

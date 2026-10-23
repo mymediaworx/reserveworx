@@ -39,13 +39,26 @@ class ServiceController extends Controller
             'location_id' => ['required', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenant->id))],
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::enum(ServiceKind::class)],
+            'min_participants' => ['nullable', 'integer', 'min:1'],
+            'max_participants' => ['nullable', 'integer', 'min:1'],
         ]);
+
+        $minimum = $validated['min_participants'] ?? null;
+        $maximum = $validated['max_participants'] ?? null;
+
+        if ($minimum !== null && $maximum !== null && $maximum < $minimum) {
+            throw ValidationException::withMessages([
+                'max_participants' => 'The maximum must be at least the minimum.',
+            ]);
+        }
 
         $service = Service::query()->create([
             'tenant_id' => $tenant->id,
             'location_id' => $validated['location_id'],
             'name' => $validated['name'],
             'kind' => $validated['kind'],
+            'min_participants' => $minimum,
+            'max_participants' => $maximum,
         ]);
 
         $this->audit->log('service.created', $service, ['kind' => $service->kind->value], request: $request);
@@ -125,6 +138,8 @@ class ServiceController extends Controller
             'location_id' => $service->location_id,
             'name' => $service->name,
             'kind' => $service->kind->value,
+            'min_participants' => $service->min_participants,
+            'max_participants' => $service->max_participants,
             'requirements' => $service->relationLoaded('requirements')
                 ? $service->requirements->map(fn (ResourceRequirement $requirement): array => [
                     'id' => $requirement->id,
