@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AvailabilityScheduleController;
 use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
+use App\Http\Controllers\Api\V1\DepartureController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Api\V1\PoolController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
+use App\Http\Controllers\Api\V1\WaitlistController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -73,13 +75,22 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/services/{service}/requirements', [ServiceController::class, 'storeRequirement']);
             Route::get('/availability', [AvailabilityController::class, 'show']);
             Route::get('/calendar', [BookingController::class, 'calendar']);
+            Route::get('/departures', [DepartureController::class, 'index']);
+            Route::post('/departures', [DepartureController::class, 'store']);
+            Route::get('/departures/{departure}', [DepartureController::class, 'show']);
+            Route::post('/departures/{departure}/cancel', [DepartureController::class, 'cancel']);
+            Route::get('/waitlist', [WaitlistController::class, 'index']);
+            Route::post('/waitlist', [WaitlistController::class, 'store']);
+            Route::post('/waitlist/{waitlist_entry}/cancel', [WaitlistController::class, 'cancel']);
             Route::get('/bookings', [BookingController::class, 'index']);
             Route::post('/bookings', [BookingController::class, 'store']);
             Route::get('/bookings/{booking}', [BookingController::class, 'show']);
+            Route::patch('/bookings/{booking}', [BookingController::class, 'update']);
             Route::post('/bookings/{booking}/confirm', [BookingController::class, 'confirm']);
             Route::post('/bookings/{booking}/extend', [BookingController::class, 'extend']);
             Route::post('/bookings/{booking}/reschedule', [BookingController::class, 'reschedule']);
             Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
+            Route::post('/bookings/{booking}/no-show', [BookingController::class, 'noShow']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
         });
     });

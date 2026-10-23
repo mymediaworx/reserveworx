@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Models;
+
+use App\Enums\WaitlistStatus;
+use App\Models\Concerns\BelongsToTenant;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class WaitlistEntry extends Model
+{
+    use BelongsToTenant, HasUlids;
+
+    protected $fillable = [
+        'tenant_id',
+        'service_id',
+        'departure_id',
+        'location_id',
+        'created_by',
+        'starts_at',
+        'ends_at',
+        'participants',
+        'customer_name',
+        'customer_email',
+        'status',
+        'idempotency_key',
+    ];
+
+    protected $casts = [
+        'starts_at' => 'datetime',
+        'ends_at' => 'datetime',
+        'participants' => 'integer',
+        'status' => WaitlistStatus::class,
+    ];
+
+    /**
+     * @return BelongsTo<Service, $this>
+     */
+    public function service(): BelongsTo
+    {
+        return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * @return BelongsTo<Departure, $this>
+     */
+    public function departure(): BelongsTo
+    {
+        return $this->belongsTo(Departure::class);
+    }
+}

@@ -20,12 +20,14 @@ class Service extends Model
         'kind',
         'min_participants',
         'max_participants',
+        'waitlist_enabled',
     ];
 
     protected $casts = [
         'kind' => ServiceKind::class,
         'min_participants' => 'integer',
         'max_participants' => 'integer',
+        'waitlist_enabled' => 'boolean',
     ];
 
     /**

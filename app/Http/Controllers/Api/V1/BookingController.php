@@ -2,23 +2,30 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\OperationalStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\Departure;
+use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\Waitlist;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class BookingController extends Controller
 {
     public function __construct(
         private readonly Allocator $allocator,
         private readonly AuditLogger $audit,
+        private readonly Waitlist $waitlist,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -51,25 +58,76 @@ class BookingController extends Controller
             'idempotency_key' => ['nullable', 'string', 'max:80'],
             'customer_name' => ['nullable', 'string', 'max:120'],
             'customer_email' => ['nullable', 'email', 'max:255'],
+            'departure_id' => ['nullable', 'string'],
+            'join_waitlist' => ['nullable', 'boolean'],
         ]);
 
         $header = $request->headers->get('Idempotency-Key');
         $key = is_string($header) && $header !== '' ? $header : ($validated['idempotency_key'] ?? null);
+        $startsAt = CarbonImmutable::parse($validated['starts_at'])->utc();
+        $endsAt = CarbonImmutable::parse($validated['ends_at'])->utc();
+        $departureId = $validated['departure_id'] ?? null;
+        $locationId = null;
+
+        if (is_string($departureId) && $departureId !== '') {
+            $departure = Departure::query()->find($departureId);
+
+            if (! $departure instanceof Departure || $departure->service_id !== $validated['service_id']) {
+                throw ValidationException::withMessages([
+                    'departure_id' => 'That departure is not on this service.',
+                ]);
+            }
+
+            $startsAt = CarbonImmutable::instance($departure->starts_at)->utc();
+            $endsAt = CarbonImmutable::instance($departure->ends_at)->utc();
+            $locationId = $departure->location_id;
+        } else {
+            $departureId = null;
+        }
 
         $intent = new AllocationIntent(
             $tenant->id,
             $validated['service_id'],
-            CarbonImmutable::parse($validated['starts_at'])->utc(),
-            CarbonImmutable::parse($validated['ends_at'])->utc(),
+            $startsAt,
+            $endsAt,
             (int) $validated['participants'],
             is_string($key) ? $key : null,
             $validated['customer_name'] ?? null,
             $validated['customer_email'] ?? null,
+            is_string($departureId) ? $departureId : null,
         );
 
         try {
             $booking = $this->allocator->hold($intent);
         } catch (AllocationUnavailableException $exception) {
+            if ($request->boolean('join_waitlist')) {
+                $service = Service::query()->find($validated['service_id']);
+
+                if ($service instanceof Service && $service->waitlist_enabled) {
+                    $entry = $this->waitlist->join(
+                        $tenant->id,
+                        $service->id,
+                        is_string($departureId) ? $departureId : null,
+                        $locationId ?? $service->location_id,
+                        $startsAt,
+                        $endsAt,
+                        (int) $validated['participants'],
+                        $validated['customer_name'] ?? null,
+                        $validated['customer_email'] ?? null,
+                        $request->user()?->id,
+                        is_string($key) ? $key : null,
+                    );
+
+                    return response()->json(['data' => [
+                        'id' => $entry->id,
+                        'service_id' => $entry->service_id,
+                        'departure_id' => $entry->departure_id,
+                        'status' => $entry->status->value,
+                        'participants' => $entry->participants,
+                    ]], 202);
+                }
+            }
+
             return response()->json(['message' => $exception->getMessage()], 409);
         } catch (IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
@@ -146,6 +204,42 @@ class BookingController extends Controller
         $this->audit->log('booking.cancelled', $cancelled, [], request: $request);
 
         return response()->json(['data' => $this->payload($cancelled)]);
+    }
+
+    public function noShow(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+
+        try {
+            $saved = $this->allocator->noShow($booking);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
+        }
+
+        $this->audit->log('booking.no_show', $saved, [], request: $request);
+
+        return response()->json(['data' => $this->payload($saved)]);
+    }
+
+    public function update(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'operational_status' => ['required', Rule::enum(OperationalStatus::class)],
+        ]);
+        $status = $validated['operational_status'];
+
+        if (! is_string($status)) {
+            abort(422);
+        }
+
+        $booking->operational_status = OperationalStatus::from($status);
+        $booking->save();
+        $this->audit->log('booking.operational_status', $booking, [
+            'operational_status' => $booking->operational_status->value,
+        ], request: $request);
+
+        return response()->json(['data' => $this->payload($booking->load('service'))]);
     }
 
     public function reschedule(Request $request, Booking $booking): JsonResponse
@@ -257,6 +351,30 @@ class BookingController extends Controller
                 'starts_at' => $start->format('Y-m-d\TH:i:s\Z'),
                 'ends_at' => $end->format('Y-m-d\TH:i:s\Z'),
                 'bookings' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))->all(),
+                'departures' => Departure::query()
+                    ->with('service')
+                    ->where('starts_at', '<', $end)
+                    ->where('ends_at', '>', $start)
+                    ->when($validated['location_id'] ?? null, fn ($query, $id) => $query->where('location_id', $id))
+                    ->when($validated['service_id'] ?? null, fn ($query, $id) => $query->where('service_id', $id))
+                    ->orderBy('starts_at')
+                    ->get()
+                    ->map(function (Departure $departure): array {
+                        $participants = $departure->headcount();
+                        $minimum = $departure->service?->min_participants;
+
+                        return [
+                            'id' => $departure->id,
+                            'service_id' => $departure->service_id,
+                            'location_id' => $departure->location_id,
+                            'starts_at' => $departure->starts_at->utc()->format('Y-m-d\TH:i:s\Z'),
+                            'ends_at' => $departure->ends_at->utc()->format('Y-m-d\TH:i:s\Z'),
+                            'status' => $departure->status->value,
+                            'private' => $departure->private,
+                            'participants' => $participants,
+                            'below_minimum' => $minimum !== null && $participants > 0 && $participants < $minimum,
+                        ];
+                    })->all(),
             ],
         ]);
     }
@@ -269,6 +387,7 @@ class BookingController extends Controller
         return [
             'id' => $booking->id,
             'service_id' => $booking->service_id,
+            'departure_id' => $booking->departure_id,
             'location_id' => $booking->location_id,
             'status' => $booking->status->value,
             'payment_status' => $booking->payment_status->value,

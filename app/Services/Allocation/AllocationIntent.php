@@ -15,16 +15,23 @@ readonly class AllocationIntent
         public ?string $idempotencyKey,
         public ?string $customerName,
         public ?string $customerEmail,
+        public ?string $departureId = null,
     ) {}
 
     public function payloadHash(): string
     {
-        $encoded = json_encode([
+        $fields = [
             'ends_at' => $this->endsAt->utc()->format('Y-m-d\TH:i:s\Z'),
             'participants' => $this->participants,
             'service_id' => $this->serviceId,
             'starts_at' => $this->startsAt->utc()->format('Y-m-d\TH:i:s\Z'),
-        ], JSON_THROW_ON_ERROR);
+        ];
+
+        if ($this->departureId !== null && $this->departureId !== '') {
+            $fields['departure_id'] = $this->departureId;
+        }
+
+        $encoded = json_encode($fields, JSON_THROW_ON_ERROR);
 
         return hash('sha256', $encoded);
     }

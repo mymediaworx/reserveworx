@@ -41,6 +41,7 @@ class ServiceController extends Controller
             'kind' => ['required', Rule::enum(ServiceKind::class)],
             'min_participants' => ['nullable', 'integer', 'min:1'],
             'max_participants' => ['nullable', 'integer', 'min:1'],
+            'waitlist_enabled' => ['nullable', 'boolean'],
         ]);
 
         $minimum = $validated['min_participants'] ?? null;
@@ -59,6 +60,7 @@ class ServiceController extends Controller
             'kind' => $validated['kind'],
             'min_participants' => $minimum,
             'max_participants' => $maximum,
+            'waitlist_enabled' => (bool) ($validated['waitlist_enabled'] ?? false),
         ]);
 
         $this->audit->log('service.created', $service, ['kind' => $service->kind->value], request: $request);
@@ -140,6 +142,7 @@ class ServiceController extends Controller
             'kind' => $service->kind->value,
             'min_participants' => $service->min_participants,
             'max_participants' => $service->max_participants,
+            'waitlist_enabled' => $service->waitlist_enabled,
             'requirements' => $service->relationLoaded('requirements')
                 ? $service->requirements->map(fn (ResourceRequirement $requirement): array => [
                     'id' => $requirement->id,
