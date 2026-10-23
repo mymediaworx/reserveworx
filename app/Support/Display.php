@@ -1,0 +1,71 @@
+<?php
+
+namespace App\Support;
+
+use App\Domain\Fees\Disclosures\Money;
+use Carbon\CarbonImmutable;
+use DateTimeInterface;
+
+/**
+ * Formatting for screens. Times are always shown in the location's own zone.
+ */
+final class Display
+{
+    public static function time(DateTimeInterface $at, string $zone): string
+    {
+        return CarbonImmutable::instance($at)->timezone($zone)->format('g:i A');
+    }
+
+    public static function date(DateTimeInterface $at, string $zone): string
+    {
+        return CarbonImmutable::instance($at)->timezone($zone)->format('D, M j');
+    }
+
+    public static function dateTime(DateTimeInterface $at, string $zone): string
+    {
+        return CarbonImmutable::instance($at)->timezone($zone)->format('D, M j, g:i A');
+    }
+
+    public static function range(DateTimeInterface $start, DateTimeInterface $end, string $zone): string
+    {
+        $from = CarbonImmutable::instance($start)->timezone($zone);
+        $to = CarbonImmutable::instance($end)->timezone($zone);
+
+        if ($from->isSameDay($to)) {
+            return $from->format('D, M j').', '.$from->format('g:i A').' – '.$to->format('g:i A');
+        }
+
+        return $from->format('D, M j g:i A').' – '.$to->format('D, M j g:i A');
+    }
+
+    public static function minutes(int $minutes): string
+    {
+        if ($minutes % 1440 === 0) {
+            $days = intdiv($minutes, 1440);
+
+            return $days.' '.($days === 1 ? 'day' : 'days');
+        }
+
+        if ($minutes % 60 === 0) {
+            $hours = intdiv($minutes, 60);
+
+            return $hours.' '.($hours === 1 ? 'hour' : 'hours');
+        }
+
+        if ($minutes > 60) {
+            return intdiv($minutes, 60).' h '.($minutes % 60).' min';
+        }
+
+        return $minutes.' min';
+    }
+
+    public static function money(int $cents, string $currency = 'USD'): string
+    {
+        return Money::format($cents, $currency);
+    }
+
+    public static function status(string $value): string
+    {
+        return ucfirst(str_replace('_', ' ', $value));
+    }
+}

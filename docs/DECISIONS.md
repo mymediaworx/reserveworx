@@ -75,7 +75,7 @@ The embeddable booking widget must not use cookie sessions. Spec Section 6 assum
 
 Inertia with Vue was considered. It can be built before deploy, so it also needs no Node at runtime, but it still needs a Node build and it fights the token-in-iframe model. It is not the recommendation.
 
-Livewire is not installed. Do not add it until this proposal is approved.
+**Approved by the product owner on October 23, 2026.** Livewire 4 is installed. Pages are server-rendered Blade with Livewire components, and there is no Node build. Details are in [`UI.md`](UI.md).
 
 ### Transactional email
 
