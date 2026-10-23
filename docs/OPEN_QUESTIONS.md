@@ -1,6 +1,6 @@
 # Open questions
 
-Seeded from spec Section 18.2 on October 23, 2026. New questions discovered while scaffolding are listed after the original twelve. None of these have been answered by a hosting probe or by a product-owner reply in this change.
+Seeded from spec Section 18.2 on October 23, 2026. New questions discovered while scaffolding are listed after the original twelve. Michael approved keeping the fee rules merged in #11, #13, and #15 (decision D11). Questions 4, 5, 6, 11, and 26 stay open for a later change. They are not a reason to revert those commits.
 
 ## From Section 18.2
 

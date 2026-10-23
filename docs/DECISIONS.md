@@ -18,6 +18,7 @@ Engineering notes below are implementation choices. Proposals are not approved u
 | D8 | The fee is charged only on Stripe payments. Offline payments carry no fee |
 | D9 | Laravel, PHP, and MySQL or MariaDB on SiteGround, subject to verification |
 | D10 | GoHighLevel is never the source of truth for inventory |
+| D11 | The fee rules merged in #11, #13, and #15 stay. Michael approved them on October 23, 2026. Do not revert those commits |
 
 The product owner also created the subdomain `app.reserveworx.com` as the application target, and stated that GitHub Actions can SSH to SiteGround using the repository secrets `SG_HOST`, `SG_USER`, `SG_PORT` (18765), `SG_SSH_KEY`, and possibly `SG_SSH_PASSPHRASE`. That statement is recorded as access intent. It is not a completed Section 2.2 inspection.
 

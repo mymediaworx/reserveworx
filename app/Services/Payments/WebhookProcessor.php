@@ -188,11 +188,23 @@ final class WebhookProcessor
             return;
         }
 
-        $sessionId = is_string($session['id'] ?? null) && $session['id'] !== '' ? $session['id'] : $booking->id;
+        $sessionId = is_string($session['id'] ?? null) && $session['id'] !== '' ? $session['id'] : null;
+        $payment = $sessionId === null ? null : Payment::withoutGlobalScope(TenantScope::class)
+            ->where('stripe_checkout_session_id', $sessionId)
+            ->first();
+
+        if ($payment instanceof Payment && $payment->status === 'paid') {
+            return;
+        }
+
         $this->tenants->set($tenant);
 
         try {
-            $this->events->paymentFailed($booking->tenant_id, $booking->id, 'payment.failed:'.$sessionId);
+            $this->events->paymentFailed(
+                $booking->tenant_id,
+                $booking->id,
+                'payment.failed:'.($sessionId ?? $booking->id),
+            );
         } finally {
             $this->tenants->forget();
         }

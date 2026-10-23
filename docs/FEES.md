@@ -1,6 +1,6 @@
 # Fees
 
-Product rules D1–D8 and spec Sections 7.4–7.8. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). Checkout disclosures are published with a pricing snapshot. Stripe checkout, refunds, and webhooks are wired and stay inert until the platform secret exists. Settings are persisted and rates change through a platform-only API.
+Product rules D1–D8 and spec Sections 7.4–7.8. Michael approved keeping the fee rules merged in #11, #13, and #15 on October 23, 2026 (D11). Those commits stay. The fee calculation engine for Sections 7.4 and 7.5 lives in `app/Domain/Fees` (see [Calculation engine](#calculation-engine)). Checkout disclosures are published with a pricing snapshot. Stripe checkout, refunds, and webhooks are wired and stay inert until the platform secret exists. Settings are persisted and rates change through a platform-only API.
 
 ## What is stored
 
