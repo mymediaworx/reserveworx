@@ -1,9 +1,13 @@
-# Retired after the deploy of main 5889809. No push trigger, so editing this
-# file cannot deploy again. This file stays off main.
+# One deploy of main after maintenance records landed. This file stays off main.
+# Remove the push trigger after the run.
 name: Deploy main once
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - cursor/deploy-backup-681b
+    paths:
+      - .github/workflows/deploy-backup-once.yml
 
 permissions:
   contents: read
