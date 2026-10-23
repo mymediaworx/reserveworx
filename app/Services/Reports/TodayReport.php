@@ -15,6 +15,7 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
+use RuntimeException;
 
 /**
  * A live read of one calendar day. Utilization, conversion, and revenue per
@@ -89,6 +90,75 @@ final class TodayReport
                 'period' => 'all_time',
             ],
         ];
+    }
+
+    public function toCsv(?string $date): string
+    {
+        /** @var array<string, mixed> $report */
+        $report = $this->build($date);
+        $handle = fopen('php://temp', 'w+');
+
+        if ($handle === false) {
+            throw new RuntimeException('Could not build the report.');
+        }
+
+        fputcsv($handle, ['record', 'id', 'name', 'starts_at', 'detail', 'count', 'amount_cents']);
+
+        $bookings = is_array($report['bookings'] ?? null) ? $report['bookings'] : [];
+
+        foreach ($bookings as $booking) {
+            if (! is_array($booking)) {
+                continue;
+            }
+
+            $detail = is_string($booking['status'] ?? null) ? $booking['status'] : '';
+            $attention = $booking['attention_reason'] ?? null;
+
+            if (is_string($attention) && $attention !== '') {
+                $detail .= ' '.$attention;
+            }
+
+            fputcsv($handle, [
+                'booking',
+                $booking['id'] ?? '',
+                $booking['service'] ?? '',
+                $booking['starts_at'] ?? '',
+                $detail,
+                $booking['participants'] ?? '',
+                '',
+            ]);
+        }
+
+        $departures = is_array($report['departures'] ?? null) ? $report['departures'] : [];
+
+        foreach ($departures as $departure) {
+            if (! is_array($departure)) {
+                continue;
+            }
+
+            fputcsv($handle, [
+                'departure',
+                $departure['id'] ?? '',
+                $departure['service'] ?? '',
+                $departure['starts_at'] ?? '',
+                'seats '.($departure['seats'] ?? ''),
+                $departure['headcount'] ?? '',
+                '',
+            ]);
+        }
+
+        $payments = is_array($report['payments'] ?? null) ? $report['payments'] : [];
+        $fees = is_array($report['fees'] ?? null) ? $report['fees'] : [];
+        fputcsv($handle, ['checkout', 'open', '', '', 'checked out', $report['open_checkouts'] ?? 0, '']);
+        fputcsv($handle, ['checkout', 'overdue', '', '', 'overdue', $report['overdue_checkouts'] ?? 0, '']);
+        fputcsv($handle, ['payment', 'stripe', '', '', 'card', '', $payments['stripe_cents'] ?? 0]);
+        fputcsv($handle, ['payment', 'offline', '', '', 'offline', '', $payments['offline_cents'] ?? 0]);
+        fputcsv($handle, ['fee', 'net', '', '', 'all_time', '', $fees['net_cents'] ?? 0]);
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return is_string($csv) ? $csv : '';
     }
 
     private function reportDate(?string $date): string

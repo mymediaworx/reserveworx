@@ -108,7 +108,7 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 ## Reports
 
-`GET /api/v1/reports/today` and `GET /admin` read live rows. They do not add a summary table. A booking counts on the calendar date of `starts_at` in its location timezone. Open and overdue checkouts are current, not limited to that date. Booking-fee totals on this report are all time.
+`GET /api/v1/reports/today`, `GET /api/v1/reports/today/export`, and `GET /admin` read live rows. They do not add a summary table. A booking counts on the calendar date of `starts_at` in its location timezone. Open and overdue checkouts are current, not limited to that date. Booking-fee totals on this report are all time.
 
 ## Integration outbox
 
