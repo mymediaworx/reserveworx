@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Token booking widget. Guests hold a time and see the booking fee before payment. The widget does not use a cookie session, and the return page does not confirm a card payment.
 - Pricing snapshots, promo codes, Stripe Connect direct-charge checkout, and webhook confirmation. Online checkout stays off until the platform Stripe secret is set and the connected account can take card payments.
 - Locations, resource categories, individually tracked assets, and quantity pools.
 - Opening hours, blackouts, services, and resource requirements. Availability responses outside the allocation transaction are hints.
