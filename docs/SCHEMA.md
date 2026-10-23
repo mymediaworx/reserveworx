@@ -106,6 +106,10 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 `maintenance_windows` name one asset or one pool and a half-open interval. Creating one sets `bookings.attention_reason` on future held and confirmed bookings whose allocations overlap that resource. It does not cancel them. `incidents` store a short summary and `occurred_at`. `waiver_versions` are unique on `(tenant_id, name, version)` and store `content_hash`. `waiver_signatures` copy that hash and store IP, user agent, and a guardian name when the participant is a minor. `tenant_settings.late_fee_per_minute_cents` is null until set. `rental_checkouts.late_fee_cents` is the stored whole-minute amount and is not a Stripe charge.
 
+## Reports
+
+`GET /api/v1/reports/today` and `GET /admin` read live rows. They do not add a summary table. A booking counts on the calendar date of `starts_at` in its location timezone. Open and overdue checkouts are current, not limited to that date. Booking-fee totals on this report are all time.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):

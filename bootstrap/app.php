@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'tenant.member' => EnsureTenantMembership::class,
             'platform.admin' => EnsurePlatformAdmin::class,
         ]);
+        $middleware->redirectGuestsTo(fn (): string => route('admin.login'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

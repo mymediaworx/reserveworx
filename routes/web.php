@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\WidgetController;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
@@ -9,6 +11,16 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 Route::get('/', function () {
     return view('welcome');
+});
+
+Route::middleware('tenant.resolve')->group(function (): void {
+    Route::get('/admin/login', [SessionController::class, 'create'])->name('admin.login');
+    Route::post('/admin/login', [SessionController::class, 'store'])->middleware('throttle:login')->name('admin.login.store');
+
+    Route::middleware(['auth:web,sanctum', 'tenant.member'])->group(function (): void {
+        Route::get('/admin', [DashboardController::class, 'show'])->name('admin.dashboard');
+        Route::post('/admin/logout', [SessionController::class, 'destroy'])->name('admin.logout');
+    });
 });
 
 Route::middleware(['tenant.resolve', 'throttle:widget'])
