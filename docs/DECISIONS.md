@@ -33,6 +33,8 @@ The product owner also created the subdomain `app.reserveworx.com` as the applic
 | Password hashing | bcrypt via Laravel's default | argon2id waits until `memory_limit` is known |
 | Queue | `database` driver, `schedule:run` from cron, `queue:work database --stop-when-empty --tries=3 --max-time` | Spec Section 2.3. Default max time is 20 seconds so a one-minute cron stays inside the reported GoGeek CPU cap |
 | Hold expiry | Must be enforced at read time once the engine exists | Cron may be slower than one minute. The engine is not written yet |
+| Inventory permissions | `inventory.view` for owner, manager, and staff. `inventory.manage` for owner and manager | Staff can see resources. They cannot change quantity, status, or buffers |
+| Location timezone | Timezone is stored on `locations`, not tenants | Spec Section 4 and SCHEMA.md |
 | Roles | System roles `owner`, `manager`, `staff` | Foundation default so policies can be tested. Not a product-owner staffing model |
 | Laravel major | 12.x, PHP ^8.2, Composer platform `8.2.35` | Managed PHP 8.2.35 was reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site. Laravel 12 supports PHP 8.2. Laravel 13 requires PHP 8.3 |
 | Test databases | MySQL 8.0 and MariaDB 11.8, user `reserveworx`, password `reserveworx` | Disposable CI credentials. The row-lock test runs on both. SQLite is not used because it ignores row locks |

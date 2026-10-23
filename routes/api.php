@@ -1,12 +1,16 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
+use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
+use App\Http\Controllers\Api\V1\PoolController;
+use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +42,20 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/members/{membership}', [MembershipController::class, 'show']);
             Route::patch('/members/{membership}', [MembershipController::class, 'update']);
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
+            Route::get('/locations', [LocationController::class, 'index']);
+            Route::post('/locations', [LocationController::class, 'store']);
+            Route::get('/locations/{location}', [LocationController::class, 'show']);
+            Route::patch('/locations/{location}', [LocationController::class, 'update']);
+            Route::get('/resource-categories', [ResourceCategoryController::class, 'index']);
+            Route::post('/resource-categories', [ResourceCategoryController::class, 'store']);
+            Route::get('/assets', [AssetController::class, 'index']);
+            Route::post('/assets', [AssetController::class, 'store']);
+            Route::get('/assets/{asset}', [AssetController::class, 'show']);
+            Route::patch('/assets/{asset}', [AssetController::class, 'update']);
+            Route::get('/pools', [PoolController::class, 'index']);
+            Route::post('/pools', [PoolController::class, 'store']);
+            Route::get('/pools/{pool}', [PoolController::class, 'show']);
+            Route::patch('/pools/{pool}', [PoolController::class, 'update']);
         });
     });
 });

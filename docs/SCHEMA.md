@@ -78,13 +78,17 @@ erDiagram
 
 Foundation migration: `database/migrations/2026_10_23_170000_create_foundation_tables.php`. Laravel cache, jobs, and sessions tables are also migrated.
 
+## Inventory resources
+
+`locations.timezone` is the IANA zone for that place. Tenants do not have a timezone. `assets` are individually tracked and `pools.quantity` is the live capacity. Buffers are minutes on the asset or pool. Status is `active`, `blocked`, or `maintenance`.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
-- locations (timezone lives here), customers
+- customers
 - services, service_variants, resource_requirements
-- resource_categories, assets, pools, capacity_ledger `(tenant_id, pool_id, bucket_start_utc)`
+- capacity_ledger `(tenant_id, pool_id, bucket_start_utc)`
 - availability_schedules, blackouts
 - tours, departures
 - bookings, participants, booking_line_items
