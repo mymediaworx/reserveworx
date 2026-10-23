@@ -1,0 +1,141 @@
+# One-shot deploy of main. This file stays off main. After a successful run,
+# remove the push trigger so a later edit cannot deploy again.
+name: Deploy main once
+
+on:
+  push:
+    branches:
+      - cursor/deploy-backup-681b
+    paths:
+      - .github/workflows/deploy-backup-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy main to app.reserveworx.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
+          if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
+          if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
+          if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          coverage: none
+          tools: composer:v2
+
+      - name: Install production dependencies
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
+
+      - name: Pack main
+        id: release
+        run: |
+          set -euo pipefail
+          release="$(git rev-parse HEAD)"
+          if [[ ! "$release" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to pack because the release id is not a commit sha." >&2
+            exit 1
+          fi
+          echo "packing=${release}"
+          tar -czf "/tmp/reserveworx-${release}.tar.gz" \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            --exclude 'node_modules' \
+            --exclude 'tests' \
+            --exclude 'storage/logs' \
+            --exclude 'storage/framework/cache/data' \
+            --exclude 'storage/framework/sessions' \
+            --exclude 'storage/framework/views' \
+            --exclude 'storage/pail' \
+            .
+          echo "sha=${release}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload release archive
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "test -d www/app.reserveworx.com && test ! -d www/reserveworx.com/laravel && mkdir -p www/app.reserveworx.com/laravel/incoming"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat > www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
+          rm -f "/tmp/reserveworx-${RELEASE}.tar.gz"
+
+      - name: Back up the database, migrate, and activate
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/remote-deploy.sh
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q MIGRATION_CONFIRMATION=%q bash -s' \
+            deploy "$RELEASE" true "I have a backup")"
+          set +e
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/deploy-out.txt
+          deploy_exit=${PIPESTATUS[0]}
+          set -e
+          echo "deploy_script_exit=${deploy_exit}"
+
+          backup_path="$(sed -n 's/^backup_path=//p' /tmp/deploy-out.txt | tail -n 1)"
+          backup_bytes="$(sed -n 's/^backup_bytes=//p' /tmp/deploy-out.txt | tail -n 1)"
+          echo "backup_path=${backup_path:-missing}"
+          echo "backup_bytes=${backup_bytes:-missing}"
+
+          path_ok=no
+          case "${backup_path}" in
+            */www/app.reserveworx.com/laravel/backups/reserveworx-*.sql.gz) path_ok=yes ;;
+          esac
+          case "${backup_path}" in
+            *public_html*|*www/reserveworx.com/*) path_ok=no ;;
+          esac
+
+          if [[ "$deploy_exit" == "0" ]] \
+            && grep -q '^health=ok$' /tmp/deploy-out.txt \
+            && grep -q '^migrations=ran$' /tmp/deploy-out.txt \
+            && [[ "$path_ok" == "yes" ]] \
+            && [[ "$backup_bytes" =~ ^[0-9]+$ ]] \
+            && [[ "$backup_bytes" -ge 100 ]]; then
+            echo "backup=confirmed"
+            echo "health=ok source=deploy_script"
+            exit 0
+          fi
+
+          if grep -q '^current=' /tmp/deploy-out.txt; then
+            echo "health=failed. Rolling the code release back. migrate:rollback is not run." >&2
+            rollback_cmd="$(printf 'ACTION=%q bash -s' rollback)"
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$rollback_cmd" < scripts/remote-deploy.sh | tee /tmp/rollback-out.txt
+            exit 1
+          fi
+
+          echo "release_not_switched=no rollback. reserveworx.com was not used." >&2
+          exit 1
