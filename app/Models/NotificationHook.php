@@ -17,10 +17,14 @@ class NotificationHook extends Model
         'kind',
         'dedupe_key',
         'payload',
+        'delivery_status',
+        'delivery_error',
+        'attempted_at',
     ];
 
     protected $casts = [
         'payload' => 'array',
+        'attempted_at' => 'datetime',
     ];
 
     /**

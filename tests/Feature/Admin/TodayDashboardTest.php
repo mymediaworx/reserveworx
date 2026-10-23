@@ -123,6 +123,13 @@ class TodayDashboardTest extends TestCase
             ->assertJsonPath('data.payments.offline_cents', 5000)
             ->assertJsonPath('data.fees.net_cents', 200);
 
+        $this->get($this->tenantUrl('dock.test', '/api/v1/reports/today/export'))
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8')
+            ->assertSee('Kayak')
+            ->assertSee('Engine service')
+            ->assertSee('10300');
+
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/reports/today?date=2026-02-31'))
             ->assertStatus(422);
 

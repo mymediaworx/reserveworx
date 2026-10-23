@@ -17,7 +17,7 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 | Tenant domain | `/staff/setup/*` | Locations with hours and closures, boats and gear, services with lengths, gear, prices, and departures |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
 | Tenant domain | `/staff/booking-links` | Make, copy, embed, and turn off links to the customer booking widget |
-| Tenant domain | `/book/{token}` | Customer booking widget (Grok, #21–#23), styled to match |
+| Tenant domain | `/book/{token}` | Customer booking widget, styled to match |
 
 ## Tenant isolation
 
