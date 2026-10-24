@@ -1,5 +1,10 @@
 @extends('widget.layout')
-@section('title', $tenantName.' bookings')
+@php
+    $publicName = (isset($workspaceBranding) && $workspaceBranding->displayName !== '')
+        ? $workspaceBranding->displayName
+        : $tenantName;
+@endphp
+@section('title', $publicName.' bookings')
 
 @section('hide_bar', '1')
 
@@ -9,11 +14,11 @@
             @if ($workspaceBranding->logoUrl ?? null)
                 <img src="{{ $workspaceBranding->logoUrl }}" alt="">
             @else
-                @php $parts = preg_split('/\s+/', trim($tenantName)) ?: []; @endphp
+                @php $parts = preg_split('/\s+/', trim($publicName)) ?: []; @endphp
                 <span aria-hidden="true">{{ strtoupper(mb_substr($parts[0] ?? '', 0, 1).mb_substr($parts[1] ?? '', 0, 1)) }}</span>
             @endif
         </span>
-        <h1>{{ $tenantName }}</h1>
+        <h1>{{ $publicName }}</h1>
     </div>
     <p>Choose a service. Prices shown here are the total, including the booking fee when the operator charges one.</p>
     <p><a href="{{ url('/book/'.$token.'/lookup') }}">Look up a booking</a></p>

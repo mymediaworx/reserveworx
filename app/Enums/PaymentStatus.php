@@ -11,4 +11,5 @@ enum PaymentStatus: string
     case Refunded = 'refunded';
     case Disputed = 'disputed';
     case OfflinePaid = 'offline_paid';
+    case DueAtPickup = 'due_at_pickup';
 }

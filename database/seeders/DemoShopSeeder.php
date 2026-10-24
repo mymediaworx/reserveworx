@@ -21,6 +21,7 @@ use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Tenancy\DemoWorkspaceIdentity;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -50,6 +51,7 @@ class DemoShopSeeder extends Seeder
             $manager->set($tenant);
 
             try {
+                app(DemoWorkspaceIdentity::class)->align($tenant);
                 $this->enablePayAtPickup($tenant);
                 $shop === 'marina' ? $this->marina($tenant) : $this->livery($tenant);
                 $added = $shop === 'marina' ? $this->ensureTourWindow($tenant) : 0;

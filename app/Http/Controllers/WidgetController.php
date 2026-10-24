@@ -171,24 +171,24 @@ class WidgetController extends Controller
         abort_unless($setting instanceof TenantSetting && $setting->pay_at_pickup, 404);
 
         $fresh = $booking->fresh() ?? $booking;
-        $snapshot = $this->snapshot($fresh);
         $hold = $this->openHold($fresh);
 
-        if ($fresh->status === BookingStatus::Confirmed && $fresh->payment_status === PaymentStatus::OfflinePaid) {
+        if ($fresh->status === BookingStatus::Confirmed) {
             return redirect()->to($this->confirmationUrl($token, $fresh, $hold));
         }
+
+        $snapshot = $this->snapshot($fresh);
 
         if (! $hold instanceof Hold) {
             return $this->checkoutResponse($token, $fresh, $snapshot, null, null, null, null, 'This hold has expired.', 409);
         }
 
         try {
-            $this->checkout->recordOffline($fresh, 'widget-pickup-'.$fresh->id);
+            $fresh = $this->allocator->confirm($fresh);
             $fresh = $fresh->fresh() ?? $fresh;
 
-            if ($fresh->status === BookingStatus::Held) {
-                $fresh = $this->allocator->confirm($fresh);
-                $fresh->payment_status = PaymentStatus::OfflinePaid;
+            if ($fresh->status === BookingStatus::Confirmed) {
+                $fresh->payment_status = PaymentStatus::DueAtPickup;
                 $fresh->save();
             }
         } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {

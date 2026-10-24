@@ -1,11 +1,15 @@
 @extends('widget.layout')
+@use('App\Services\Booking\PublicBookingCopy')
 @section('title', 'Booking '.$booking->id)
 
 @section('content')
+    @php
+        $copy = app(PublicBookingCopy::class)->for($booking);
+    @endphp
     <h1>Booking <span style="overflow-wrap:anywhere">{{ $booking->id }}</span></h1>
     <p>{{ $booking->service?->name }}</p>
-    <p>Status: {{ $booking->status->value }}. Payment: {{ $booking->payment_status->value }}.</p>
-    @if ($booking->status->value === 'confirmed' && in_array($booking->payment_status->value, ['paid', 'deposit_paid', 'offline_paid'], true))
+    <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
+    @if ($booking->status->value === 'confirmed')
         <p>Your booking is confirmed.</p>
     @else
         <p>A card payment is confirmed only after Stripe notifies ReserveWorx. This page does not complete the payment.</p>

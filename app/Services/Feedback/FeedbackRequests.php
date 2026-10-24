@@ -9,7 +9,6 @@ use App\Enums\TransactionalEmail;
 use App\Jobs\SendFeedbackRequest;
 use App\Models\Booking;
 use App\Models\Customer;
-use App\Models\Domain;
 use App\Models\FeedbackRequest;
 use App\Models\NotificationHook;
 use App\Models\Tenant;
@@ -19,6 +18,7 @@ use App\Notifications\FeedbackRequestNotification;
 use App\Services\AuditLogger;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Notifications\TransactionalEmailPreferences;
+use App\Services\Tenancy\WorkspaceOrigin;
 use App\Tenancy\TenantContextException;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
@@ -44,6 +44,7 @@ final class FeedbackRequests
         private readonly NotificationHooks $hooks,
         private readonly TransactionalEmailPreferences $preferences,
         private readonly AuditLogger $audit,
+        private readonly WorkspaceOrigin $origins,
     ) {}
 
     public function queue(Booking $booking, bool $fromReturn = false): void
@@ -348,16 +349,10 @@ final class FeedbackRequests
             throw new TenantContextException('Refusing to sign a feedback link without a verified domain.');
         }
 
-        URL::forceRootUrl($origin);
-
-        try {
-            return [
-                'rate' => URL::signedRoute('feedback.show', ['booking' => $bookingId]),
-                'opt_out' => URL::signedRoute('feedback.opt-out', ['booking' => $bookingId]),
-            ];
-        } finally {
-            URL::forceRootUrl(null);
-        }
+        return $this->origins->generate($origin, fn (): array => [
+            'rate' => URL::signedRoute('feedback.show', ['booking' => $bookingId]),
+            'opt_out' => URL::signedRoute('feedback.opt-out', ['booking' => $bookingId]),
+        ]);
     }
 
     private function skipReason(Tenant $tenant, ?Booking $booking): ?string
@@ -429,20 +424,7 @@ final class FeedbackRequests
 
     private function origin(string $tenantId): ?string
     {
-        $hostname = Domain::withoutGlobalScope(TenantScope::class)
-            ->where('tenant_id', $tenantId)
-            ->whereNotNull('verified_at')
-            ->orderByDesc('is_primary')
-            ->orderBy('hostname')
-            ->value('hostname');
-
-        if (! is_string($hostname) || $hostname === '') {
-            return null;
-        }
-
-        $scheme = app()->environment('production') ? 'https' : 'http';
-
-        return $scheme.'://'.$hostname;
+        return $this->origins->baseUrl($tenantId);
     }
 
     private function businessName(Tenant $tenant): string
