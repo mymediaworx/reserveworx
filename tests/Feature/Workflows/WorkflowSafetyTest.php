@@ -14,9 +14,12 @@ class WorkflowSafetyTest extends TestCase
             $this->assertStringContainsString('workflow_dispatch', $contents);
             $this->assertStringNotContainsString('pull_request:', $contents);
             if ($workflow === 'deploy.yml') {
+                $this->assertStringContainsString("push:\n    branches:\n      - main", $contents);
                 $this->assertStringContainsString('Back up the application database', $contents);
                 $this->assertStringContainsString('gunzip -t', $contents);
                 $this->assertStringNotContainsString('migration_confirmation', $contents);
+                $this->assertStringNotContainsString('http://127.0.0.1/up', $contents);
+                $this->assertStringNotContainsString('http://localhost', $contents);
             }
             $this->assertStringNotContainsString('BEGIN OPENSSH PRIVATE KEY', $contents);
             $this->assertStringNotContainsString('BEGIN RSA PRIVATE KEY', $contents);
@@ -33,6 +36,11 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString("tr '[:upper:]' '[:lower:]'", $remote);
 
         $this->assertStringContainsString('chmod 600', $remote);
+        $this->assertStringContainsString('rollback_probe=https://app.reserveworx.com/up', $remote);
+        $this->assertStringContainsString('https://app.reserveworx.com/platform', $remote);
+        $this->assertStringContainsString('reserveworx:grant-platform-admin michael@brandworx.ai', $remote);
+        $this->assertStringNotContainsString('http://127.0.0.1/up', $remote);
+        $this->assertStringNotContainsString('http://localhost/up', $remote);
         $this->assertStringContainsString('harbor.reserveworx.com', $remote);
         $this->assertStringContainsString('reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com', $remote);
         $this->assertStringContainsString('Team sign in', $remote);

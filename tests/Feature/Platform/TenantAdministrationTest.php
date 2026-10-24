@@ -8,6 +8,7 @@ use App\Models\TenantSetting;
 use App\Models\User;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Laravel\Sanctum\Sanctum;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
@@ -143,12 +144,50 @@ class TenantAdministrationTest extends TestCase
         $user = User::factory()->create(['email' => 'ops@example.com']);
 
         $this->artisan('reserveworx:grant-platform-admin', ['email' => 'ops@example.com'])
-            ->assertSuccessful();
+            ->assertSuccessful()
+            ->expectsOutputToContain('platform_admin=granted email=ops@example.com');
 
         $this->assertTrue($user->fresh()->isPlatformAdmin());
         $this->assertDatabaseHas('audit_logs', [
             'action' => 'platform.admin_granted',
             'subject_id' => $user->id,
         ]);
+    }
+
+    public function test_grant_creates_a_missing_user_only_into_a_private_password_file(): void
+    {
+        $directory = sys_get_temp_dir().'/rw-admin-'.bin2hex(random_bytes(4));
+        mkdir($directory);
+        $path = $directory.'/platform-admin.txt';
+
+        $this->artisan('reserveworx:grant-platform-admin', [
+            'email' => 'michael@brandworx.ai',
+            '--password-file' => $path,
+        ])->assertSuccessful()->expectsOutputToContain('user_created=1');
+
+        $user = User::query()->where('email', 'michael@brandworx.ai')->first();
+        $this->assertInstanceOf(User::class, $user);
+        $this->assertTrue($user->isPlatformAdmin());
+        $this->assertSame('600', substr(sprintf('%o', fileperms($path)), -3));
+        $stored = trim((string) file_get_contents($path));
+        $this->assertStringStartsWith('michael@brandworx.ai ', $stored);
+        $password = substr($stored, strlen('michael@brandworx.ai '));
+        $this->assertNotSame('', $password);
+        $this->assertStringNotContainsString($password, Artisan::output());
+
+        $this->artisan('reserveworx:grant-platform-admin', ['email' => 'michael@brandworx.ai'])
+            ->assertSuccessful();
+        $this->assertSame(1, User::query()->where('email', 'michael@brandworx.ai')->count());
+        $this->assertSame($stored, trim((string) file_get_contents($path)));
+
+        $this->artisan('reserveworx:grant-platform-admin', [
+            'email' => 'missing@brandworx.ai',
+            '--password-file' => $directory.'/public_html/secret.txt',
+        ])->assertFailed();
+        $this->artisan('reserveworx:grant-platform-admin', [
+            'email' => 'missing@brandworx.ai',
+            '--password-file' => '/tmp/www/reserveworx.com/secret.txt',
+        ])->assertFailed();
+        $this->assertNull(User::query()->where('email', 'missing@brandworx.ai')->first());
     }
 }

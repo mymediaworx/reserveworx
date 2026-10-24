@@ -240,26 +240,89 @@ purge_dynamic_cache() {
   return 1
 }
 
-health_check() {
-  local body code
-  body="$(mktemp)"
-  code="$(curl -sS -o "$body" --max-time 20 -w '%{http_code}' \
+https_get() {
+  local url body_file header_file code
+  url="$1"
+  body_file="$2"
+  header_file="$3"
+  case "$url" in
+    https://app.reserveworx.com/*|https://harbor.reserveworx.com/*) ;;
+    *)
+      echo "probe=rejected url" >&2
+      return 1
+      ;;
+  esac
+  code="$(curl -sS -D "$header_file" -o "$body_file" --max-time 20 -w '%{http_code}' \
     -H "Cache-Control: no-cache" \
     -H "Cookie: wpSGCacheBypass=1" \
-    "https://app.reserveworx.com/up" || true)"
+    "$url" || true)"
+  printf '%s' "${code:-none}"
+}
+
+health_check() {
+  local body headers code
+  body="$(mktemp)"
+  headers="$(mktemp)"
+  code="$(https_get "https://app.reserveworx.com/up" "$body" "$headers")"
   echo "health_http=${code:-none}"
+  echo "rollback_probe=https://app.reserveworx.com/up"
   if [[ "$code" == "202" ]]; then
     echo "health=not proven. HTTP 202 is the SiteGround bot check, not a healthy application." >&2
-    rm -f "$body"
+    rm -f "$body" "$headers"
     return 1
   fi
   if [[ "$code" == "200" ]] && grep -q "Application up" "$body"; then
     echo "health=ok"
-    rm -f "$body"
+    rm -f "$body" "$headers"
     return 0
   fi
   echo "health=failed. A 200 that contains Application up is required. HTTPS must be enforced for app.reserveworx.com in Site Tools." >&2
-  rm -f "$body"
+  rm -f "$body" "$headers"
+  return 1
+}
+
+swap_to_previous() {
+  local prev_target curr_target
+  if [[ ! -L "$previous" ]]; then
+    echo "rollback=unavailable" >&2
+    return 1
+  fi
+  prev_target="$(release_path "$previous")"
+  if [[ ! -d "$prev_target" ]]; then
+    echo "rollback=unavailable" >&2
+    return 1
+  fi
+  if [[ -L "$current" ]]; then
+    curr_target="$(release_path "$current")"
+    ln -sfn "$prev_target" "$current"
+    ln -sfn "$curr_target" "$previous"
+  else
+    ln -sfn "$prev_target" "$current"
+  fi
+  echo "rollback=complete"
+  echo "migrate_rollback=not run"
+  echo "rollback_probe=https://app.reserveworx.com/up"
+  echo "current=$(readlink -f "$current")"
+}
+
+platform_check() {
+  local body headers code
+  body="$(mktemp)"
+  headers="$(mktemp)"
+  code="$(https_get "https://app.reserveworx.com/platform" "$body" "$headers")"
+  echo "platform_http=${code:-none}"
+  if [[ "$code" == "200" ]] && grep -q "Workspaces" "$body"; then
+    echo "platform=ok"
+    rm -f "$body" "$headers"
+    return 0
+  fi
+  if [[ "$code" == "302" ]] && grep -qi '^location: .*/platform/login' "$headers"; then
+    echo "platform=ok"
+    rm -f "$body" "$headers"
+    return 0
+  fi
+  echo "platform=failed" >&2
+  rm -f "$body" "$headers"
   return 1
 }
 
@@ -590,21 +653,42 @@ EOF
 }
 
 harbor_login_check() {
-  local body code
+  local body headers code
   body="$(mktemp)"
-  code="$(curl -sS -o "$body" --max-time 20 -w '%{http_code}' \
-    -H "Cache-Control: no-cache" \
-    -H "Cookie: wpSGCacheBypass=1" \
-    "https://harbor.reserveworx.com/staff/login" || true)"
+  headers="$(mktemp)"
+  code="$(https_get "https://harbor.reserveworx.com/staff/login" "$body" "$headers")"
   echo "harbor_login_http=${code:-none}"
   if [[ "$code" == "200" ]] && grep -q "Team sign in" "$body"; then
     echo "harbor_login=ok"
-    rm -f "$body"
+    rm -f "$body" "$headers"
     return 0
   fi
   echo "harbor_login=failed" >&2
-  rm -f "$body"
+  rm -f "$body" "$headers"
   return 1
+}
+
+grant_platform_admin() {
+  local password_file
+  password_file="${shared}/platform-admin.txt"
+  case "$password_file" in
+    */www/app.reserveworx.com/laravel/shared/platform-admin.txt) ;;
+    *)
+      echo "platform_admin=rejected" >&2
+      return 1
+      ;;
+  esac
+  case "$password_file" in
+    *public_html*|*www/reserveworx.com*)
+      echo "platform_admin=rejected" >&2
+      return 1
+      ;;
+  esac
+  (cd "$current" && "$php_bin" artisan reserveworx:grant-platform-admin michael@brandworx.ai --password-file="$password_file" --no-interaction)
+  if [[ -f "$password_file" ]]; then
+    chmod 600 "$password_file"
+    echo "platform_admin_file=${password_file}"
+  fi
 }
 
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
@@ -627,25 +711,10 @@ fi
 echo "https_enforcement=required for app.reserveworx.com only, in Site Tools, Security, HTTPS Enforce"
 
 if [[ "$ACTION" == "rollback" ]]; then
-  if [[ ! -L "$previous" ]]; then
+  if ! swap_to_previous; then
     echo "No previous release is recorded. Nothing was changed." >&2
     exit 1
   fi
-  prev_target="$(release_path "$previous")"
-  if [[ ! -d "$prev_target" ]]; then
-    echo "The previous release directory is missing. Nothing was changed." >&2
-    exit 1
-  fi
-  if [[ -L "$current" ]]; then
-    curr_target="$(release_path "$current")"
-    ln -sfn "$prev_target" "$current"
-    ln -sfn "$curr_target" "$previous"
-  else
-    ln -sfn "$prev_target" "$current"
-  fi
-  echo "rollback=complete"
-  echo "migrate_rollback=not run"
-  echo "current=$(readlink -f "$current")"
   prune_releases
   purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
   health_check
@@ -737,10 +806,21 @@ echo "caches=written"
 
 switch_docroot
 purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
-health_check
+if ! health_check; then
+  echo "health=failed. Rolling the code release back. migrate:rollback is not run." >&2
+  swap_to_previous || true
+  exit 1
+fi
+grant_platform_admin
 install_harbor_front_controller
 (cd "$current" && "$php_bin" artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com --no-interaction)
-harbor_login_check
+platform_failed=0
+harbor_failed=0
+platform_check || platform_failed=1
+harbor_login_check || harbor_failed=1
+if [[ "$platform_failed" -ne 0 || "$harbor_failed" -ne 0 ]]; then
+  exit 1
+fi
 echo "deploy=complete"
 echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
 echo "cron_command_body=<not installed by this script>"
