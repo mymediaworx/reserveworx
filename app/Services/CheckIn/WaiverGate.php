@@ -18,7 +18,7 @@ final class WaiverGate
 {
     public function status(Booking $booking): WaiverReadiness
     {
-        $current = $this->currentVersions();
+        $current = $this->current();
 
         if ($current->isEmpty()) {
             return new WaiverReadiness(required: false, complete: true, missing: []);
@@ -52,9 +52,63 @@ final class WaiverGate
     }
 
     /**
+     * One line per named person. A booking with nobody named is a single line
+     * for the booking. The label uses the same current-version rule as check-in.
+     *
+     * @param  Collection<int, Participant>  $participants
+     * @param  Collection<int, WaiverSignature>  $signatures
+     * @param  Collection<string, WaiverVersion>  $current
+     * @return list<array{name: string, minor: bool, waiver: string}>
+     */
+    public function lines(Collection $participants, Collection $signatures, Collection $current): array
+    {
+        if ($current->isEmpty()) {
+            if ($participants->isEmpty()) {
+                return [['name' => 'This booking', 'minor' => false, 'waiver' => 'No waiver']];
+            }
+
+            $lines = [];
+
+            foreach ($participants as $participant) {
+                $lines[] = [
+                    'name' => $participant->name,
+                    'minor' => $participant->is_minor,
+                    'waiver' => 'No waiver',
+                ];
+            }
+
+            return $lines;
+        }
+
+        if ($participants->isEmpty()) {
+            return [[
+                'name' => 'This booking',
+                'minor' => false,
+                'waiver' => $this->waiverLabel($this->missingNames($current, function (WaiverVersion $version) use ($signatures): bool {
+                    return $this->bookingSigned($signatures, $version);
+                })),
+            ]];
+        }
+
+        $lines = [];
+
+        foreach ($participants as $participant) {
+            $lines[] = [
+                'name' => $participant->name,
+                'minor' => $participant->is_minor,
+                'waiver' => $this->waiverLabel($this->missingNames($current, function (WaiverVersion $version) use ($signatures, $participant): bool {
+                    return $this->participantSigned($signatures, $version, $participant);
+                })),
+            ];
+        }
+
+        return $lines;
+    }
+
+    /**
      * @return Collection<string, WaiverVersion>
      */
-    private function currentVersions(): Collection
+    public function current(): Collection
     {
         $current = [];
         $versions = WaiverVersion::query()->orderBy('name')->orderByDesc('version')->get();
@@ -108,6 +162,32 @@ final class WaiverGate
         }
 
         return false;
+    }
+
+    /**
+     * @param  Collection<string, WaiverVersion>  $current
+     * @param  callable(WaiverVersion): bool  $signed
+     * @return list<string>
+     */
+    private function missingNames(Collection $current, callable $signed): array
+    {
+        $missing = [];
+
+        foreach ($current as $version) {
+            if (! $signed($version)) {
+                $missing[] = $version->name;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * @param  list<string>  $missing
+     */
+    private function waiverLabel(array $missing): string
+    {
+        return $missing === [] ? 'Signed' : 'Needs '.implode(', ', $missing);
     }
 
     private function guardianMissing(bool $minor, mixed $guardian): bool

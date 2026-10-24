@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\SignupController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\StaffCheckInController;
+use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
@@ -24,6 +25,7 @@ use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\CheckIn;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
+use App\Livewire\Staff\Manifest;
 use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
 use App\Livewire\Staff\Schedule;
@@ -113,6 +115,8 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
         Route::get('/feedback', Feedback::class);
+        Route::get('/manifest', Manifest::class)->name('staff.manifest');
+        Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/check-in', CheckIn::class)->name('staff.check-in');
         Route::get('/check-in/{booking}', [StaffCheckInController::class, 'show'])
             ->whereUlid('booking')

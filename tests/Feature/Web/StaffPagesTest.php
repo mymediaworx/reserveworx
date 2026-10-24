@@ -56,6 +56,7 @@ class StaffPagesTest extends TestCase
             '/staff/settings' => 'Who pays the booking fee',
             '/staff/feedback' => 'No ratings yet.',
             '/staff/check-in' => "Today's arrivals",
+            '/staff/manifest' => 'Dispatch manifest',
             '/staff/menu' => 'Set up your business',
             '/staff/branding' => 'Customer support',
             '/staff/share' => 'How do you want to share it?',

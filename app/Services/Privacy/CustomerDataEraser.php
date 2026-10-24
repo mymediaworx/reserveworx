@@ -122,6 +122,7 @@ class CustomerDataEraser
                 ]);
                 $this->scrubIncidents($bookingIds, $names, $fragments);
                 $this->scrubReturns($bookingIds, $names, $fragments);
+                $this->scrubStaffNotes($bookingIds, $names, $fragments);
                 $this->scrubHooks($bookingIds, $names, $fragments);
                 $this->scrubOutbox($bookingIds, $names, $fragments);
             }
@@ -365,6 +366,28 @@ class CustomerDataEraser
             $request->comment = null;
             $request->skip_reason = $reason;
             $request->save();
+        }
+    }
+
+    /**
+     * @param  list<string>  $bookingIds
+     * @param  list<string>  $names
+     * @param  list<string>  $fragments
+     */
+    /**
+     * @param  list<string>  $bookingIds
+     * @param  list<string>  $names
+     * @param  list<string>  $fragments
+     */
+    private function scrubStaffNotes(array $bookingIds, array $names, array $fragments): void
+    {
+        foreach (Booking::query()->whereIn('id', $bookingIds)->orderBy('id')->get() as $booking) {
+            $notes = $this->scrubText($booking->staff_notes, $names, $fragments);
+
+            if ($notes !== $booking->staff_notes) {
+                $booking->staff_notes = $notes;
+                $booking->save();
+            }
         }
     }
 

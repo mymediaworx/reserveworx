@@ -320,6 +320,12 @@ class CustomerPrivacyTest extends TestCase
             $this->assertInstanceOf(Booking::class, $booking);
             $this->assertSame($customer->id, $booking->customer_id);
             $this->assertSame(BookingStatus::Confirmed, $booking->status);
+            $this->assertIsString($booking->staff_notes);
+            $this->assertStringNotContainsString('Ada Kayak', $booking->staff_notes);
+            $this->assertStringNotContainsString('ada@example.com', $booking->staff_notes);
+            $this->assertStringNotContainsString('312-555-0100', $booking->staff_notes);
+            $neighborBooking = Booking::query()->findOrFail($graph['neighborWaitlist']->booking_id);
+            $this->assertSame('Bea likes the blue boat', $neighborBooking->staff_notes);
 
             $this->assertSame(10_300, $graph['payment']->fresh()?->amount_cents);
             $this->assertSame(400, $graph['refund']->fresh()?->customer_refund_cents);
@@ -695,8 +701,8 @@ class CustomerPrivacyTest extends TestCase
     {
         $customer = $this->customer($tenantId, 'Ada Kayak', 'ada@example.com', '312-555-0100');
         $neighbor = $this->customer($tenantId, 'Bea Paddle', 'bea@example.com', '312-555-0199');
-        $booking = $this->booking($tenantId, $customer->id, 'ada-kayak');
-        $neighborBooking = $this->booking($tenantId, $neighbor->id, 'bea-paddle');
+        $booking = $this->booking($tenantId, $customer->id, 'ada-kayak', 'Call Ada Kayak at 312-555-0100 or ada@example.com');
+        $neighborBooking = $this->booking($tenantId, $neighbor->id, 'bea-paddle', 'Bea likes the blue boat');
         $payment = Payment::query()->create([
             'tenant_id' => $tenantId,
             'booking_id' => $booking->id,
@@ -873,7 +879,7 @@ class CustomerPrivacyTest extends TestCase
         ];
     }
 
-    private function booking(string $tenantId, string $customerId, string $name): Booking
+    private function booking(string $tenantId, string $customerId, string $name, ?string $notes = null): Booking
     {
         $location = Location::factory()->create([
             'tenant_id' => $tenantId,
@@ -901,6 +907,7 @@ class CustomerPrivacyTest extends TestCase
             'ends_at' => '2026-06-16 16:00:00',
             'participants' => 1,
             'payload_hash' => hash('sha256', $customerId.$name),
+            'staff_notes' => $notes,
         ]);
     }
 }
