@@ -486,6 +486,127 @@ class PricingCheckoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_deposit_balance_charges_the_remainder_with_no_second_fee(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'), [
+            'deposit_percent' => 50,
+        ])->assertOk()
+            ->assertJsonPath('data.payload.customer_total_cents', 10_300)
+            ->assertJsonPath('data.payload.charge_cents', 5_150)
+            ->assertJsonPath('data.payload.application_fee_cents', 300);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'This booking has no balance due.');
+
+        $deposit = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk()->json('data');
+        $this->assertSame(5_150, $deposit['amount_cents']);
+        $this->assertSame(300, $deposit['fee_cents']);
+
+        $this->postWebhook('evt_deposit', 'checkout.session.completed', [
+            'id' => 'cs_test_123',
+            'payment_status' => 'paid',
+            'amount_total' => 5_150,
+            'payment_intent' => 'pi_deposit',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.status', 'confirmed')
+            ->assertJsonPath('data.payment_status', 'deposit_paid');
+
+        $fake->sessionId = 'cs_test_balance';
+        $fake->sessionUrl = 'https://checkout.stripe.test/pay/cs_test_balance';
+        $balanceBody = [
+            'success_url' => 'https://dock.test/balance',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'balance-1',
+        ];
+        $started = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), $balanceBody)
+            ->assertOk();
+        $this->assertSame(5_150, $started->json('data.amount_cents'));
+        $this->assertSame(0, $started->json('data.fee_cents'));
+        $this->assertSame('https://checkout.stripe.test/pay/cs_test_balance', $started->json('data.checkout_url'));
+        $this->assertArrayNotHasKey('application_fee_amount', $fake->sessions[1]['params']['payment_intent_data']);
+
+        $replay = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), $balanceBody)
+            ->assertOk();
+        $this->assertSame($started->json('data.payment_id'), $replay->json('data.payment_id'));
+        $this->assertNull($replay->json('data.checkout_url'));
+        $this->assertCount(2, $fake->sessions);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), [
+            'success_url' => 'https://dock.test/other',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'balance-1',
+        ])->assertStatus(409);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), [
+            'success_url' => 'https://dock.test/balance',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'balance-2',
+        ])->assertStatus(409)->assertJsonPath('message', 'A balance checkout is already open.');
+
+        $other = $this->workspace('other.test');
+        $this->actingAsWorkspace($other);
+        $this->postJson($this->tenantUrl('other.test', '/api/v1/bookings/'.$bookingId.'/balance-checkout'), $balanceBody)
+            ->assertNotFound();
+
+        $this->actingAsWorkspace($workspace);
+        $this->postWebhook('evt_balance', 'checkout.session.completed', [
+            'id' => 'cs_test_balance',
+            'payment_status' => 'paid',
+            'amount_total' => 5_150,
+            'payment_intent' => 'pi_balance',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(1, PlatformFee::query()->count());
+        $this->assertSame(300, PlatformFee::query()->firstOrFail()->amount_cents);
+        $this->assertSame(2, Payment::query()->count());
+        $balance = Payment::query()->where('kind', 'balance_stripe_payment')->firstOrFail();
+        $this->assertSame(0, $balance->fee_cents);
+        $this->assertSame(5_150, $balance->amount_cents);
+        $this->assertSame('paid', $balance->status);
+        $this->assertSame(1, AuditLog::query()->where('action', 'payment.balance_checkout_started')->count());
+        app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
     public function test_an_unconfigured_webhook_is_rejected(): void
     {
         $this->postJson('http://localhost/api/v1/stripe/webhook', ['id' => 'evt_x'], [

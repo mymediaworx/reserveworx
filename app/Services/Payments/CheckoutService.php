@@ -2,9 +2,11 @@
 
 namespace App\Services\Payments;
 
+use App\Domain\Fees\PaymentKind;
 use App\Domain\Payments\CheckoutSessionSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
+use App\Enums\BookingStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Booking;
 use App\Models\Payment;
@@ -90,6 +92,90 @@ final class CheckoutService
         return ['payment' => $payment, 'url' => $session['url']];
     }
 
+    /**
+     * The remainder after a deposit. Spec 7.4: a later balance payment carries no booking fee.
+     *
+     * @return array{payment: Payment, url: string|null}
+     */
+    public function startBalanceCheckout(Booking $booking, string $successUrl, string $cancelUrl, ?string $idempotencyKey = null): array
+    {
+        $hash = $this->payloadHash('balance', $booking->id, $successUrl, $cancelUrl);
+        $existing = $this->storedPayment($idempotencyKey, $hash);
+
+        if ($existing instanceof Payment) {
+            return ['payment' => $existing, 'url' => null];
+        }
+
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
+
+        if (! $snapshot instanceof PricingSnapshot) {
+            throw new AllocationUnavailableException('Price this booking before taking payment.');
+        }
+
+        if ($booking->status !== BookingStatus::Confirmed || $booking->payment_status !== PaymentStatus::DepositPaid) {
+            throw new AllocationUnavailableException('This booking has no balance due.');
+        }
+
+        $remaining = $this->customerTotalCents($snapshot->payload) - $this->paidTowardTotal($booking);
+
+        if ($remaining <= 0) {
+            throw new AllocationUnavailableException('This booking has no balance due.');
+        }
+
+        $open = Payment::query()
+            ->where('booking_id', $booking->id)
+            ->where('kind', PaymentKind::BalanceStripePayment->value)
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($open) {
+            throw new AllocationUnavailableException('A balance checkout is already open.');
+        }
+
+        $account = StripeAccount::query()->where('tenant_id', $booking->tenant_id)->first();
+
+        if (! $account instanceof StripeAccount || ! $account->canCharge()) {
+            throw new AllocationUnavailableException('Online payments are not enabled for this workspace.');
+        }
+
+        $serviceName = $booking->service->name ?? 'Booking';
+        $identifier = 'reserveworx_'.Str::lower(Str::random(8));
+        $params = CheckoutSessionSpec::directCharge(
+            $booking->tenant_id,
+            $booking->id,
+            $serviceName.' balance',
+            $snapshot->currency,
+            $remaining,
+            null,
+            $successUrl,
+            $cancelUrl,
+            $identifier,
+        );
+
+        try {
+            $session = $this->stripe->createDirectCheckoutSession($account->stripe_account_id, $params);
+        } catch (StripeNotConfiguredException $exception) {
+            throw new AllocationUnavailableException($exception->getMessage());
+        }
+
+        $payment = $this->createPayment([
+            'tenant_id' => $booking->tenant_id,
+            'booking_id' => $booking->id,
+            'method' => 'stripe',
+            'kind' => PaymentKind::BalanceStripePayment->value,
+            'status' => 'pending',
+            'amount_cents' => $remaining,
+            'fee_cents' => 0,
+            'stripe_checkout_session_id' => $session['id'],
+        ], $idempotencyKey, $hash);
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '' && ! $payment->wasRecentlyCreated) {
+            return ['payment' => $payment, 'url' => null];
+        }
+
+        return ['payment' => $payment, 'url' => $session['url']];
+    }
+
     public function recordOffline(Booking $booking, ?string $idempotencyKey = null): Payment
     {
         $hash = $this->payloadHash('offline', $booking->id);
@@ -147,6 +233,24 @@ final class CheckoutService
         $amount = (is_numeric($total) ? (int) $total : 0) - (is_numeric($line) ? (int) $line : 0);
 
         return max(0, $amount);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function customerTotalCents(array $payload): int
+    {
+        $total = $payload['customer_total_cents'] ?? 0;
+
+        return is_numeric($total) ? (int) $total : 0;
+    }
+
+    private function paidTowardTotal(Booking $booking): int
+    {
+        return (int) Payment::query()
+            ->where('booking_id', $booking->id)
+            ->where('status', 'paid')
+            ->sum('amount_cents');
     }
 
     public function amountDueAtPickup(PricingSnapshot $snapshot): int
