@@ -43,12 +43,14 @@ jobs:
           SG_USER: ${{ secrets.SG_USER }}
           SG_PORT: ${{ secrets.SG_PORT }}
           SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         run: |
           set -euo pipefail
           if [ -n "${SG_HOST}" ]; then echo "::add-mask::${SG_HOST}"; fi
           if [ -n "${SG_USER}" ]; then echo "::add-mask::${SG_USER}"; fi
           if [ -n "${SG_PORT}" ]; then echo "::add-mask::${SG_PORT}"; fi
           if [ -n "${SG_SSH_PASSPHRASE}" ]; then echo "::add-mask::${SG_SSH_PASSPHRASE}"; fi
+          if [ -n "${MAIL_PASSWORD}" ]; then echo "::add-mask::${MAIL_PASSWORD}"; fi
 
       - name: Resolve release
         id: release
@@ -162,9 +164,21 @@ jobs:
           RELEASE: ${{ steps.release.outputs.sha }}
           RUN_MIGRATIONS: ${{ github.event_name == 'push' && 'true' || inputs.run_migrations }}
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
+          RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         run: |
           set -euo pipefail
+          if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          if [[ "$ACTION" == "deploy" ]]; then
+            mail_dir='www/app.reserveworx.com/laravel/shared'
+            mail_file="${mail_dir}/.mail-password"
+            if [[ -n "${RW_MAIL_PASSWORD}" ]]; then
+              printf '%s' "$RW_MAIL_PASSWORD" | scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "umask 077; mkdir -p ${mail_dir} && cat > ${mail_file}.tmp && mv -f ${mail_file}.tmp ${mail_file} && chmod 600 ${mail_file}"
+            else
+              scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "rm -f ${mail_file} ${mail_file}.tmp"
+            fi
+          fi
+          unset RW_MAIL_PASSWORD
           remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -s' \
             "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH")"
           {
