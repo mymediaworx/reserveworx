@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Domain\Fees\Disclosures\Money;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
-use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
@@ -317,16 +316,7 @@ class WidgetController extends Controller
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
-        $rules = PriceRule::query()->where('service_id', $service->id)->get()->map(function (PriceRule $rule): PriceRuleInput {
-            return new PriceRuleInput(
-                $rule->kind,
-                $rule->amount_cents,
-                $rule->window,
-                $rule->duration_minutes,
-                $rule->starts_on?->toDateString(),
-                $rule->ends_on?->toDateString(),
-            );
-        })->all();
+        $rules = PriceRule::inputsFor($service->id);
         $priced = $this->pricing->price($channel, $rate, $payer, $rules, $participants, $minutes, $on, 0, null, null, null, 100);
 
         return [

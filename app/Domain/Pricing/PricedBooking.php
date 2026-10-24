@@ -9,6 +9,7 @@ final readonly class PricedBooking
 {
     /**
      * @param  list<array<string, mixed>>  $addOnLines
+     * @param  list<array<string, mixed>>  $timeWindows
      */
     public function __construct(
         public int $servicesCents,
@@ -19,6 +20,7 @@ final readonly class PricedBooking
         public ?string $promoCode,
         public int $addOnsCents = 0,
         public array $addOnLines = [],
+        public array $timeWindows = [],
     ) {}
 
     /**
@@ -36,6 +38,7 @@ final readonly class PricedBooking
             'charge_cents' => $this->payment->chargeCents,
             'application_fee_cents' => $this->payment->applicationFeeCents,
             'deposit_was_raised' => $this->payment->depositWasRaised(),
+            'time_windows' => $this->timeWindows,
         ];
     }
 }

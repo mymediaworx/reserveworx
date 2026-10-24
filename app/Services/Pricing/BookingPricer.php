@@ -6,7 +6,6 @@ use App\Domain\Fees\Disclosures\DisclosurePublisher;
 use App\Domain\Fees\FeeCalculator;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
-use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
 use App\Enums\FeePayer;
 use App\Models\Booking;
@@ -40,16 +39,7 @@ final class BookingPricer
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
-        $rules = PriceRule::query()->where('service_id', $booking->service_id)->get()->map(function (PriceRule $rule): PriceRuleInput {
-            return new PriceRuleInput(
-                $rule->kind,
-                $rule->amount_cents,
-                $rule->window,
-                $rule->duration_minutes,
-                $rule->starts_on?->toDateString(),
-                $rule->ends_on?->toDateString(),
-            );
-        })->all();
+        $rules = PriceRule::inputsFor($booking->service_id);
 
         $promo = null;
         $percent = null;
@@ -105,6 +95,7 @@ final class BookingPricer
         $payload['priced_participants'] = $booking->participants;
         $payload['priced_duration_minutes'] = $duration;
         $payload['priced_on'] = $on->toDateString();
+        $payload['priced_local_start'] = $on->format('H:i');
         $payload['promo_percent_off'] = $percent;
         $payload['promo_amount_off_cents'] = $amount;
 
