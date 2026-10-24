@@ -33,6 +33,8 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/branding/logo'],
             ['GET', '/api/v1/notification-settings'],
             ['PATCH', '/api/v1/notification-settings'],
+            ['GET', '/api/v1/booking-reminder-offsets'],
+            ['PATCH', '/api/v1/booking-reminder-offsets'],
             ['GET', '/api/v1/members'],
             ['POST', '/api/v1/members'],
             ['GET', '/api/v1/members/'.$beta['membership']->id],

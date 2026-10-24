@@ -33,6 +33,12 @@ class TenantSettingPolicy
             && $this->access->allows($user, $setting->tenant_id, 'settings.update');
     }
 
+    public function manageReminders(User $user, TenantSetting $setting): bool
+    {
+        return $this->matchesContext($setting)
+            && $this->access->allows($user, $setting->tenant_id, 'reminders.manage');
+    }
+
     private function matchesContext(TenantSetting $setting): bool
     {
         return $this->tenants->id() !== null && $this->tenants->id() === $setting->tenant_id;

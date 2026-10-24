@@ -26,7 +26,15 @@ class TenantSetting extends Model
         'third_party_fee_minimum_cents',
         'currency',
         'pay_at_pickup',
+        'reminder_offsets_minutes',
     ];
+
+    /**
+     * Elapsed minutes before a confirmed booking starts. Null in the database uses this list.
+     *
+     * @var list<int>
+     */
+    public const DEFAULT_REMINDER_OFFSETS_MINUTES = [1440, 120];
 
     /** @use HasFactory<TenantSettingFactory> */
     use BelongsToTenant, HasFactory, HasUlids;
@@ -44,5 +52,30 @@ class TenantSetting extends Model
         'direct_fee_minimum_cents' => 'integer',
         'third_party_fee_minimum_cents' => 'integer',
         'pay_at_pickup' => 'boolean',
+        'reminder_offsets_minutes' => 'array',
     ];
+
+    /**
+     * @return list<int>
+     */
+    public function reminderOffsets(): array
+    {
+        $stored = $this->reminder_offsets_minutes;
+
+        if (! is_array($stored)) {
+            return self::DEFAULT_REMINDER_OFFSETS_MINUTES;
+        }
+
+        $offsets = [];
+
+        foreach ($stored as $offset) {
+            if (is_int($offset)) {
+                $offsets[] = $offset;
+            } elseif (is_string($offset) && ctype_digit($offset)) {
+                $offsets[] = (int) $offset;
+            }
+        }
+
+        return array_values(array_unique($offsets));
+    }
 }
