@@ -115,6 +115,7 @@ final class RefundService
 
         $payload = $snapshot->payload;
         $payer = FeePayer::tryFrom(is_string($payload['fee_payer'] ?? null) ? $payload['fee_payer'] : '');
+        $chargedBasis = $payload['charged_basis_cents'] ?? $payload['basis_cents'] ?? 0;
         $paid = (int) Payment::query()
             ->where('booking_id', $booking->id)
             ->where('method', 'stripe')
@@ -133,7 +134,7 @@ final class RefundService
 
         return new FeeRefundState(
             feePayer: $payer ?? FeePayer::CustomerPaid,
-            subtotalCents: (int) ($payload['basis_cents'] ?? 0),
+            subtotalCents: is_numeric($chargedBasis) ? (int) $chargedBasis : 0,
             feeChargedCents: $feeCharged,
             paidCents: $paid,
             refundedSubtotalCents: $refundedSubtotal,

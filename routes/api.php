@@ -131,6 +131,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/checkout-session', [PaymentController::class, 'checkout'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/balance-checkout', [PaymentController::class, 'balance'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/increase-checkout', [PaymentController::class, 'increase'])->middleware('throttle:checkout');
+            Route::post('/bookings/{booking}/decrease-refund', [PaymentController::class, 'decrease'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
             Route::post('/bookings/{booking}/refunds', [RefundController::class, 'store']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
