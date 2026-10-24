@@ -1,0 +1,54 @@
+<?php
+
+namespace App\Http\Controllers\Web;
+
+use App\Enums\WaitlistStatus;
+use App\Http\Controllers\Controller;
+use App\Models\Location;
+use App\Models\WaitlistEntry;
+use App\Services\AuditLogger;
+use Carbon\CarbonImmutable;
+use Illuminate\Contracts\View\View;
+use Illuminate\Http\Request;
+
+class WaitlistLeaveController extends Controller
+{
+    public function __construct(private readonly AuditLogger $audit) {}
+
+    public function leave(Request $request, WaitlistEntry $waitlistEntry): View
+    {
+        $waitlistEntry->loadMissing('service.location');
+
+        if ($request->isMethod('post') && $waitlistEntry->status === WaitlistStatus::Waiting) {
+            $waitlistEntry->status = WaitlistStatus::Cancelled;
+            $waitlistEntry->save();
+            $this->audit->log('waitlist.cancelled', $waitlistEntry, ['source' => 'guest'], request: $request);
+            $waitlistEntry = $waitlistEntry->fresh() ?? $waitlistEntry;
+            $waitlistEntry->loadMissing('service.location');
+        }
+
+        return view('widget.waitlist-leave', [
+            'entry' => $waitlistEntry,
+            'when' => $this->when($waitlistEntry),
+            'serviceName' => $this->serviceName($waitlistEntry),
+        ]);
+    }
+
+    private function serviceName(WaitlistEntry $entry): string
+    {
+        $name = $entry->service?->name;
+
+        return is_string($name) && trim($name) !== '' ? trim($name) : 'this time';
+    }
+
+    private function when(WaitlistEntry $entry): string
+    {
+        $zone = $entry->service?->location instanceof Location ? $entry->service->location->timezone : 'UTC';
+
+        if (! in_array($zone, timezone_identifiers_list(), true)) {
+            $zone = 'UTC';
+        }
+
+        return CarbonImmutable::instance($entry->starts_at)->timezone($zone)->format('D, M j, g:i A');
+    }
+}

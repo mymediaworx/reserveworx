@@ -44,6 +44,8 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/feedback/{booking}` | Signed page where the customer rates that visit from 1 to 5 and can leave a comment. A 4 or 5 can show the workspace's review link. `/feedback/{booking}/opt-out` confirms before it stops later feedback email |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
+| Tenant domain | `/staff/waitlist` | Waiting parties for one date and, optionally, one service. `bookings.view` opens it. `bookings.manage` can promote a party into a hold or cancel the row. Promote uses the same promoter as a freed slot |
+| Tenant domain | `/waitlist/{entry}/leave` | Signed page from the waitlist email. Opening it does not leave. The button does |
 | Tenant domain | `/staff/closures` | Full-day or time-range closures for one location, optionally one category or one boat or pool, with a reason. A closure can repeat every year. Confirmed bookings that overlap are listed and stay booked. `settings.view` opens the page. `settings.update` adds, edits, and removes |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures` |
 | Tenant domain | `/staff/promo-codes` | List, add, edit, and turn off promo codes. A code is a percent or a fixed amount. Dates and a use limit are optional |
@@ -69,6 +71,8 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 ## Behaviour mirrors the API
 
 Each staff action calls the same service as the matching API endpoint (Allocator, BookingPricer, CheckoutService, Waitlist, WaitlistPromoter) and writes the same audit action. When an endpoint's orchestration changes, change the matching component too.
+
+When a hosted booking hold is refused because the time is taken, and that service has the waitlist on, the form offers Join waitlist with name, email, an optional phone, and party size. A closed time does not. The confirmation email uses the same mailer as other transactional mail and includes a signed link to `/waitlist/{entry}/leave`.
 
 `App\Services\Booking\SlotFinder` lists bookable start times. It steps every 30 minutes within the location's opening hours (08:00–20:00 when none are set) and asks `Allocator::hint` for each slot. A slot inside a closure is marked closed and is not offered, including when the waitlist is on. Its answers are hints. The hold transaction is the real check. When that hold is refused because the time is taken, the booking form lists the same nearby times and same-category assets the API returns in `offers`. A closed time says "That time is closed." and does not list those hints.
 

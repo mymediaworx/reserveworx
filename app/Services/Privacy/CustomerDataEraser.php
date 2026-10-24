@@ -98,7 +98,7 @@ class CustomerDataEraser
             }
 
             foreach ($waitlist as $entry) {
-                $this->remember($names, $fragments, $entry->customer_name, $entry->customer_email, null);
+                $this->remember($names, $fragments, $entry->customer_name, $entry->customer_email, $entry->customer_phone);
             }
 
             $account = $this->lockedAccount($locked);
@@ -131,6 +131,7 @@ class CustomerDataEraser
                 WaitlistEntry::query()->whereIn('id', $waitlist->modelKeys())->update([
                     'customer_name' => null,
                     'customer_email' => null,
+                    'customer_phone' => null,
                     'updated_at' => now(),
                 ]);
             }

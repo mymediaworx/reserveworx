@@ -25,6 +25,7 @@ class WaitlistEntry extends Model
         'participants',
         'customer_name',
         'customer_email',
+        'customer_phone',
         'status',
         'idempotency_key',
     ];

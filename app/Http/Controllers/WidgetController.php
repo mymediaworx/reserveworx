@@ -25,8 +25,12 @@ use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\AuditLogger;
+use App\Services\Booking\Waitlist;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\CheckIn\CheckInPass;
+use App\Services\Inventory\OpeningHours;
+use App\Services\Notifications\WaitlistJoinedMail;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Widget\WidgetTokens;
@@ -86,6 +90,7 @@ class WidgetController extends Controller
             'error' => null,
             'old' => [],
             'suggestions' => [],
+            'offerWaitlist' => false,
         ]);
     }
 
@@ -125,8 +130,11 @@ class WidgetController extends Controller
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
         } catch (InvalidArgumentException|IdempotencyConflictException|AllocationUnavailableException $exception) {
             $offers = $exception instanceof AllocationUnavailableException ? $exception->offers : [];
+            $offerWaitlist = $exception instanceof AllocationUnavailableException
+                && $service->waitlist_enabled
+                && $this->slotIsFull($exception->getMessage());
 
-            return $this->formResponse($token, $service, $exception->getMessage(), $request, 409, $offers);
+            return $this->formResponse($token, $service, $exception->getMessage(), $request, 409, $offers, $offerWaitlist);
         }
 
         $expires = $this->signatureExpiry($booking);
@@ -135,6 +143,101 @@ class WidgetController extends Controller
             'token' => $token,
             'booking' => $booking->id,
         ]));
+    }
+
+    public function joinWaitlist(
+        Request $request,
+        string $token,
+        Service $service,
+        Waitlist $waitlist,
+        AuditLogger $audit,
+        WaitlistJoinedMail $mail,
+        OpeningHours $hours,
+        Allocator $allocator,
+    ): Response {
+        $tenant = $this->tenant($request);
+        $this->activeToken($token);
+        $service->load(['location', 'durations']);
+        abort_unless($service->waitlist_enabled, 404);
+
+        $validated = $this->validateBooking($request, $service);
+
+        if (is_string($validated)) {
+            return $this->formResponse($token, $service, $validated, $request, 422, [], true);
+        }
+
+        $phoneError = Validator::make($request->all(), [
+            'customer_phone' => ['nullable', 'string', 'max:255'],
+        ])->errors()->first();
+
+        if ($phoneError !== '') {
+            return $this->formResponse($token, $service, $phoneError, $request, 422, [], true);
+        }
+
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $starts = CarbonImmutable::createFromFormat('Y-m-d H:i', $validated['date'].' '.$validated['start'], $zone);
+
+        if (! $starts instanceof CarbonImmutable) {
+            return $this->formResponse($token, $service, 'Choose a valid date and time.', $request, 422, [], true);
+        }
+
+        $startsAt = $starts->utc();
+        $endsAt = $startsAt->addMinutes($validated['minutes']);
+        $closed = $this->closedMessage($hours, $service->location, $startsAt, $endsAt);
+
+        if ($closed !== null) {
+            return $this->formResponse($token, $service, $closed, $request, 409);
+        }
+
+        $hint = $allocator->hint(new AllocationIntent(
+            $tenant->id,
+            $service->id,
+            $startsAt,
+            $endsAt,
+            $validated['participants'],
+            null,
+            $validated['customer_name'],
+            $validated['customer_email'],
+        ));
+
+        if ($hint['available']) {
+            return $this->formResponse($token, $service, 'That time is open. Review the price and hold it.', $request, 409);
+        }
+
+        $phone = $request->input('customer_phone');
+        $entry = $waitlist->join(
+            $tenant->id,
+            $service->id,
+            null,
+            $service->location_id,
+            $startsAt,
+            $endsAt,
+            $validated['participants'],
+            $validated['customer_name'],
+            $validated['customer_email'],
+            null,
+            $validated['idempotency_key'],
+            null,
+            is_string($phone) ? $phone : null,
+        );
+
+        $created = $entry->wasRecentlyCreated;
+        $emailed = false;
+
+        if ($created) {
+            $audit->log('waitlist.joined', $entry, ['service_id' => $service->id], request: $request);
+            $emailed = $mail->send($entry);
+        }
+
+        return response()->view('widget.waitlist-joined', [
+            'token' => $token,
+            'serviceName' => $service->name,
+            'when' => $starts->format('D, M j, g:i A'),
+            'participants' => $entry->participants,
+            'email' => (string) ($entry->customer_email ?? $validated['customer_email']),
+            'emailed' => $emailed,
+            'already' => ! $created,
+        ]);
     }
 
     public function checkout(Request $request, string $token, Booking $booking): View
@@ -519,7 +622,7 @@ class WidgetController extends Controller
     /**
      * @param  array<string, mixed>  $offers
      */
-    private function formResponse(string $token, Service $service, string $error, Request $request, int $status, array $offers = []): Response
+    private function formResponse(string $token, Service $service, string $error, Request $request, int $status, array $offers = [], bool $offerWaitlist = false): Response
     {
         return response()->view('widget.form', [
             'token' => $token,
@@ -527,7 +630,39 @@ class WidgetController extends Controller
             'error' => $error,
             'old' => $request->all(),
             'suggestions' => $this->suggestionLines($service, $offers),
+            'offerWaitlist' => $offerWaitlist && $service->waitlist_enabled,
         ], $status);
+    }
+
+    private function slotIsFull(string $message): bool
+    {
+        return in_array($message, [
+            'That time is no longer available.',
+            'That guide is already booked.',
+            'That departure is full.',
+            'That private departure already has a booking.',
+            'An individual asset can only be held once.',
+            'A required resource is not available.',
+        ], true);
+    }
+
+    private function closedMessage(OpeningHours $hours, mixed $location, CarbonImmutable $startsAt, CarbonImmutable $endsAt): ?string
+    {
+        if (! $location instanceof Location) {
+            return null;
+        }
+
+        $open = $hours->assess($location, $startsAt, $endsAt);
+
+        if ($open['open']) {
+            return null;
+        }
+
+        return match (true) {
+            $open['closed'] => 'That time is closed.',
+            $open['blackout'] => 'That date is closed.',
+            default => 'That time is outside opening hours.',
+        };
     }
 
     /**

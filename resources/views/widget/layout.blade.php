@@ -43,6 +43,8 @@
         button { font: inherit; font-weight: 600; padding: .75rem 1.1rem; min-height: 3rem; background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 10px; cursor: pointer; }
         button:hover { background: var(--brand-strong); }
         .error { background: #FEE2E2; color: var(--danger); border-radius: 10px; padding: .75rem 1rem; }
+        .optional { font-weight: 400; color: var(--muted); }
+        .waitlist-join { margin: 0 0 .75rem; }
         .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 1rem 1.1rem; margin: 0 0 .75rem; display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; align-items: center; }
         .card h2 { margin: 0; grid-column: 1; }
         .card .price { grid-column: 1; margin: 0; }

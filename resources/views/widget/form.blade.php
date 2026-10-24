@@ -15,6 +15,41 @@
             @endforeach
         </ul>
     @endif
+    @if ($offerWaitlist ?? false)
+        <div class="waitlist-join">
+            <style>
+                .waitlist-join, .waitlist-join * { min-width: 0; overflow-wrap: anywhere; }
+                @media (max-width: 390px) {
+                    .waitlist-join form, .waitlist-join button, .waitlist-join input { max-width: 100%; }
+                }
+            </style>
+            <h2>Join waitlist</h2>
+            <p>This time is full. Leave your name and we will email a link you can use to leave the list.</p>
+            <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id.'/waitlist') }}">
+                <label>Your name
+                    <input name="customer_name" type="text" required maxlength="120" autocomplete="name" value="{{ $old['customer_name'] ?? '' }}">
+                </label>
+                <label>Email
+                    <input name="customer_email" type="email" required maxlength="255" autocomplete="email" value="{{ $old['customer_email'] ?? '' }}">
+                </label>
+                <label>Phone <span class="optional">(optional)</span>
+                    <input name="customer_phone" type="tel" maxlength="255" autocomplete="tel" value="{{ $old['customer_phone'] ?? '' }}">
+                </label>
+                <label>Party size
+                    <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? 1 }}">
+                </label>
+                <input type="hidden" name="date" value="{{ $old['date'] ?? '' }}">
+                <input type="hidden" name="start" value="{{ $old['start'] ?? '' }}">
+                @if (($old['duration_id'] ?? '') !== '')
+                    <input type="hidden" name="duration_id" value="{{ $old['duration_id'] }}">
+                @else
+                    <input type="hidden" name="duration_minutes" value="{{ $old['duration_minutes'] ?? 60 }}">
+                @endif
+                <input type="hidden" name="idempotency_key" value="{{ $old['idempotency_key'] ?? (string) \Illuminate\Support\Str::uuid() }}">
+                <button type="submit">Join waitlist</button>
+            </form>
+        </div>
+    @endif
     <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id) }}">
         <label>Date
             <input name="date" type="date" required value="{{ $old['date'] ?? '' }}">

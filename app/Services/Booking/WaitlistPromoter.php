@@ -61,8 +61,12 @@ class WaitlistPromoter
         }
     }
 
-    private function promote(WaitlistEntry $entry): void
+    public function promote(WaitlistEntry $entry): bool
     {
+        if ($entry->status !== WaitlistStatus::Waiting) {
+            return false;
+        }
+
         $intent = new AllocationIntent(
             $entry->tenant_id,
             $entry->service_id,
@@ -73,13 +77,14 @@ class WaitlistPromoter
             $entry->customer_name,
             $entry->customer_email,
             $entry->departure_id,
+            customerPhone: $entry->customer_phone,
             variantId: $entry->service_variant_id,
         );
 
         try {
             $booking = $this->allocator->hold($intent);
         } catch (AllocationUnavailableException) {
-            return;
+            return false;
         }
 
         $entry->status = WaitlistStatus::Promoted;
@@ -87,6 +92,8 @@ class WaitlistPromoter
         $entry->save();
 
         RecordWaitlistPromotion::dispatch($entry->tenant_id, $booking->id, $entry->id);
+
+        return true;
     }
 
     private function restoreTenant(?string $previous): void

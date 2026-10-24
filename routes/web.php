@@ -16,6 +16,7 @@ use App\Http\Controllers\Web\StaffCheckInController;
 use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
+use App\Http\Controllers\Web\WaitlistLeaveController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
@@ -39,6 +40,7 @@ use App\Livewire\Staff\Setup\ServiceDetail;
 use App\Livewire\Staff\Setup\Services;
 use App\Livewire\Staff\Share;
 use App\Livewire\Staff\Team;
+use App\Livewire\Staff\Waitlist;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -130,6 +132,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/settings', Settings::class);
         Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);
+        Route::get('/waitlist', Waitlist::class);
         Route::get('/manifest', Manifest::class)->name('staff.manifest');
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/check-in', CheckIn::class)->name('staff.check-in');
@@ -168,6 +171,13 @@ Route::middleware(['tenant.resolve', 'throttle:feedback'])->group(function (): v
         ->name('feedback.opt-out');
 });
 
+Route::middleware(['tenant.resolve', 'throttle:30,1'])->group(function (): void {
+    Route::match(['get', 'post'], '/waitlist/{waitlistEntry}/leave', [WaitlistLeaveController::class, 'leave'])
+        ->whereUlid('waitlistEntry')
+        ->middleware('signed')
+        ->name('waitlist.leave');
+});
+
 Route::middleware('tenant.resolve')->group(function (): void {
     Route::redirect('/admin', '/staff')->name('admin.dashboard');
     Route::get('/admin/login', [SessionController::class, 'create'])->name('admin.login');
@@ -187,6 +197,7 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::get('/', [WidgetController::class, 'services'])->name('widget.services');
         Route::get('/services/{service}', [WidgetController::class, 'create'])->name('widget.create');
         Route::post('/services/{service}', [WidgetController::class, 'store'])->name('widget.store');
+        Route::post('/services/{service}/waitlist', [WidgetController::class, 'joinWaitlist'])->name('widget.waitlist');
         Route::get('/checkout/{booking}', [WidgetController::class, 'checkout'])->name('widget.checkout')->middleware('signed');
         Route::post('/checkout/{booking}/promo', [WidgetController::class, 'applyPromo'])->name('widget.promo')->middleware('signed');
         Route::post('/checkout/{booking}', [WidgetController::class, 'pay'])->name('widget.pay')->middleware('signed');
