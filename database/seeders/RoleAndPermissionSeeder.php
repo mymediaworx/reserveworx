@@ -23,6 +23,7 @@ class RoleAndPermissionSeeder extends Seeder
             'inventory.manage' => 'Create and update locations and resources',
             'bookings.view' => 'View bookings and the calendar',
             'bookings.manage' => 'Hold, confirm, extend, and cancel bookings',
+            'reminders.manage' => 'Read and update booking reminder offsets',
         ];
 
         $saved = [];
@@ -45,6 +46,7 @@ class RoleAndPermissionSeeder extends Seeder
                 'inventory.manage',
                 'bookings.view',
                 'bookings.manage',
+                'reminders.manage',
             ]],
             'staff' => ['name' => 'Staff', 'permissions' => [
                 'settings.view',

@@ -11,6 +11,7 @@ use App\Models\Blackout;
 use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
+use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
 use App\Models\Departure;
@@ -292,6 +293,7 @@ class TenantExporter
             RentalCheckout::class,
             RentalReturn::class,
             WidgetToken::class,
+            BookingReminder::class,
             NotificationHook::class,
             IntegrationOutbox::class,
             AuditLog::class,

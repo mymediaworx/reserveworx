@@ -137,4 +137,12 @@ class Booking extends Model
     {
         return $this->hasMany(BookingAddOn::class)->orderBy('id');
     }
+
+    /**
+     * @return HasMany<BookingReminder, $this>
+     */
+    public function reminders(): HasMany
+    {
+        return $this->hasMany(BookingReminder::class);
+    }
 }

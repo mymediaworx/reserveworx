@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AvailabilityScheduleController;
 use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\BookingController;
+use App\Http\Controllers\Api\V1\BookingReminderOffsetController;
 use App\Http\Controllers\Api\V1\BrandingLogoController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\CustomerController;
@@ -75,6 +76,8 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('/branding', [TenantBrandingController::class, 'update']);
             Route::get('/notification-settings', [NotificationSettingController::class, 'show']);
             Route::patch('/notification-settings', [NotificationSettingController::class, 'update']);
+            Route::get('/booking-reminder-offsets', [BookingReminderOffsetController::class, 'show']);
+            Route::patch('/booking-reminder-offsets', [BookingReminderOffsetController::class, 'update']);
             Route::get('/members', [MembershipController::class, 'index']);
             Route::post('/members', [MembershipController::class, 'store']);
             Route::get('/members/{membership}', [MembershipController::class, 'show']);
