@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Services\Reports\CustomerReport;
+use App\Services\Reports\OperationsReport;
 use App\Services\Reports\ServiceRevenue;
 use App\Services\Reports\SummaryReport;
 use App\Services\Reports\TodayReport;
@@ -24,6 +25,7 @@ class ReportController extends Controller
         private readonly CustomerReport $customerReport,
         private readonly SummaryReport $summaryReport,
         private readonly TourAttendance $tourAttendance,
+        private readonly OperationsReport $operationsReport,
     ) {}
 
     public function today(Request $request): JsonResponse
@@ -79,6 +81,16 @@ class ReportController extends Controller
         ]);
     }
 
+    public function operations(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The operations window cannot be longer than 366 days.');
+
+        return response()->json([
+            'data' => $this->operationsReport->build($from, $to),
+        ]);
+    }
+
     public function export(Request $request): Response|JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
@@ -122,6 +134,14 @@ class ReportController extends Controller
         [$from, $to] = $this->dateWindow($request, 'The tour window cannot be longer than 366 days.');
 
         return $this->csv($this->tourAttendance->toCsv($from, $to), 'tours.csv');
+    }
+
+    public function exportOperations(Request $request): Response
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The operations window cannot be longer than 366 days.');
+
+        return $this->csv($this->operationsReport->toCsv($from, $to), 'operations.csv');
     }
 
     private function csv(string $csv, string $filename): Response

@@ -209,9 +209,11 @@ class ReportExportTest extends TestCase
             ->assertForbidden();
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/reports/tours/export?from=2026-06-16&to=2026-06-16'))
             ->assertForbidden();
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/reports/operations/export?from=2026-06-16&to=2026-06-16'))
+            ->assertForbidden();
 
         $this->actingAsWorkspace($owner);
-        foreach (['summaries', 'revenue', 'customers', 'tours'] as $report) {
+        foreach (['summaries', 'revenue', 'customers', 'tours', 'operations'] as $report) {
             $this->getJson($this->tenantUrl('harbor.test', '/api/v1/reports/'.$report.'/export'))
                 ->assertStatus(422)
                 ->assertJsonValidationErrors(['from', 'to']);
