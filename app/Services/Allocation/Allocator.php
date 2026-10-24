@@ -12,6 +12,7 @@ use App\Enums\ServiceKind;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
@@ -843,6 +844,7 @@ class Allocator
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
+        $this->writeAddOns($booking, $intent);
 
         Hold::query()->create([
             'tenant_id' => $booking->tenant_id,
@@ -1064,7 +1066,7 @@ class Allocator
         $service = Service::query()->findOrFail($intent->serviceId);
         $customerId = $this->customerId($intent);
 
-        return Booking::query()->create([
+        $booking = Booking::query()->create([
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
@@ -1080,6 +1082,26 @@ class Allocator
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
+        $this->writeAddOns($booking, $intent);
+
+        return $booking;
+    }
+
+    private function writeAddOns(Booking $booking, AllocationIntent $intent): void
+    {
+        foreach ($intent->addOns as $line) {
+            BookingAddOn::query()->create([
+                'tenant_id' => $booking->tenant_id,
+                'booking_id' => $booking->id,
+                'add_on_id' => $line['add_on_id'],
+                'name' => $line['name'],
+                'kind' => $line['kind'],
+                'pricing' => $line['pricing'],
+                'unit_amount_cents' => $line['unit_amount_cents'],
+                'quantity' => $line['quantity'],
+                'total_cents' => $line['total_cents'],
+            ]);
+        }
     }
 
     /**

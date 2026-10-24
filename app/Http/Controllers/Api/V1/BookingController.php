@@ -20,6 +20,7 @@ use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
+use App\Services\Catalog\BookingAddOnLines;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,13 +34,14 @@ class BookingController extends Controller
         private readonly AuditLogger $audit,
         private readonly Waitlist $waitlist,
         private readonly WaitlistPromoter $promoter,
+        private readonly BookingAddOnLines $addOnLines,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
 
-        $bookings = Booking::query()->with(['service', 'customer'])->orderBy('starts_at')->limit(100)->get();
+        $bookings = Booking::query()->with(['service', 'customer', 'addOns'])->orderBy('starts_at')->limit(100)->get();
 
         return response()->json(['data' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))]);
     }
@@ -69,6 +71,9 @@ class BookingController extends Controller
             'departure_id' => ['nullable', 'string'],
             'guide_user_id' => ['nullable', 'string'],
             'join_waitlist' => ['nullable', 'boolean'],
+            'add_ons' => ['sometimes', 'array', 'max:20'],
+            'add_ons.*.id' => ['required', 'string', 'distinct'],
+            'add_ons.*.quantity' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
 
         $header = $request->headers->get('Idempotency-Key');
@@ -112,6 +117,11 @@ class BookingController extends Controller
             $guideUserId = null;
         }
 
+        $requestedAddOns = $validated['add_ons'] ?? [];
+        $addOns = $request->exists('add_ons') && is_array($requestedAddOns)
+            ? $this->addOnLines->price((int) $validated['participants'], $requestedAddOns)
+            : [];
+
         $intent = new AllocationIntent(
             $tenant->id,
             $validated['service_id'],
@@ -124,6 +134,7 @@ class BookingController extends Controller
             is_string($departureId) ? $departureId : null,
             is_string($guideUserId) ? $guideUserId : null,
             $this->customerPhone($validated['customer_phone'] ?? null),
+            $addOns,
         );
 
         try {
@@ -169,7 +180,7 @@ class BookingController extends Controller
             $booking->save();
         }
 
-        $booking->load('service');
+        $booking->load(['service', 'addOns']);
 
         $this->audit->log('booking.held', $booking, [
             'service_id' => $booking->service_id,
@@ -472,7 +483,23 @@ class BookingController extends Controller
             'below_minimum' => $this->belowMinimum($booking),
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,
+            'add_ons' => $this->addOnPayload($booking),
         ];
+    }
+
+    /**
+     * @return list<array{id: string, add_on_id: string, name: string, kind: string, pricing: string, unit_amount_cents: int, quantity: int, total_cents: int}>
+     */
+    private function addOnPayload(Booking $booking): array
+    {
+        $booking->loadMissing('addOns');
+        $rows = [];
+
+        foreach ($booking->addOns as $line) {
+            $rows[] = $this->addOnLines->row($line);
+        }
+
+        return $rows;
     }
 
     private function customerPhone(mixed $phone): ?string

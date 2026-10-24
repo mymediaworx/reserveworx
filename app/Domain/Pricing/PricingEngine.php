@@ -17,6 +17,7 @@ final class PricingEngine
 
     /**
      * @param  list<PriceRuleInput>  $rules
+     * @param  list<array<string, mixed>>  $addOnLines
      */
     public function price(
         FeeChannel $channel,
@@ -31,6 +32,8 @@ final class PricingEngine
         ?int $amountOffCents,
         ?string $promoCode,
         int $depositPercent,
+        int $addOnsCents = 0,
+        array $addOnLines = [],
     ): PricedBooking {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -44,6 +47,10 @@ final class PricingEngine
             throw new InvalidArgumentException('A deposit percent must be between 1 and 100.');
         }
 
+        if ($addOnsCents < 0) {
+            throw new InvalidArgumentException('Add-ons must not be negative.');
+        }
+
         [$services, $discount, $tax] = $this->components(
             $rules,
             $participants,
@@ -53,10 +60,10 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
-        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, discountsCents: $discount), $tax);
+        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, addOnsCents: $addOnsCents, discountsCents: $discount), $tax);
         $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
-        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode);
+        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode, $addOnsCents, $addOnLines);
     }
 
     /**

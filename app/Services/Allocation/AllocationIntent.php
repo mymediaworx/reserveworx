@@ -6,6 +6,9 @@ use Carbon\CarbonImmutable;
 
 readonly class AllocationIntent
 {
+    /**
+     * @param  list<array{add_on_id: string, name: string, kind: string, pricing: string, unit_amount_cents: int, quantity: int, total_cents: int}>  $addOns
+     */
     public function __construct(
         public string $tenantId,
         public string $serviceId,
@@ -18,6 +21,7 @@ readonly class AllocationIntent
         public ?string $departureId = null,
         public ?string $guideUserId = null,
         public ?string $customerPhone = null,
+        public array $addOns = [],
     ) {}
 
     public function payloadHash(): string
@@ -35,6 +39,15 @@ readonly class AllocationIntent
 
         if ($this->guideUserId !== null && $this->guideUserId !== '') {
             $fields['guide_user_id'] = $this->guideUserId;
+        }
+
+        if ($this->addOns !== []) {
+            $lines = $this->addOns;
+            usort($lines, fn (array $left, array $right): int => $left['add_on_id'] <=> $right['add_on_id']);
+            $fields['add_ons'] = array_map(fn (array $line): array => [
+                'add_on_id' => $line['add_on_id'],
+                'quantity' => $line['quantity'],
+            ], $lines);
         }
 
         $encoded = json_encode($fields, JSON_THROW_ON_ERROR);
