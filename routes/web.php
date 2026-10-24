@@ -38,6 +38,12 @@ Route::get('/ui/app.css', [UiAssetController::class, 'stylesheet']);
 Route::middleware('platform.host')->prefix('platform')->group(function (): void {
     Route::get('/login', [PlatformAuthController::class, 'show'])->name('platform.login');
     Route::post('/login', [PlatformAuthController::class, 'login'])->middleware('throttle:login');
+    Route::get('/forgot-password', [PlatformAuthController::class, 'requestForm'])->name('platform.password.request');
+    Route::post('/forgot-password', [PlatformAuthController::class, 'sendReset'])->middleware('throttle:password-reset');
+    Route::get('/reset-password/{token}', [PlatformAuthController::class, 'resetForm'])
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->name('platform.password.reset');
+    Route::post('/reset-password', [PlatformAuthController::class, 'resetPassword'])->middleware('throttle:password-reset');
     Route::post('/logout', [PlatformAuthController::class, 'logout'])->middleware('auth');
 
     Route::middleware(['auth', 'platform.admin'])->group(function (): void {
@@ -54,6 +60,12 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
 Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
     Route::get('/login', [StaffAuthController::class, 'show'])->name('staff.login');
     Route::post('/login', [StaffAuthController::class, 'login'])->middleware('throttle:login');
+    Route::get('/forgot-password', [StaffAuthController::class, 'requestForm'])->name('staff.password.request');
+    Route::post('/forgot-password', [StaffAuthController::class, 'sendReset'])->middleware('throttle:password-reset');
+    Route::get('/reset-password/{token}', [StaffAuthController::class, 'resetForm'])
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->name('staff.password.reset');
+    Route::post('/reset-password', [StaffAuthController::class, 'resetPassword'])->middleware('throttle:password-reset');
     Route::post('/logout', [StaffAuthController::class, 'logout'])->middleware('auth');
 
     Route::middleware(['auth', 'tenant.member'])->group(function (): void {

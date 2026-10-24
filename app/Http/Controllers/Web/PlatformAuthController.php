@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Auth\PasswordResets;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Validation\Rules\Password as PasswordRule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -73,5 +76,62 @@ class PlatformAuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect('/platform/login');
+    }
+
+    public function requestForm(): View
+    {
+        return view('platform.forgot');
+    }
+
+    public function sendReset(Request $request, PasswordResets $resets): RedirectResponse
+    {
+        $email = strtolower((string) $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+        ])['email']);
+        $resets->request(
+            $email,
+            fn (User $user): bool => $user->isPlatformAdmin(),
+            '/platform/reset-password',
+        );
+
+        return back()->with('status', PasswordResets::REQUEST_STATUS);
+    }
+
+    public function resetForm(Request $request, string $token): View
+    {
+        return view('platform.reset', [
+            'token' => $token,
+            'email' => strtolower((string) $request->query('email', '')),
+        ]);
+    }
+
+    public function resetPassword(Request $request, PasswordResets $resets): RedirectResponse
+    {
+        /** @var array{email: string, password: string, password_confirmation: string, token: string} $validated */
+        $validated = $request->validate([
+            'token' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'confirmed', PasswordRule::min(12), 'max:255'],
+        ]);
+        $validated['email'] = strtolower($validated['email']);
+        $status = $resets->reset(
+            $validated,
+            fn (User $user): bool => $user->isPlatformAdmin(),
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            throw ValidationException::withMessages([
+                'email' => PasswordResets::INVALID_STATUS,
+            ]);
+        }
+
+        $this->audit->log(
+            action: 'auth.password_reset',
+            properties: ['email' => $validated['email'], 'channel' => 'platform_web'],
+            request: $request,
+            useContextTenant: false,
+        );
+
+        return redirect('/platform/login')->with('status', 'Your password has been reset. Sign in with the new one.');
     }
 }
