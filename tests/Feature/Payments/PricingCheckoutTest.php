@@ -83,12 +83,13 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame(0, PlatformFee::query()->count());
         $payment = Payment::query()->firstOrFail();
         $this->assertSame(0, $payment->fee_cents);
+        $this->assertSame(9_000, $payment->amount_cents);
         $this->assertSame(PaymentStatus::OfflinePaid, Booking::query()->findOrFail($bookingId)->payment_status);
         $this->assertSame(1, NotificationHook::query()->where('kind', 'payment.completed')->count());
         $completed = NotificationHook::query()->where('kind', 'payment.completed')->firstOrFail();
         $this->assertSame($payment->id, $completed->payload['payment_id'] ?? null);
         $this->assertSame('offline', $completed->payload['method'] ?? null);
-        $this->assertSame(9_270, $completed->payload['amount_cents'] ?? null);
+        $this->assertSame(9_000, $completed->payload['amount_cents'] ?? null);
         $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.confirmed')->count());
         app(TenantManager::class)->forget();
 
