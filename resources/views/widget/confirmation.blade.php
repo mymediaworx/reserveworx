@@ -2,7 +2,7 @@
 @section('title', 'Booking '.$booking->id)
 
 @section('content')
-    <h1>Booking {{ $booking->id }}</h1>
+    <h1>Booking <span style="overflow-wrap:anywhere">{{ $booking->id }}</span></h1>
     <p>{{ $booking->service?->name }}</p>
     <p>Status: {{ $booking->status->value }}. Payment: {{ $booking->payment_status->value }}.</p>
     @if ($booking->status->value === 'confirmed' && in_array($booking->payment_status->value, ['paid', 'deposit_paid', 'offline_paid'], true))
