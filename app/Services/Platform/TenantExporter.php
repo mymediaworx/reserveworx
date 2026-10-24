@@ -12,6 +12,7 @@ use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
 use App\Models\BookingOperatorFee;
+use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
 use App\Models\Departure;
@@ -43,7 +44,9 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
+use App\Models\TenantBranding;
 use App\Models\TenantDataExport;
+use App\Models\TenantNotificationSetting;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Models\WaitlistEntry;
@@ -251,6 +254,8 @@ class TenantExporter
     {
         return [
             TenantSetting::class,
+            TenantBranding::class,
+            TenantNotificationSetting::class,
             Domain::class,
             Membership::class,
             Location::class,
@@ -292,6 +297,7 @@ class TenantExporter
             RentalCheckout::class,
             RentalReturn::class,
             WidgetToken::class,
+            BookingReminder::class,
             NotificationHook::class,
             IntegrationOutbox::class,
             AuditLog::class,

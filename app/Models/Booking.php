@@ -148,4 +148,12 @@ class Booking extends Model
     {
         return $this->hasMany(BookingOperatorFee::class)->orderBy('id');
     }
+
+    /**
+     * @return HasMany<BookingReminder, $this>
+     */
+    public function reminders(): HasMany
+    {
+        return $this->hasMany(BookingReminder::class);
+    }
 }

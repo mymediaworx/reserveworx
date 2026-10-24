@@ -4,12 +4,17 @@ namespace App\Providers;
 
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
+use App\Models\Tenant;
+use App\Services\Branding\CurrentWorkspaceBranding;
+use App\Services\Branding\WorkspaceProfiles;
 use App\Services\Payments\StripeSdkGateway;
 use App\Services\Payments\UnconfiguredStripeGateway;
 use App\Tenancy\TenantManager;
+use App\View\Composers\WorkspaceBrandingComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -17,6 +22,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(TenantManager::class);
+        $this->app->singleton(CurrentWorkspaceBranding::class);
         $this->app->singleton(StripeGateway::class, function (): StripeGateway {
             $secret = config('services.stripe.secret');
             $webhookSecret = config('services.stripe.webhook_secret');
@@ -37,6 +43,12 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        View::composer('*', WorkspaceBrandingComposer::class);
+
+        Tenant::created(function (Tenant $tenant): void {
+            app(WorkspaceProfiles::class)->provision($tenant);
+        });
+
         RateLimiter::for('login', function (Request $request): Limit {
             $email = strtolower((string) $request->input('email'));
 
