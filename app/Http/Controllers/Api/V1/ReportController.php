@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\ReportSummary;
+use App\Services\Reports\CustomerReport;
 use App\Services\Reports\ServiceRevenue;
 use App\Services\Reports\TodayReport;
 use Carbon\CarbonImmutable;
@@ -19,6 +20,7 @@ class ReportController extends Controller
     public function __construct(
         private readonly TodayReport $reports,
         private readonly ServiceRevenue $serviceRevenue,
+        private readonly CustomerReport $customerReport,
     ) {}
 
     public function today(Request $request): JsonResponse
@@ -77,6 +79,16 @@ class ReportController extends Controller
 
         return response()->json([
             'data' => $this->serviceRevenue->build($from, $to),
+        ]);
+    }
+
+    public function customers(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The customer window cannot be longer than 366 days.');
+
+        return response()->json([
+            'data' => $this->customerReport->build($from, $to),
         ]);
     }
 
