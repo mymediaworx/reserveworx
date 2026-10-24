@@ -9,6 +9,9 @@
     <h1>Booking <span style="overflow-wrap:anywhere">{{ $booking->id }}</span></h1>
     <p>{{ $booking->service?->name }}</p>
     <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
+    @if ($copy['pickupFeeNote'] !== '')
+        <p>{{ $copy['pickupFeeNote'] }}</p>
+    @endif
     @if ($booking->status->value === 'confirmed')
         <p>Your booking is confirmed.</p>
     @else

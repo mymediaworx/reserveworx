@@ -18,13 +18,18 @@ final class PublicBookingCopy
     public function __construct(private readonly CheckoutService $checkout) {}
 
     /**
-     * @return array{status: string, payment: string}
+     * @return array{status: string, payment: string, pickupFeeNote: string}
      */
     public function for(Booking $booking): array
     {
+        $due = $booking->status === BookingStatus::Confirmed && $this->owesAtPickup($booking)
+            ? $this->dueAtPickup($booking)
+            : null;
+
         return [
             'status' => $this->status($booking),
-            'payment' => $this->payment($booking),
+            'payment' => $this->payment($booking, $due),
+            'pickupFeeNote' => $this->pickupFeeNote($due),
         ];
     }
 
@@ -40,14 +45,13 @@ final class PublicBookingCopy
         };
     }
 
-    private function payment(Booking $booking): string
+    /**
+     * @param  array{cents: int, currency: string, feeLineCents: int}|null  $due
+     */
+    private function payment(Booking $booking, ?array $due): string
     {
-        if ($booking->status === BookingStatus::Confirmed && $this->owesAtPickup($booking)) {
-            $due = $this->dueAtPickup($booking);
-
-            if ($due !== null) {
-                return 'Balance due at pickup: '.Money::format($due['cents'], $due['currency']);
-            }
+        if ($due !== null) {
+            return 'Balance due at pickup: '.Money::format($due['cents'], $due['currency']);
         }
 
         return match ($booking->payment_status) {
@@ -88,7 +92,22 @@ final class PublicBookingCopy
     }
 
     /**
-     * @return array{cents: int, currency: string}|null
+     * Offline payment carries no booking fee. The amount due is the customer total
+     * minus that line, which is what pay at pickup already records.
+     *
+     * @param  array{cents: int, currency: string, feeLineCents: int}|null  $due
+     */
+    private function pickupFeeNote(?array $due): string
+    {
+        if ($due === null || $due['feeLineCents'] <= 0) {
+            return '';
+        }
+
+        return 'Pay at pickup does not include the online booking fee.';
+    }
+
+    /**
+     * @return array{cents: int, currency: string, feeLineCents: int}|null
      */
     private function dueAtPickup(Booking $booking): ?array
     {
@@ -99,10 +118,12 @@ final class PublicBookingCopy
         }
 
         $currency = $snapshot->currency !== '' ? $snapshot->currency : 'USD';
+        $line = $snapshot->payload['customer_fee_line_cents'] ?? 0;
 
         return [
             'cents' => $this->checkout->amountDueAtPickup($snapshot),
             'currency' => $currency,
+            'feeLineCents' => is_numeric($line) ? (int) $line : 0,
         ];
     }
 }

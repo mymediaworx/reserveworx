@@ -143,13 +143,16 @@ class PublicConfirmationTest extends TestCase
             ->assertOk()
             ->assertSee('Status: Confirmed')
             ->assertSee('Balance due at pickup: $22.00')
+            ->assertSee('Pay at pickup does not include the online booking fee.')
             ->assertSee('Your booking is confirmed.')
+            ->assertDontSee('Balance due at pickup: $22.66')
             ->assertDontSee('offline_paid')
             ->assertDontSee('due_at_pickup');
 
         $this->get($this->signedUrl('widget.manage', 'dock.test', $booking->id, ['token' => $token]))
             ->assertOk()
             ->assertSee('Balance due at pickup: $22.00')
+            ->assertSee('Pay at pickup does not include the online booking fee.')
             ->assertDontSee('offline_paid');
 
         $this->useTenant($workspace['tenant']);
@@ -177,7 +180,30 @@ class PublicConfirmationTest extends TestCase
             ->assertOk()
             ->assertSee('Status: Confirmed. Paid.')
             ->assertDontSee('offline_paid')
-            ->assertDontSee('Balance due at pickup');
+            ->assertDontSee('Balance due at pickup')
+            ->assertDontSee('Pay at pickup does not include the online booking fee.');
+    }
+
+    public function test_pay_at_pickup_names_the_amount_owed_and_the_waived_booking_fee(): void
+    {
+        $workspace = $this->workspace('dock.test');
+        $booking = $this->booking($workspace, 'guest@example.com', PaymentStatus::DueAtPickup);
+        $this->useTenant($workspace['tenant']);
+        $this->price($booking, 2_266, 66);
+        $absorbed = $this->booking($workspace, 'absorbed@example.com', PaymentStatus::DueAtPickup, 'Fee Absorbed');
+        $this->price($absorbed, 2_266, 0);
+
+        $token = app(WidgetTokens::class)->hostedPlain($workspace['tenant']);
+        $this->get($this->signedUrl('widget.confirmation', 'dock.test', $booking->id, ['token' => $token]))
+            ->assertOk()
+            ->assertSee('Balance due at pickup: $22.00')
+            ->assertSee('Pay at pickup does not include the online booking fee.')
+            ->assertDontSee('Balance due at pickup: $22.66');
+
+        $this->get($this->signedUrl('widget.confirmation', 'dock.test', $absorbed->id, ['token' => $token]))
+            ->assertOk()
+            ->assertSee('Balance due at pickup: $22.66')
+            ->assertDontSee('Pay at pickup does not include the online booking fee.');
     }
 
     public function test_demo_seed_uses_harbor_demo_and_the_real_primary_domain(): void

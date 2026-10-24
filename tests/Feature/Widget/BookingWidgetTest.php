@@ -186,6 +186,8 @@ class BookingWidgetTest extends TestCase
             ->assertOk()
             ->assertSee('Your booking is confirmed.')
             ->assertSee('Balance due at pickup: $100.00')
+            ->assertSee('Pay at pickup does not include the online booking fee.')
+            ->assertDontSee('Balance due at pickup: $103.00')
             ->assertSee('Status: Confirmed')
             ->assertDontSee('offline_paid')
             ->assertDontSee('due_at_pickup');

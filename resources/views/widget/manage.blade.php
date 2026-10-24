@@ -9,6 +9,9 @@
     <h1>Booking {{ $booking->id }}</h1>
     <p>{{ $booking->service?->name }}</p>
     <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
+    @if ($copy['pickupFeeNote'] !== '')
+        <p>{{ $copy['pickupFeeNote'] }}</p>
+    @endif
     <p>Starts {{ $booking->starts_at->toIso8601String() }}.</p>
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
