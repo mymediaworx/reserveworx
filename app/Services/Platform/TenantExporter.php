@@ -47,6 +47,7 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\ServiceVariant;
 use App\Models\ServiceVariantResource;
+use App\Models\SignupAcceptance;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\TenantBranding;
@@ -263,6 +264,7 @@ class TenantExporter
             TenantNotificationSetting::class,
             Domain::class,
             Membership::class,
+            SignupAcceptance::class,
             Location::class,
             ResourceCategory::class,
             Asset::class,

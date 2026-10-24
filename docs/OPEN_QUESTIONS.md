@@ -12,7 +12,7 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 6. **Staff-initiated Stripe payments.** Should walk-up payments carry the full 3%? Under D8 they currently do.
 7. **GoHighLevel auth model.** Decided by Michael on October 24, 2026. There is no public Marketplace app and no OAuth app. A platform administrator links each workspace to one BrandWorx-managed sub-account and stores that sub-account's Location ID and Private Integration Token. The token is encrypted at rest and is not returned by any API or written to a log. See D12.
 8. **Transactional email provider.** Postmark is the proposal. Not decided. The mailer remains `log`.
-9. **Domains.** `app.reserveworx.com` is the platform host the product owner created. Wildcard subdomains and wildcard SSL are unverified.
+9. **Domains.** `app.reserveworx.com` is the platform host the product owner created. Wildcard subdomains and wildcard SSL are unverified. Public signup stores `{slug}.reserveworx.com` and marks it verified by platform attestation. The address does not resolve until that subdomain exists on SiteGround, or until wildcard DNS and SSL are confirmed.
 10. **Launch markets.** US-only or not. This decides currency, tax, and compliance scope. Tenant currency is stored as `USD` and tenants cannot change it yet.
 11. **Reseller and OTA channels.** Is the 1% channel in v1 or deferred? The column exists. No channel logic is implemented.
 12. **Stripe Connect revenue share.** A business follow-up after there is volume. Not a build blocker.

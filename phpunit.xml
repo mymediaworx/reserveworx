@@ -34,6 +34,7 @@
         <env name="DB_URL" value="" force="true"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="PLATFORM_DOMAINS" value="app.reserveworx.com,localhost,127.0.0.1"/>
+        <env name="BOOKING_APEX" value="reserveworx.test"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>

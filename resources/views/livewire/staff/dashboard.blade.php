@@ -7,7 +7,9 @@
         </button>
     </div>
 
-    @if ($isEmptyWorkspace)
+    @if ($onboarding && $progress instanceof \App\Services\Onboarding\OnboardingProgress)
+        @include('livewire.staff.onboarding-checklist')
+    @elseif ($isEmptyWorkspace)
         <section class="notice">
             <h2>Let’s get you taking bookings</h2>
             <p>Add a location, the boats and gear you rent, and one service with a price. It takes about five minutes.</p>
