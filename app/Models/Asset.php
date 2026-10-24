@@ -19,6 +19,7 @@ class Asset extends Model
         'tenant_id',
         'location_id',
         'resource_category_id',
+        'replacement_asset_id',
         'name',
         'status',
         'capacity',
@@ -27,6 +28,21 @@ class Asset extends Model
         'return_buffer_minutes',
         'turnaround_minutes',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Asset $asset): void {
+            if (! $asset->exists || ! $asset->isDirty('status') || $asset->status === ResourceStatus::Retired) {
+                return;
+            }
+
+            $original = $asset->getOriginal('status');
+
+            if ($original === ResourceStatus::Retired || $original === ResourceStatus::Retired->value) {
+                $asset->replacement_asset_id = null;
+            }
+        });
+    }
 
     protected $casts = [
         'status' => ResourceStatus::class,
@@ -51,5 +67,13 @@ class Asset extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(ResourceCategory::class, 'resource_category_id');
+    }
+
+    /**
+     * @return BelongsTo<Asset, $this>
+     */
+    public function replacement(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replacement_asset_id');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\ResourceStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\V1\RetireAssetRequest;
 use App\Http\Requests\Api\V1\StoreAssetRequest;
 use App\Http\Requests\Api\V1\UpdateAssetRequest;
 use App\Http\Resources\AssetResource;
@@ -11,6 +12,7 @@ use App\Models\Asset;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
 use App\Services\Operations\AffectedBookings;
+use App\Services\Operations\AssetRetirement;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -20,6 +22,7 @@ class AssetController extends Controller
     public function __construct(
         private readonly AuditLogger $audit,
         private readonly AffectedBookings $affected,
+        private readonly AssetRetirement $retirement,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -79,5 +82,20 @@ class AssetController extends Controller
         $this->audit->log('asset.updated', $asset, ['status' => $asset->status->value], request: $request);
 
         return new AssetResource($asset);
+    }
+
+    public function retire(RetireAssetRequest $request, Asset $asset): JsonResponse
+    {
+        $replacementId = $request->validated('replacement_asset_id');
+        $result = $this->retirement->retire($asset, is_string($replacementId) ? $replacementId : null);
+        $this->audit->log('asset.retired', $result['asset'], [
+            'replacement_asset_id' => $result['asset']->replacement_asset_id,
+            'flagged_bookings' => $result['flagged_bookings'],
+        ], request: $request);
+
+        return (new AssetResource($result['asset']))->additional([
+            'flagged_bookings' => $result['flagged_bookings'],
+            'reassignment_offers' => $result['reassignment_offers'],
+        ])->response();
     }
 }

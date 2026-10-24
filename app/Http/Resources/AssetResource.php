@@ -18,6 +18,7 @@ class AssetResource extends JsonResource
             'id' => $this->id,
             'location_id' => $this->location_id,
             'resource_category_id' => $this->resource_category_id,
+            'replacement_asset_id' => $this->replacement_asset_id,
             'name' => $this->name,
             'status' => $this->status->value,
             'capacity' => $this->capacity,

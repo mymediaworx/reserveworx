@@ -31,7 +31,7 @@ class UpdateAssetRequest extends FormRequest
             'location_id' => ['sometimes', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'resource_category_id' => ['sometimes', 'nullable', 'string', Rule::exists('resource_categories', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'name' => ['sometimes', 'string', 'max:120'],
-            'status' => ['sometimes', Rule::enum(ResourceStatus::class)],
+            'status' => ['sometimes', Rule::in(ResourceStatus::writable())],
             'capacity' => ['sometimes', 'integer', 'between:1,10000'],
             'is_guide' => ['sometimes', 'boolean'],
             'prep_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
