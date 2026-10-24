@@ -28,7 +28,8 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
-Route::get('/', HomeController::class);
+Route::get('/', HomeController::class)
+    ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, ValidateCsrfToken::class]);
 Route::get('/ui/app.css', [UiAssetController::class, 'stylesheet']);
 
 /*

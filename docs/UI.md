@@ -9,6 +9,7 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 | Platform (`app.reserveworx.com`) | `/` | Product page with platform sign in |
 | Platform | `/platform/login`, `/platform` | Platform admins only: list and add workspaces |
 | Platform | `/platform/tenants/{id}` | Domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, a private data export, status |
+| Tenant domain | `/` | Public booking page for that workspace |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
@@ -67,6 +68,6 @@ Tenant pages are served only on a verified tenant domain, so a demo needs a real
 
    Copy `.htaccess` from `app.reserveworx.com/public_html` too. A deploy does this itself when `$HOME/www/harbor.reserveworx.com/public_html` is already a real directory. It does not create that site, and it does not write under `www/reserveworx.com`. Because the file points at `laravel/current`, it follows every deploy and rollback.
 3. **Domain row:** the same deploy runs `php artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com`. That attaches the hostname to Harbor Demo and marks it verified. It does not replace the workspace's primary hostname. The deploy also grants `michael@brandworx.ai` as a platform administrator. When that account is created by the deploy, the password is stored only in `laravel/shared/platform-admin.txt` on the server.
-4. **Try it:** staff sign in at `https://harbor.reserveworx.com/staff/login` with the Harbor Demo login from `laravel/shared/demo-logins.txt`. Make a link under **Booking links** to see the customer side.
+4. **Try it:** open `https://harbor.reserveworx.com/` for the public booking page. Staff sign-in stays at `https://harbor.reserveworx.com/staff/login`. The Harbor Demo login is in `laravel/shared/demo-logins.txt`.
 
 Wildcard subdomains would remove step 2 for every new operator. Whether SiteGround supports them is still open question 9.

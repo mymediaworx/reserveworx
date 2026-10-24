@@ -44,6 +44,9 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('harbor.reserveworx.com', $remote);
         $this->assertStringContainsString('reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com', $remote);
         $this->assertStringContainsString('Team sign in', $remote);
+        $this->assertStringContainsString('https://harbor.reserveworx.com/', $remote);
+        $this->assertStringContainsString('Harbor Demo bookings', $remote);
+        $this->assertStringContainsString('<h1>Harbor Demo</h1>', $remote);
 
         $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
         $this->assertStringContainsString('sg_key.pub', $prepare);

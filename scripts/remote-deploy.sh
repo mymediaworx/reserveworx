@@ -664,8 +664,36 @@ harbor_login_check() {
     return 0
   fi
   echo "harbor_login=failed" >&2
+  note_laravel_log
   rm -f "$body" "$headers"
   return 1
+}
+
+harbor_home_check() {
+  local body headers code
+  body="$(mktemp)"
+  headers="$(mktemp)"
+  code="$(https_get "https://harbor.reserveworx.com/" "$body" "$headers")"
+  echo "harbor_home_http=${code:-none}"
+  if [[ "$code" == "200" ]] && grep -q "Harbor Demo bookings" "$body" && grep -q "<h1>Harbor Demo</h1>" "$body"; then
+    echo "harbor_home=ok"
+    rm -f "$body" "$headers"
+    return 0
+  fi
+  echo "harbor_home=failed" >&2
+  note_laravel_log
+  rm -f "$body" "$headers"
+  return 1
+}
+
+note_laravel_log() {
+  local log
+  log="${shared}/storage/logs/laravel.log"
+  if [[ -f "$log" ]]; then
+    echo "laravel_log_tail_begin" >&2
+    tail -n 40 "$log" >&2 || true
+    echo "laravel_log_tail_end" >&2
+  fi
 }
 
 grant_platform_admin() {
@@ -818,6 +846,7 @@ platform_failed=0
 harbor_failed=0
 platform_check || platform_failed=1
 harbor_login_check || harbor_failed=1
+harbor_home_check || harbor_failed=1
 if [[ "$platform_failed" -ne 0 || "$harbor_failed" -ne 0 ]]; then
   exit 1
 fi
