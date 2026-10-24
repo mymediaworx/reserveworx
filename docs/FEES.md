@@ -15,6 +15,7 @@ Product rules D1–D8 and spec Sections 7.4–7.8. Michael approved keeping the 
 | `direct_fee_minimum_cents` | null (disabled) | Platform administrator |
 | `third_party_fee_minimum_cents` | null (disabled) | Platform administrator |
 | `fee_payer` | `customer_paid` | Tenant, with `settings.update` |
+| `pay_at_pickup` | false | Tenant, with `settings.update` |
 | `currency` | `USD` | Nobody through the tenant API |
 
 Guards on the platform request, not product pricing rules: basis points 0–10000, fixed and minimum amounts 0–1_000_000 cents. A minimum of null means no minimum. A fixed amount of 0 means no fixed amount. Open question 4 asks whether a product minimum should exist. The default remains none.
@@ -44,6 +45,7 @@ Then apply an optional fixed amount and an optional minimum, only when those col
 - Later balance payments of the same booking add no fee.
 - A price increase paid through Stripe is fee'd on the increase only.
 - Offline payments: no fee, status `offline_paid`, method `offline`.
+- `pay_at_pickup` adds Pay at pickup on the public review page. The recorded amount is the customer total minus the customer booking-fee line. The demo shops turn this on.
 - If the deposit is less than or equal to the fee, raise the deposit to the fee plus $1.00.
 - If the operator absorbs the fee and the fee is greater than or equal to the charge, refuse checkout. Do not invent a new customer-facing adjustment.
 - If the calculated fee is 0, omit Stripe `application_fee_amount`. Stripe requires that amount to be positive and less than the charge.

@@ -24,4 +24,10 @@
         </form>
         <p>The booking stays on hold until Stripe confirms the payment. Returning to this site is not proof of payment.</p>
     @endif
+    @if ($pickupUrl)
+        <form method="post" action="{{ $pickupUrl }}">
+            <button type="submit">Pay at pickup</button>
+        </form>
+        <p>Pay {{ $pickupLabel }} when you arrive. Pay at pickup does not include the online booking fee.</p>
+    @endif
 @endsection

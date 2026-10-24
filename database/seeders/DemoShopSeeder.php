@@ -17,6 +17,7 @@ use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
@@ -49,6 +50,7 @@ class DemoShopSeeder extends Seeder
             $manager->set($tenant);
 
             try {
+                $this->enablePayAtPickup($tenant);
                 $shop === 'marina' ? $this->marina($tenant) : $this->livery($tenant);
                 $added = $shop === 'marina' ? $this->ensureTourWindow($tenant) : 0;
                 $this->command?->line("demo_shop={$slug} ready=yes departures_added={$added}");
@@ -56,6 +58,26 @@ class DemoShopSeeder extends Seeder
                 $manager->forget();
             }
         }
+    }
+
+    private function enablePayAtPickup(Tenant $tenant): void
+    {
+        $setting = TenantSetting::query()->where('tenant_id', $tenant->id)->first();
+
+        if (! $setting instanceof TenantSetting) {
+            TenantSetting::query()->create([
+                'tenant_id' => $tenant->id,
+                'pay_at_pickup' => true,
+            ]);
+
+            return;
+        }
+
+        if ($setting->pay_at_pickup) {
+            return;
+        }
+
+        $setting->forceFill(['pay_at_pickup' => true])->save();
     }
 
     private function marina(Tenant $tenant): void

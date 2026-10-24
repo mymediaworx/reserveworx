@@ -104,6 +104,7 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::post('/services/{service}', [WidgetController::class, 'store'])->name('widget.store');
         Route::get('/checkout/{booking}', [WidgetController::class, 'checkout'])->name('widget.checkout')->middleware('signed');
         Route::post('/checkout/{booking}', [WidgetController::class, 'pay'])->name('widget.pay')->middleware('signed');
+        Route::post('/pickup/{booking}', [WidgetController::class, 'pickup'])->name('widget.pickup')->middleware('signed');
         Route::get('/confirmation/{booking}', [WidgetController::class, 'confirmation'])->name('widget.confirmation')->middleware('signed');
         Route::get('/lookup', [GuestBookingController::class, 'lookupForm'])->name('widget.lookup');
         Route::post('/lookup', [GuestBookingController::class, 'lookup'])->name('widget.lookup.store');

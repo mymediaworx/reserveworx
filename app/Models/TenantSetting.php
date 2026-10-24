@@ -25,6 +25,7 @@ class TenantSetting extends Model
         'direct_fee_minimum_cents',
         'third_party_fee_minimum_cents',
         'currency',
+        'pay_at_pickup',
     ];
 
     /** @use HasFactory<TenantSettingFactory> */
@@ -42,5 +43,6 @@ class TenantSetting extends Model
         'third_party_fee_fixed_cents' => 'integer',
         'direct_fee_minimum_cents' => 'integer',
         'third_party_fee_minimum_cents' => 'integer',
+        'pay_at_pickup' => 'boolean',
     ];
 }

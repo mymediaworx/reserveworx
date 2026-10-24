@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Domain\Fees\Disclosures\Money;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
 use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
+use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
+use App\Enums\PaymentStatus;
 use App\Models\Booking;
 use App\Models\DisclosureVersion;
 use App\Models\Hold;
@@ -134,6 +137,8 @@ class WidgetController extends Controller
         $snapshot = $this->snapshot($booking);
         $hold = $this->openHold($booking);
 
+        $pickup = $this->pickupOffer($this->tenant($request), $token, $booking, $snapshot, $hold);
+
         return view('widget.checkout', [
             'token' => $token,
             'booking' => $booking->load('service'),
@@ -144,8 +149,62 @@ class WidgetController extends Controller
                 'token' => $token,
                 'booking' => $booking->id,
             ]) : null,
+            'pickupUrl' => $pickup['url'],
+            'pickupLabel' => $pickup['label'],
             'error' => null,
         ]);
+    }
+
+    public function pickup(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $tenant = $this->tenant($request);
+        $this->activeToken($token);
+        $this->assertBookingService($booking);
+        $setting = $this->setting($tenant);
+        abort_unless($setting instanceof TenantSetting && $setting->pay_at_pickup, 404);
+
+        $fresh = $booking->fresh() ?? $booking;
+        $snapshot = $this->snapshot($fresh);
+        $hold = $this->openHold($fresh);
+
+        if ($fresh->status === BookingStatus::Confirmed && $fresh->payment_status === PaymentStatus::OfflinePaid) {
+            return redirect()->to($this->confirmationUrl($token, $fresh, $hold));
+        }
+
+        if (! $hold instanceof Hold) {
+            return $this->checkoutResponse($token, $fresh, $snapshot, null, null, null, null, 'This hold has expired.', 409);
+        }
+
+        try {
+            $this->checkout->recordOffline($fresh, 'widget-pickup-'.$fresh->id);
+            $fresh = $fresh->fresh() ?? $fresh;
+
+            if ($fresh->status === BookingStatus::Held) {
+                $fresh = $this->allocator->confirm($fresh);
+                $fresh->payment_status = PaymentStatus::OfflinePaid;
+                $fresh->save();
+            }
+        } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {
+            return $this->checkoutResponse(
+                $token,
+                $fresh,
+                $snapshot,
+                $hold,
+                URL::temporarySignedRoute('widget.pay', CarbonImmutable::instance($hold->expires_at), [
+                    'token' => $token,
+                    'booking' => $fresh->id,
+                ]),
+                URL::temporarySignedRoute('widget.pickup', CarbonImmutable::instance($hold->expires_at), [
+                    'token' => $token,
+                    'booking' => $fresh->id,
+                ]),
+                Money::format($this->checkout->amountDueAtPickup($snapshot), $snapshot->currency),
+                $exception->getMessage(),
+                409,
+            );
+        }
+
+        return redirect()->to($this->confirmationUrl($token, $fresh, $hold));
     }
 
     public function pay(Request $request, string $token, Booking $booking): Response|RedirectResponse
@@ -156,7 +215,7 @@ class WidgetController extends Controller
         $snapshot = $this->snapshot($booking);
 
         if (! $hold instanceof Hold) {
-            return $this->checkoutResponse($token, $booking, $snapshot, null, null, 'This hold has expired.', 409);
+            return $this->checkoutResponse($token, $booking, $snapshot, null, null, null, null, 'This hold has expired.', 409);
         }
 
         $expires = CarbonImmutable::instance($hold->expires_at);
@@ -172,6 +231,8 @@ class WidgetController extends Controller
         try {
             $started = $this->checkout->startCheckout($booking->load('service'), $success, $cancel);
         } catch (AllocationUnavailableException $exception) {
+            $pickup = $this->pickupOffer($this->tenant($request), $token, $booking, $snapshot, $hold);
+
             return $this->checkoutResponse(
                 $token,
                 $booking,
@@ -181,6 +242,8 @@ class WidgetController extends Controller
                     'token' => $token,
                     'booking' => $booking->id,
                 ]),
+                $pickup['url'],
+                $pickup['label'],
                 $exception->getMessage(),
                 409,
             );
@@ -385,12 +448,46 @@ class WidgetController extends Controller
         ], $status);
     }
 
+    /**
+     * @return array{url: string|null, label: string|null}
+     */
+    private function pickupOffer(Tenant $tenant, string $token, Booking $booking, PricingSnapshot $snapshot, ?Hold $hold): array
+    {
+        $setting = $this->setting($tenant);
+
+        if (! $hold instanceof Hold || ! $setting instanceof TenantSetting || ! $setting->pay_at_pickup) {
+            return ['url' => null, 'label' => null];
+        }
+
+        return [
+            'url' => URL::temporarySignedRoute('widget.pickup', CarbonImmutable::instance($hold->expires_at), [
+                'token' => $token,
+                'booking' => $booking->id,
+            ]),
+            'label' => Money::format($this->checkout->amountDueAtPickup($snapshot), $snapshot->currency),
+        ];
+    }
+
+    private function confirmationUrl(string $token, Booking $booking, ?Hold $hold): string
+    {
+        $expires = $hold instanceof Hold
+            ? CarbonImmutable::instance($hold->expires_at)
+            : CarbonImmutable::now()->addHour();
+
+        return URL::temporarySignedRoute('widget.confirmation', $expires, [
+            'token' => $token,
+            'booking' => $booking->id,
+        ]);
+    }
+
     private function checkoutResponse(
         string $token,
         Booking $booking,
         PricingSnapshot $snapshot,
         ?Hold $hold,
         ?string $payUrl,
+        ?string $pickupUrl,
+        ?string $pickupLabel,
         ?string $error,
         int $status,
     ): Response {
@@ -401,6 +498,8 @@ class WidgetController extends Controller
             'terms' => $this->terms($snapshot),
             'hold' => $hold,
             'payUrl' => $payUrl,
+            'pickupUrl' => $pickupUrl,
+            'pickupLabel' => $pickupLabel,
             'error' => $error,
         ], $status);
     }

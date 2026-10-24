@@ -31,6 +31,7 @@ class UpdateTenantSettingRequest extends FormRequest
             'late_fee_per_minute_cents' => ['sometimes', 'nullable', 'integer', 'between:0,100000'],
             'ledger_bucket_minutes' => ['sometimes', 'integer', Rule::in([5, 10, 15, 30, 60])],
             'fee_payer' => ['sometimes', Rule::enum(FeePayer::class)],
+            'pay_at_pickup' => ['sometimes', 'boolean'],
             'direct_fee_bps' => ['prohibited'],
             'third_party_fee_bps' => ['prohibited'],
             'direct_fee_fixed_cents' => ['prohibited'],
