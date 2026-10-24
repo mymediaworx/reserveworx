@@ -33,7 +33,7 @@ Do not run this workflow until:
 4. The archive is uploaded only to `$HOME/www/app.reserveworx.com/laravel/incoming/<sha>.tar.gz`. If that domain directory does not exist, the job stops. It does not create another site.
 5. Before extract, the previous rollback directory is deleted so disk holds the live tree plus the new tree, not a third copy. The archive is deleted as soon as extract finishes.
 6. Shared storage and `.env` live in `laravel/shared` and are symlinked into the release. They are never overwritten from the archive.
-7. After the new release is current, every release directory other than `current` and `previous` is deleted. Steady state is two trees: the live release and one rollback release. Each tree contains the `vendor` directory built for that commit. There is no third vendor directory.
+7. After the new release is current, every release directory other than `current` and `previous` is deleted. Steady state is two trees: the live release and one rollback release. The previous release stays on disk so action `rollback` can switch the code back. The database dump does not delete either tree. Each tree contains the `vendor` directory built for that commit. There is no third vendor directory.
 8. CLI PHP must be 8.2 or newer. The script prefers `/usr/local/php82/bin/php`, matching the reported managed PHP 8.2.35.
 9. `config:cache`, `route:cache`, and `view:cache` run only when shared `.env` exists.
 10. `public_html` stays a real directory. Nginx on this account returns 403 when the document root itself is a symlink. `index.php` there boots `../laravel/current`. A placeholder directory (`index.html`, `index.php`, `cgi-bin`, `.well-known`, `default.html`, any case) is moved aside inside the same domain folder first. Any other files leave `public_html` unchanged and fail the job. A listing of that directory does not use `/dev/fd`, which this host does not provide.
@@ -52,13 +52,12 @@ Default is off. `php artisan migrate --force` runs only when all of these are tr
 
 - action is `deploy`
 - **Run migrations** is true
-- the confirmation field is exactly `I have a backup`
 - shared `.env` exists
-- `mysqldump` (or `mariadb-dump`) has written a gzip of that database
+- this run's workflow step has written a verified database dump
 
-The dump runs on the server before the previous release is deleted and before `public_html` changes. It reads `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` from `laravel/shared/.env` inside PHP. The password is not passed on the command line and is not printed. The client defaults file is mode 600 and is deleted before `artisan migrate`. The gzip is written to `$HOME/www/app.reserveworx.com/laravel/backups/reserveworx-<utc>-<pid>.sql.gz` (mode 600, directory mode 700). That path is not `public_html` and is not `www/reserveworx.com`. The log records `backup_path` and `backup_bytes` only. The two newest dumps are kept. If the client is missing, the dump is empty, or the file is not a database dump, the script deletes the upload and stops. Migrations do not run, and the document root does not change.
+That dump is the required backup. Site Tools backups are not. The step runs on the server before the release archive is uploaded and before `public_html` changes. It reads `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` from `laravel/shared/.env` inside PHP. The password is not passed on the command line and is not printed. The client defaults file is mode 600 and is deleted before the dump is accepted. The gzip is written to `$HOME/www/app.reserveworx.com/laravel/shared/backups/<timestamp>.sql.gz`. `<timestamp>` is UTC `YYYYMMDDTHHMMSSZ`. The file is mode 600 and the directory is mode 700. That path is not `public_html` and is not `www/reserveworx.com`. The log records `backup_path`, `backup_bytes`, and `gunzip_test=ok`. The two newest dumps are kept. The previous code release stays on disk for rollback.
 
-The confirmation phrase is still required. A restore from this gzip has not been drilled (open question 23).
+The step fails the deploy when any of these are true: the dump file is missing, the file is empty, `gunzip -t` fails, the file is not mode 600, or the archive is not a MySQL or MariaDB dump. The activate step checks that same file again before it removes the old rollback slot or changes the document root. Migrations do not run, and the document root does not change, when the check fails. A restore from this gzip has not been drilled (open question 23).
 
 ## Cron and the GoGeek budget
 
@@ -97,6 +96,6 @@ Application secrets belong only in `laravel/shared/.env`.
 
 GitHub → Actions → **Deploy** → **Run workflow** → branch `main`.
 
-- First deploy: action `deploy`, migrations off, confirmation empty. Shared `.env` must exist before the document root moves.
-- Later schema changes: action `deploy`, migrations on, confirmation `I have a backup`.
-- Bad release: action `rollback`.
+- First deploy: action `deploy`, migrations off. Shared `.env` must exist before the document root moves.
+- Later schema changes: action `deploy`, migrations on. The workflow dumps the database first and fails if that dump does not verify.
+- Bad release: action `rollback`. The previous release directory is the code rollback. Rollback does not restore the database.

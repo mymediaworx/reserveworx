@@ -12,15 +12,10 @@ on:
           - rollback
         default: deploy
       run_migrations:
-        description: Run php artisan migrate --force after deploy
+        description: Run php artisan migrate --force after a verified database dump. The job fails when that dump is missing, empty, or fails gunzip -t.
         type: boolean
         required: true
         default: false
-      migration_confirmation:
-        description: 'Required only when migrations are enabled. Type exactly: I have a backup. The job also runs mysqldump before migrate.'
-        type: string
-        required: false
-        default: ""
 
 concurrency:
   group: production-deploy
@@ -100,6 +95,43 @@ jobs:
             --exclude 'storage/pail' \
             .
 
+      - name: Back up the application database
+        id: dbbackup
+        if: inputs.action == 'deploy' && inputs.run_migrations == true
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          remote_cmd="$(printf 'ACTION=%q bash -s' backup)"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/backup-out.txt
+          path="$(sed -n 's/^backup_path=//p' /tmp/backup-out.txt | tail -n 1)"
+          bytes="$(sed -n 's/^backup_bytes=//p' /tmp/backup-out.txt | tail -n 1)"
+          gunzip_ok="$(sed -n 's/^gunzip_test=//p' /tmp/backup-out.txt | tail -n 1)"
+          if [[ -z "$path" || "$gunzip_ok" != "ok" || ! "$bytes" =~ ^[0-9]+$ || "$bytes" -lt 1 ]]; then
+            echo "Database dump was not verified. Migrations will not run." >&2
+            exit 1
+          fi
+          case "$path" in
+            */www/app.reserveworx.com/laravel/shared/backups/*.sql.gz) ;;
+            *)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          case "$path" in
+            *public_html*|*www/reserveworx.com/*)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          echo "path=${path}" >> "$GITHUB_OUTPUT"
+          echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
+
       - name: Upload release archive
         if: inputs.action == 'deploy'
         env:
@@ -126,12 +158,12 @@ jobs:
           ACTION: ${{ inputs.action }}
           RELEASE: ${{ steps.release.outputs.sha }}
           RUN_MIGRATIONS: ${{ inputs.run_migrations }}
-          MIGRATION_CONFIRMATION: ${{ inputs.migration_confirmation }}
+          BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
         run: |
           set -euo pipefail
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q MIGRATION_CONFIRMATION=%q bash -s' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$MIGRATION_CONFIRMATION")"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -s' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH")"
           {
             echo
             echo '```'
