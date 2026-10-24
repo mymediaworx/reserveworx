@@ -28,6 +28,7 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Services\Booking\SlotFinder;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
@@ -59,6 +60,22 @@ class Allocator
             return $this->placeHold($intent);
         } catch (QueryException $exception) {
             return $this->replayIdempotentHold($intent, $exception);
+        } catch (AllocationUnavailableException $exception) {
+            if ($exception->offers !== [] || ! $this->availabilityRefusal($exception)) {
+                throw $exception;
+            }
+
+            try {
+                $offers = $this->holdOffers($intent);
+            } catch (\Throwable) {
+                throw $exception;
+            }
+
+            if ($offers['times'] === [] && $offers['other_asset_ids'] === []) {
+                throw $exception;
+            }
+
+            throw new AllocationUnavailableException($exception->getMessage(), $offers);
         }
     }
 
@@ -328,7 +345,7 @@ class Allocator
             } catch (AllocationUnavailableException $unavailable) {
                 throw new AllocationUnavailableException($unavailable->getMessage(), [
                     'authoritative' => false,
-                    'other_asset_ids' => $this->otherAssets($booking, $plan),
+                    'other_asset_ids' => $this->otherAssets($booking->id, $plan),
                 ]);
             }
 
@@ -368,7 +385,7 @@ class Allocator
             } catch (AllocationUnavailableException $unavailable) {
                 throw new AllocationUnavailableException($unavailable->getMessage(), [
                     'authoritative' => false,
-                    'other_asset_ids' => $this->otherAssets($booking, $plan),
+                    'other_asset_ids' => $this->otherAssets($booking->id, $plan),
                 ]);
             }
 
@@ -1481,7 +1498,7 @@ class Allocator
 
         if (! $this->seatOnly($booking)) {
             try {
-                $other = $this->otherAssets($booking, $this->plan($this->intentFor($booking, $requested)));
+                $other = $this->otherAssets($booking->id, $this->plan($this->intentFor($booking, $requested)));
             } catch (AllocationUnavailableException) {
                 $other = [];
             }
@@ -1492,6 +1509,216 @@ class Allocator
             'smaller_participants' => $smaller,
             'other_asset_ids' => $other,
         ];
+    }
+
+    /**
+     * Hints for a refused hold. Not a lock, and not a promise the next hold will succeed.
+     *
+     * @return array{authoritative: false, times: list<array{starts_at: string, ends_at: string}>, other_asset_ids: list<string>}
+     */
+    private function holdOffers(AllocationIntent $intent): array
+    {
+        $this->enterTenant($intent->tenantId);
+
+        return [
+            'authoritative' => false,
+            'times' => $this->nearbyTimes($intent),
+            'other_asset_ids' => $this->holdAssetOffers($intent),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function holdAssetOffers(AllocationIntent $intent): array
+    {
+        try {
+            return $this->otherAssets(null, $this->plan($intent));
+        } catch (AllocationUnavailableException) {
+            return [];
+        }
+    }
+
+    /**
+     * @return list<array{starts_at: string, ends_at: string}>
+     */
+    private function nearbyTimes(AllocationIntent $intent): array
+    {
+        $service = Service::query()->with('location')->find($intent->serviceId);
+        $location = $service?->location;
+
+        if (! $service instanceof Service || ! $location instanceof Location) {
+            return [];
+        }
+
+        if ($service->kind === ServiceKind::Tour) {
+            return $this->nearbyDepartures($service, $location, $intent);
+        }
+
+        $seconds = $intent->endsAt->utc()->getTimestamp() - $intent->startsAt->utc()->getTimestamp();
+
+        if ($seconds < 60 || $seconds % 60 !== 0) {
+            return [];
+        }
+
+        return $this->nearbyRentalTimes($location, $intent, intdiv($seconds, 60));
+    }
+
+    /**
+     * Same service, within two hours of the requested clock time, on that local day and the next two.
+     *
+     * @return list<array{starts_at: string, ends_at: string}>
+     */
+    private function nearbyRentalTimes(Location $location, AllocationIntent $intent, int $durationMinutes): array
+    {
+        $requestedLocal = $intent->startsAt->utc()->timezone($location->timezone);
+        $now = CarbonImmutable::now()->utc();
+        $step = SlotFinder::STEP_MINUTES;
+        $offsets = [0];
+
+        for ($minute = $step; $minute <= $step * 4; $minute += $step) {
+            $offsets[] = $minute;
+            $offsets[] = -$minute;
+        }
+
+        $picked = [];
+
+        for ($day = 0; $day <= 2; $day++) {
+            $kept = [];
+            $limit = $day === 0 ? 3 : 2;
+            $base = $requestedLocal->addDays($day);
+
+            foreach ($offsets as $offset) {
+                if (count($kept) >= $limit) {
+                    break;
+                }
+
+                if ($day === 0 && $offset === 0) {
+                    continue;
+                }
+
+                $startLocal = $base->addMinutes($offset);
+
+                if (! $startLocal->isSameDay($base)) {
+                    continue;
+                }
+
+                $start = $startLocal->utc();
+
+                if ($start->lessThan($now)) {
+                    continue;
+                }
+
+                $end = $start->addMinutes($durationMinutes);
+
+                if (! $this->slotFree($intent, $start, $end)) {
+                    continue;
+                }
+
+                $kept[] = [
+                    'starts_at' => $start->format('Y-m-d\TH:i:s\Z'),
+                    'ends_at' => $end->format('Y-m-d\TH:i:s\Z'),
+                ];
+            }
+
+            $picked = array_merge($picked, $kept);
+        }
+
+        usort($picked, fn (array $left, array $right): int => $left['starts_at'] <=> $right['starts_at']);
+
+        return $picked;
+    }
+
+    /**
+     * @return list<array{starts_at: string, ends_at: string}>
+     */
+    private function nearbyDepartures(Service $service, Location $location, AllocationIntent $intent): array
+    {
+        $requestedLocal = $intent->startsAt->utc()->timezone($location->timezone);
+        $now = CarbonImmutable::now()->utc();
+        $from = $requestedLocal->startOfDay()->utc();
+        $until = $requestedLocal->startOfDay()->addDays(3)->utc();
+        $clock = ($requestedLocal->hour * 60) + $requestedLocal->minute;
+        $requestedStart = $intent->startsAt->utc();
+        $requestedEnd = $intent->endsAt->utc();
+        $times = [];
+
+        $departures = Departure::query()
+            ->where('service_id', $service->id)
+            ->where('status', DepartureStatus::Scheduled->value)
+            ->where('starts_at', '>=', $from->max($now))
+            ->where('starts_at', '<', $until)
+            ->orderBy('starts_at')
+            ->get();
+
+        foreach ($departures as $departure) {
+            if (count($times) >= 6) {
+                break;
+            }
+
+            $starts = CarbonImmutable::instance($departure->starts_at)->utc();
+            $ends = CarbonImmutable::instance($departure->ends_at)->utc();
+
+            if ($starts->equalTo($requestedStart) && $ends->equalTo($requestedEnd)) {
+                continue;
+            }
+
+            $localStart = $starts->timezone($location->timezone);
+            $minutes = ($localStart->hour * 60) + $localStart->minute;
+
+            if (abs($minutes - $clock) > SlotFinder::STEP_MINUTES * 4) {
+                continue;
+            }
+
+            $headcount = $departure->headcount();
+
+            if ($departure->private && $headcount > 0) {
+                continue;
+            }
+
+            $cap = $departure->seats ?? $service->max_participants;
+
+            if ($cap !== null && $headcount + $intent->participants > $cap) {
+                continue;
+            }
+
+            if (! $this->slotFree($intent, $starts, $ends, $departure->id)) {
+                continue;
+            }
+
+            $times[] = [
+                'starts_at' => $starts->format('Y-m-d\TH:i:s\Z'),
+                'ends_at' => $ends->format('Y-m-d\TH:i:s\Z'),
+            ];
+        }
+
+        return $times;
+    }
+
+    private function slotFree(AllocationIntent $intent, CarbonImmutable $start, CarbonImmutable $end, ?string $departureId = null): bool
+    {
+        return $this->hint(new AllocationIntent(
+            $intent->tenantId,
+            $intent->serviceId,
+            $start,
+            $end,
+            $intent->participants,
+            null,
+            null,
+            null,
+            $departureId,
+            $intent->guideUserId,
+        ))['available'];
+    }
+
+    private function availabilityRefusal(AllocationUnavailableException $exception): bool
+    {
+        return in_array($exception->getMessage(), [
+            'That time is no longer available.',
+            'That guide is already booked.',
+            'That departure is full.',
+            'That private departure already has a booking.',
+        ], true);
     }
 
     /**
@@ -1533,7 +1760,7 @@ class Allocator
         return [
             'authoritative' => false,
             'shorter_ends_at' => $shorterEndsAt,
-            'other_asset_ids' => $this->otherAssets($booking, $plan),
+            'other_asset_ids' => $this->otherAssets($booking->id, $plan),
         ];
     }
 
@@ -1541,7 +1768,7 @@ class Allocator
      * @param  Plan  $plan
      * @return list<string>
      */
-    private function otherAssets(Booking $booking, array $plan): array
+    private function otherAssets(?string $ignoreBookingId, array $plan): array
     {
         $ids = [];
 
@@ -1565,7 +1792,7 @@ class Allocator
                 ->get();
 
             foreach ($candidates as $candidate) {
-                if (! $this->assetTaken($candidate->id, $demand['buffer_start'], $demand['buffer_end'], $booking->id)) {
+                if (! $this->assetTaken($candidate->id, $demand['buffer_start'], $demand['buffer_end'], $ignoreBookingId)) {
                     $ids[] = $candidate->id;
                 }
             }

@@ -7,6 +7,14 @@
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
     @endif
+    @if ($suggestions !== [])
+        <h2>Other times and equipment</h2>
+        <ul>
+            @foreach ($suggestions as $suggestion)
+                <li>{{ $suggestion }}</li>
+            @endforeach
+        </ul>
+    @endif
     <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id) }}">
         <label>Date
             <input name="date" type="date" required value="{{ $old['date'] ?? '' }}">

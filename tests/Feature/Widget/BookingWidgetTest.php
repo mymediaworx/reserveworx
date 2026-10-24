@@ -91,7 +91,10 @@ class BookingWidgetTest extends TestCase
 
         $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-2'))
             ->assertStatus(409)
-            ->assertSee('That time is no longer available.');
+            ->assertSee('That time is no longer available.')
+            ->assertSee('Other times and equipment')
+            ->assertSee('Jun 15, 4:00 PM')
+            ->assertSee('Jun 16, 3:00 PM');
     }
 
     public function test_card_checkout_redirects_to_stripe_without_confirming_the_hold(): void

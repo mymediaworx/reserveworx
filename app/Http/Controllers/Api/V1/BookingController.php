@@ -174,7 +174,13 @@ class BookingController extends Controller
                 }
             }
 
-            return response()->json(['message' => $exception->getMessage()], 409);
+            $payload = ['message' => $exception->getMessage()];
+
+            if ($exception->offers !== []) {
+                $payload['offers'] = $exception->offers;
+            }
+
+            return response()->json($payload, 409);
         } catch (IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }

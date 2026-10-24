@@ -64,6 +64,7 @@ Availability responses computed outside this transaction are hints. They are not
 ## Holds, payment, and extensions
 
 - Checkout creates a hold. Duration is `tenant_settings.hold_minutes`, from 5 to 120, default 15. The hold reduces availability immediately.
+- When a new hold is refused because the slot is taken, the error keeps `message` and adds `offers` when another time or asset is free. `offers.authoritative` is false. `offers.times` lists the same service within two hours of the requested local clock time, on that day and the next two days, on the same 30-minute step as the booking screen, and skips any start before now. A tour lists other departures in that window that still have seats. `offers.other_asset_ids` uses the same category and location search as an extension or reschedule. A refusal for any other reason stays a message only. These offers are hints. The next hold still rechecks under the lock.
 - Mutating booking and payment requests carry an idempotency key. Uniqueness is `(tenant_id, idempotency_key)` plus a hash of the payload. The same key with a different payload returns 409.
 - A successful payment never revives an expired hold. Allocate again. If that fails, the booking becomes `payment_exception` and the refund rules in spec Section 7.6 apply.
 - An extension takes the same locks for the extra interval. A conflict rejects the extension and offers a shorter extension or a different asset. A Stripe charge for the extension follows the fee rules.
