@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\BookingReminderOffsetController;
 use App\Http\Controllers\Api\V1\BrandingLogoController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
+use App\Http\Controllers\Api\V1\CustomerAccountController;
+use App\Http\Controllers\Api\V1\CustomerBookingController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\CustomerDataDeletionController;
 use App\Http\Controllers\Api\V1\CustomerDataExportController;
@@ -83,6 +85,25 @@ Route::prefix('v1')->group(function (): void {
             ->middleware('signed')
             ->name('customers.exports.download')
             ->scopeBindings();
+
+        Route::prefix('customer')->group(function (): void {
+            Route::post('/accounts', [CustomerAccountController::class, 'store'])->middleware('throttle:customer-auth');
+            Route::post('/sign-in-links', [CustomerAccountController::class, 'sendLink'])->middleware('throttle:customer-auth');
+            Route::post('/session', [CustomerAccountController::class, 'session'])->middleware('throttle:customer-auth');
+            Route::get('/sign-in/{token}', [CustomerAccountController::class, 'signIn'])
+                ->where('token', '[A-Za-z0-9]{32,128}')
+                ->middleware('throttle:customer-auth');
+
+            Route::middleware(['auth:customer', 'customer.account', 'throttle:customer-api'])->group(function (): void {
+                Route::post('/logout', [CustomerAccountController::class, 'logout']);
+                Route::get('/me', [CustomerAccountController::class, 'me']);
+                Route::put('/password', [CustomerAccountController::class, 'password']);
+                Route::get('/bookings', [CustomerBookingController::class, 'index']);
+                Route::get('/receipts', [CustomerBookingController::class, 'receipts']);
+                Route::get('/bookings/{booking}', [CustomerBookingController::class, 'show']);
+                Route::get('/bookings/{booking}/receipt', [CustomerBookingController::class, 'receipt']);
+            });
+        });
 
         Route::middleware(['auth:sanctum', 'tenant.member'])->group(function (): void {
             Route::get('/tenant', [CurrentTenantController::class, 'show']);

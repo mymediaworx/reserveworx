@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Auth\CustomerTokenGuard;
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Models\Payment;
@@ -19,7 +20,9 @@ use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\TenantManager;
 use App\View\Composers\WorkspaceBrandingComposer;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
@@ -115,6 +118,30 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('checkout', function (Request $request): Limit {
             return Limit::perMinute(self::ratePerMinute('reserveworx.checkout_rate_per_minute', 10))
                 ->by(self::rateLimitKey($request));
+        });
+
+        RateLimiter::for('customer-auth', function (Request $request): array {
+            $email = strtolower((string) ($request->input('email') ?? $request->query('email')));
+
+            return [
+                Limit::perMinute(5)->by($email.'|'.$request->ip()),
+                Limit::perMinute(20)->by('ip|'.$request->ip()),
+            ];
+        });
+
+        RateLimiter::for('customer-api', function (Request $request): Limit {
+            return Limit::perMinute(60)->by(self::rateLimitKey($request));
+        });
+
+        Auth::extend('customer-token', function ($app, string $name, array $config): CustomerTokenGuard {
+            if (! $app instanceof Application) {
+                throw new \RuntimeException('The customer guard needs the application.');
+            }
+
+            $guard = new CustomerTokenGuard($app->make('request'));
+            $app->refresh('request', $guard, 'setRequest');
+
+            return $guard;
         });
     }
 

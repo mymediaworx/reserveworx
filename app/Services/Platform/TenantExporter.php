@@ -15,6 +15,7 @@ use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
+use App\Models\CustomerAccount;
 use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
@@ -274,6 +275,7 @@ class TenantExporter
             ServiceVariantResource::class,
             ResourceRequirement::class,
             Customer::class,
+            CustomerAccount::class,
             Booking::class,
             Participant::class,
             BookingLineItem::class,

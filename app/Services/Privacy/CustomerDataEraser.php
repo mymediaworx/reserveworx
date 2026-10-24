@@ -5,7 +5,9 @@ namespace App\Services\Privacy;
 use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Customer;
+use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
+use App\Models\CustomerSignInToken;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\NotificationHook;
@@ -98,6 +100,12 @@ class CustomerDataEraser
                 $this->remember($names, $fragments, $entry->customer_name, $entry->customer_email, null);
             }
 
+            $account = $this->lockedAccount($locked);
+
+            if ($account instanceof CustomerAccount) {
+                $this->remember($names, $fragments, $account->name, $account->email, null);
+            }
+
             if ($bookingIds !== []) {
                 Participant::query()->whereIn('booking_id', $bookingIds)->update([
                     'name' => self::REMOVED_PERSON,
@@ -125,13 +133,13 @@ class CustomerDataEraser
                 ]);
             }
 
-            $subjectIds = array_values(array_unique(array_merge(
-                [$locked->id],
+            $subjectIds = array_values(array_unique(array_filter(array_merge(
+                [$locked->id, $account?->id],
                 $bookingIds,
                 $participants->modelKeys(),
                 $signatures->modelKeys(),
                 $waitlist->modelKeys(),
-            )));
+            ), is_string(...))));
             $this->scrubAudits($subjectIds, $fragments, $names);
 
             $anonymizedAt = now();
@@ -139,8 +147,13 @@ class CustomerDataEraser
                 'name' => self::REMOVED_CUSTOMER,
                 'email' => null,
                 'phone' => null,
+                'customer_account_id' => null,
                 'anonymized_at' => $anonymizedAt,
             ])->save();
+
+            if ($account instanceof CustomerAccount) {
+                $this->releaseAccount($account, $locked);
+            }
 
             $deletion = CustomerDataDeletion::query()->create([
                 'tenant_id' => $locked->tenant_id,
@@ -219,6 +232,44 @@ class CustomerDataEraser
             'confirmed' => false,
             'anonymized_at' => $customer->anonymized_at ?? now(),
         ]);
+    }
+
+    private function lockedAccount(Customer $customer): ?CustomerAccount
+    {
+        $accountId = $customer->customer_account_id;
+
+        if (! is_string($accountId) || $accountId === '') {
+            return null;
+        }
+
+        $account = CustomerAccount::query()->whereKey($accountId)->lockForUpdate()->first();
+
+        if (! $account instanceof CustomerAccount || $account->tenant_id !== $customer->tenant_id) {
+            return null;
+        }
+
+        return $account;
+    }
+
+    /**
+     * Drops the sign-in when this customer was the last live row on it.
+     * Another customer in the workspace that still uses the account keeps it.
+     */
+    private function releaseAccount(CustomerAccount $account, Customer $customer): void
+    {
+        $shared = Customer::query()
+            ->where('customer_account_id', $account->id)
+            ->whereNull('anonymized_at')
+            ->whereKeyNot($customer->id)
+            ->exists();
+
+        if ($shared) {
+            return;
+        }
+
+        CustomerSignInToken::query()->where('customer_account_id', $account->id)->delete();
+        $account->tokens()->delete();
+        $account->delete();
     }
 
     /**

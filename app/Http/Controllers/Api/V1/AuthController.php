@@ -55,16 +55,18 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if ($user instanceof User) {
-            $user->currentAccessToken()->delete();
-            $this->audit->log(
-                action: 'auth.logout',
-                subject: $user,
-                actor: $user,
-                request: $request,
-                useContextTenant: false,
-            );
+        if (! $user instanceof User) {
+            abort(401);
         }
+
+        $user->currentAccessToken()->delete();
+        $this->audit->log(
+            action: 'auth.logout',
+            subject: $user,
+            actor: $user,
+            request: $request,
+            useContextTenant: false,
+        );
 
         return response()->json(['message' => 'Logged out.']);
     }
