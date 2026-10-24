@@ -20,6 +20,7 @@ enum TransactionalEmail: string
     case PaymentFailed = 'payment.failed';
     case RefundIssued = 'refund.issued';
     case RentalOverdue = 'rental.overdue';
+    case WaitlistJoined = 'waitlist.joined';
     case WaitlistPromoted = 'waitlist.promoted';
     case BookingFeedback = 'booking.feedback';
 

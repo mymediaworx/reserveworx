@@ -22,6 +22,7 @@ class Waitlist
         ?string $createdBy,
         ?string $idempotencyKey,
         ?string $variantId = null,
+        ?string $customerPhone = null,
     ): WaitlistEntry {
         $key = $idempotencyKey !== null && $idempotencyKey !== '' ? $idempotencyKey : null;
 
@@ -46,6 +47,7 @@ class Waitlist
                 'participants' => $participants,
                 'customer_name' => $customerName,
                 'customer_email' => $customerEmail !== null ? strtolower($customerEmail) : null,
+                'customer_phone' => $this->phone($customerPhone),
                 'status' => WaitlistStatus::Waiting,
                 'idempotency_key' => $key,
             ]);
@@ -62,5 +64,16 @@ class Waitlist
 
             throw $exception;
         }
+    }
+
+    private function phone(?string $phone): ?string
+    {
+        if (! is_string($phone)) {
+            return null;
+        }
+
+        $trimmed = trim($phone);
+
+        return $trimmed === '' ? null : $trimmed;
     }
 }
