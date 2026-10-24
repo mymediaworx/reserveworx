@@ -11,7 +11,6 @@ use App\Models\Asset;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
 use App\Services\Operations\AffectedBookings;
-use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -75,16 +74,7 @@ class AssetController extends Controller
             'turnaround_minutes',
         ]));
         $asset->save();
-
-        if ($asset->status !== $previous && in_array($asset->status, [ResourceStatus::Maintenance, ResourceStatus::Blocked], true)) {
-            $this->affected->flag(
-                $asset->id,
-                null,
-                CarbonImmutable::now()->utc(),
-                CarbonImmutable::now()->utc()->addYear(),
-                'Asset is '.$asset->status->value.'.',
-            );
-        }
+        $this->affected->flagAssetStatus($asset, $previous);
 
         $this->audit->log('asset.updated', $asset, ['status' => $asset->status->value], request: $request);
 
