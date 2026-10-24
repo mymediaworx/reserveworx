@@ -3,16 +3,15 @@
 namespace App\Services\Team;
 
 use App\Enums\MembershipStatus;
-use App\Models\Domain;
 use App\Models\Membership;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Notifications\TeamInvite;
 use App\Services\AuditLogger;
+use App\Services\Tenancy\WorkspaceOrigin;
 use App\Tenancy\Access;
 use App\Tenancy\TenantManager;
-use App\Tenancy\TenantScope;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -35,6 +34,7 @@ final class WorkspaceTeam
         private readonly Access $access,
         private readonly RoleGuard $roles,
         private readonly TenantManager $tenants,
+        private readonly WorkspaceOrigin $origins,
     ) {}
 
     public function invite(User $actor, string $email, string $roleSlug, Request $request): InviteResult
@@ -52,7 +52,7 @@ final class WorkspaceTeam
 
         $role = $this->role($roleSlug);
 
-        if ($this->origin($tenant->id) === null) {
+        if ($this->origins->baseUrl($tenant->id) === null) {
             throw ValidationException::withMessages([
                 'email' => 'This workspace has no verified address to send the invitation from.',
             ]);
@@ -397,7 +397,7 @@ final class WorkspaceTeam
 
     private function signedUrl(Membership $membership, string $plain): string
     {
-        $origin = $this->origin($membership->tenant_id);
+        $origin = $this->origins->baseUrl($membership->tenant_id);
 
         if ($origin === null || $membership->invite_expires_at === null) {
             throw ValidationException::withMessages([
@@ -405,38 +405,17 @@ final class WorkspaceTeam
             ]);
         }
 
-        URL::forceRootUrl($origin);
-
-        try {
-            return URL::temporarySignedRoute(
+        return $this->origins->generate(
+            $origin,
+            fn (): string => URL::temporarySignedRoute(
                 'staff.invite.show',
                 $membership->invite_expires_at,
                 [
                     'membership' => $membership->id,
                     'token' => $plain,
                 ],
-            );
-        } finally {
-            URL::forceRootUrl(null);
-        }
-    }
-
-    private function origin(string $tenantId): ?string
-    {
-        $hostname = Domain::withoutGlobalScope(TenantScope::class)
-            ->where('tenant_id', $tenantId)
-            ->whereNotNull('verified_at')
-            ->orderByDesc('is_primary')
-            ->orderBy('hostname')
-            ->value('hostname');
-
-        if (! is_string($hostname) || $hostname === '') {
-            return null;
-        }
-
-        $scheme = app()->environment('production') ? 'https' : 'http';
-
-        return $scheme.'://'.$hostname;
+            ),
+        );
     }
 
     private function tenant(): Tenant
