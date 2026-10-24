@@ -10,7 +10,7 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 4. **Minimum booking fee.** Should there be a minimum per transaction? The spec default is none.
 5. **Proportional fee refund.** Confirm Section 7.7 for partial refunds. The spec's proposed default is in place and is described in [`FEES.md`](FEES.md). Stripe's proportional application-fee refund does not match that basis. See [`INTEGRATIONS.md`](INTEGRATIONS.md).
 6. **Staff-initiated Stripe payments.** Should walk-up payments carry the full 3%? Under D8 they currently do.
-7. **GoHighLevel auth model.** Marketplace OAuth is the engineering proposal. Per-location API keys and Private Integration Tokens are not the recommended primary model. Not decided.
+7. **GoHighLevel auth model.** Decided by Michael on October 24, 2026. There is no public Marketplace app and no OAuth app. A platform administrator links each workspace to one BrandWorx-managed sub-account and stores that sub-account's Location ID and Private Integration Token. The token is encrypted at rest and is not returned by any API or written to a log. See D12.
 8. **Transactional email provider.** Postmark is the proposal. Not decided. The mailer remains `log`.
 9. **Domains.** `app.reserveworx.com` is the platform host the product owner created. Wildcard subdomains and wildcard SSL are unverified.
 10. **Launch markets.** US-only or not. This decides currency, tax, and compliance scope. Tenant currency is stored as `USD` and tenants cannot change it yet.
@@ -25,8 +25,8 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 16. **Outbound HTTPS and inbound WAF.** The hosting check can probe outbound TLS to Stripe and HighLevel. It cannot see WAF rules that would block inbound webhooks.
 17. **Process limits and long-running processes.** Assumed unavailable until the check says otherwise. No persistent workers and no WebSockets.
 18. **DNS verification of tenant domains.** Verification is interim platform attestation. Automated DNS is not built.
-19. **White-label GoHighLevel install.** It is not verified that the BrandWorx agency at `app.brandworx.ai` can install a private marketplace app.
-20. **HighLevel version header and location-token path.** Official pages disagree (`v3` versus `2021-07-28`, `/oauth/location-token` versus `/oauth/locationToken`). Confirm with a live call before Phase 6.
+19. **White-label GoHighLevel install.** Moot for this sync. Michael decided on October 24, 2026 that there is no marketplace app to install. Linking is a Location ID and a Private Integration Token on a BrandWorx sub-account.
+20. **HighLevel version header.** This sync sends `Version: 2021-07-28` because the Private Integration Token page describes API v2.0 and its examples use that header. The upsert, add-tag, and create-note reference pages list only `v3`. `GHL_VERSION` can override the header. A live call has not confirmed which value a sub-account accepts. The location-token path is unused because there is no OAuth exchange.
 21. **Stripe API version and fee collector.** Do not pin an API version until payments are implemented. Before charging, confirm the connected account's fee collector (`controller.fees.payer` or Accounts v2 `defaults.responsibilities.fees_collector`).
 22. **Data export before termination.** A platform administrator can store a private JSON export of one workspace. Termination stays refused until that file exists. The export does not delete the workspace. How long signed waivers are kept after termination is still open question 3.
 23. **Backup and restore.** The required backup is the deploy workflow's `mysqldump` gzip at `laravel/shared/backups/<timestamp>.sql.gz`, written before migrations. The file must be non-empty, mode 600, and pass `gunzip -t`. Restoring that file has not been drilled. Site Tools backups are not the requirement.

@@ -42,6 +42,8 @@ return [
         'client_id' => env('GHL_CLIENT_ID'),
         'client_secret' => env('GHL_CLIENT_SECRET'),
         'redirect' => env('GHL_REDIRECT_URI'),
+        'base_url' => env('GHL_BASE_URL', 'https://services.leadconnectorhq.com'),
+        'version' => env('GHL_VERSION', '2021-07-28'),
     ],
 
     'slack' => [

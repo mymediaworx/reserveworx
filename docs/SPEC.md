@@ -310,7 +310,7 @@ Implementation:
 ## 8. GoHighLevel Integration
 
 - Each tenant connects its own GHL location (sub-account) under the white-label agency at app.brandworx.ai.
-- **Phase 1 decision:** use a GHL Marketplace OAuth app with location-level tokens (preferred), or per-location API keys. Verify the current API version, scopes, rate limits, and webhook support, and record them in `docs/INTEGRATIONS.md`.
+- **Phase 1 decision (Michael, October 24, 2026):** there is no public Marketplace app and no OAuth app. A platform administrator links each workspace to one BrandWorx sub-account with a Location ID and a Private Integration Token. See D12 and `docs/INTEGRATIONS.md`. Contact sync is built for booking created, changed, and cancelled, and for payment succeeded. The rest of the event list below is not sent yet.
 - Contact sync covers name, email, phone, booking reference, service, date and time, booking status, payment status, source and attribution, and consent preferences. A stable ID mapping prevents duplicate contacts.
 - These events go to GHL through tags, custom fields, or supported workflow triggers:
   - booking initiated, confirmed, modified, or cancelled

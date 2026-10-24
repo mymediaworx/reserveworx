@@ -18,6 +18,8 @@ use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
+use App\Models\GhlConnection;
+use App\Models\GhlSyncLog;
 use App\Models\Hold;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
@@ -239,7 +241,7 @@ class TenantExporter
         $clean = [];
 
         foreach ($attributes as $key => $value) {
-            if (in_array($key, ['password', 'remember_token'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
+            if (in_array($key, ['password', 'remember_token', 'private_integration_token'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
                 continue;
             }
 
@@ -304,6 +306,8 @@ class TenantExporter
             BookingReminder::class,
             NotificationHook::class,
             IntegrationOutbox::class,
+            GhlConnection::class,
+            GhlSyncLog::class,
             AuditLog::class,
         ];
     }

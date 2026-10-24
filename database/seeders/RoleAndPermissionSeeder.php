@@ -29,9 +29,14 @@ class RoleAndPermissionSeeder extends Seeder
             'webhooks.manage' => 'Register webhook endpoints and redeliver events',
         ];
 
+        $unassigned = [
+            'integrations.view' => 'View the GoHighLevel sub-account link',
+            'integrations.manage' => 'Link a workspace to a GoHighLevel sub-account',
+        ];
+
         $saved = [];
 
-        foreach ($permissions as $slug => $name) {
+        foreach (array_merge($permissions, $unassigned) as $slug => $name) {
             $saved[$slug] = Permission::query()->updateOrCreate(
                 ['slug' => $slug],
                 ['name' => $name],
