@@ -123,7 +123,7 @@ class TodayDashboardTest extends TestCase
             'rules_version' => 'spec-1.0/7.7',
             'customer_refund_cents' => 1_500,
             'customer_fee_refund_cents' => 0,
-            'application_fee_refund_cents' => 0,
+            'application_fee_refund_cents' => 100,
             'refund_subtotal_cents' => 1_400,
             'refund_tax_cents' => 100,
         ]);
@@ -149,7 +149,10 @@ class TodayDashboardTest extends TestCase
             ->assertJsonPath('data.totals.tax_cents', 800)
             ->assertJsonPath('data.totals.booking_fee_cents', 300)
             ->assertJsonPath('data.totals.refunds_cents', 1500)
+            ->assertJsonPath('data.fees.charged_cents', 300)
+            ->assertJsonPath('data.fees.refunded_cents', 100)
             ->assertJsonPath('data.fees.net_cents', 200)
+            ->assertJsonPath('data.fees.period', 'all_time')
             ->assertJsonPath('data.outcomes.confirmed', 1)
             ->assertJsonPath('data.outcomes.cancelled', 1)
             ->assertJsonPath('data.outcomes.no_show', 0)

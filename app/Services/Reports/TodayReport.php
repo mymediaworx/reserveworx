@@ -9,6 +9,7 @@ use App\Models\Departure;
 use App\Models\Location;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\RentalCheckout;
@@ -59,7 +60,7 @@ final class TodayReport
         $shownBookings = $bookings->take(100);
         $shownDepartures = $departures->take(100);
         $charged = (int) PlatformFee::query()->sum('amount_cents');
-        $refunded = (int) PlatformFee::query()->sum('refunded_cents');
+        $refundedAllTime = (int) PlatformFee::query()->sum('refunded_cents');
         $payments = $this->payments($windowStart, $windowEnd, $clockZone, $reportDate);
 
         return [
@@ -90,8 +91,8 @@ final class TodayReport
             'outcomes' => $this->outcomes($windowStart, $windowEnd, $reportDate),
             'fees' => [
                 'charged_cents' => $charged,
-                'refunded_cents' => $refunded,
-                'net_cents' => $charged - $refunded,
+                'refunded_cents' => $this->bookingFeeRefunds($windowStart, $windowEnd, $reportDate),
+                'net_cents' => $charged - $refundedAllTime,
                 'period' => 'all_time',
             ],
         ];
@@ -163,6 +164,8 @@ final class TodayReport
         fputcsv($handle, ['total', 'tax', '', '', 'tax', '', $totals['tax_cents'] ?? 0]);
         fputcsv($handle, ['total', 'booking_fee', '', '', 'booking fee', '', $totals['booking_fee_cents'] ?? 0]);
         fputcsv($handle, ['total', 'refunds', '', '', 'customer refund', '', $totals['refunds_cents'] ?? 0]);
+        $feeDate = is_string($report['date'] ?? null) ? $report['date'] : '';
+        fputcsv($handle, ['fee', 'refunded', '', '', $feeDate, '', $fees['refunded_cents'] ?? 0]);
         fputcsv($handle, ['fee', 'net', '', '', 'all_time', '', $fees['net_cents'] ?? 0]);
         $outcomes = is_array($report['outcomes'] ?? null) ? $report['outcomes'] : [];
         fputcsv($handle, ['outcome', 'confirmed', '', '', 'confirmed', $outcomes['confirmed'] ?? 0, '']);
@@ -226,6 +229,59 @@ final class TodayReport
         }
 
         return CarbonImmutable::parse($instant)->utc()->toIso8601String();
+    }
+
+    /**
+     * Booking-fee refunds recorded on the report date in the booking location's timezone.
+     * A Section 7.7 refund contributes its application fee. A platform manual refund
+     * contributes its amount. The running total on each fee stays all-time, and net still uses that.
+     */
+    private function bookingFeeRefunds(CarbonImmutable $windowStart, CarbonImmutable $windowEnd, string $reportDate): int
+    {
+        $total = 0;
+
+        $refunds = Refund::query()
+            ->with('booking.location')
+            ->where('created_at', '>=', $windowStart)
+            ->where('created_at', '<', $windowEnd)
+            ->where('application_fee_refund_cents', '>', 0)
+            ->get();
+
+        foreach ($refunds as $refund) {
+            if (! $this->onDate($refund->created_at, $this->zoneForBooking($refund->booking), $reportDate)) {
+                continue;
+            }
+
+            $total += $refund->application_fee_refund_cents;
+        }
+
+        $manualRefunds = PlatformFeeRefund::query()
+            ->with('platformFee.booking.location')
+            ->where('created_at', '>=', $windowStart)
+            ->where('created_at', '<', $windowEnd)
+            ->get();
+
+        foreach ($manualRefunds as $manual) {
+            $fee = $manual->platformFee;
+            $booking = $fee instanceof PlatformFee ? $fee->booking : null;
+
+            if (! $this->onDate($manual->created_at, $this->zoneForBooking($booking), $reportDate)) {
+                continue;
+            }
+
+            $total += $manual->amount_cents;
+        }
+
+        return $total;
+    }
+
+    private function zoneForBooking(?Booking $booking): string
+    {
+        if (! $booking instanceof Booking) {
+            return 'UTC';
+        }
+
+        return $this->zoneOf($booking->location);
     }
 
     /**
