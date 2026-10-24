@@ -76,6 +76,8 @@ erDiagram
 
 `memberships` is already the link between a user and a workspace. `users` has no `tenant_id`. The unique key is `(tenant_id, user_id)`, and `role_id` is that person's role in that one workspace. One login can own one business and be staff in another. No second membership table was added, and no existing membership rows were moved.
 
+`signup_acceptances` is one row per workspace created at `/signup`. Columns are `tenant_id` (unique), `user_id`, `terms_version`, and `accepted_at`. The version is the text the owner accepted. `accepted_at` is the time they checked the box. Migration `database/migrations/2026_10_24_260000_create_signup_acceptances_table.php`.
+
 `staff_entry_tokens` stores the SHA-256 hash of a 64-character hex token used to sign in on another workspace's host. Columns are `user_id`, `tenant_id`, `token_hash` (unique), `expires_at`, `consumed_at`, and `created_at`. The plain token is not stored. It expires after two minutes. It is consumed once, and only when the host's tenant matches `tenant_id` and the user still has an active membership there. A different host does not consume it. Migration `database/migrations/2026_10_24_250000_create_staff_entry_tokens_table.php`.
 
 `tenant_settings` stores fee rates and payer, hold length, ledger bucket, currency, and `pay_at_pickup` (default false). Currency defaults to `USD` and is not writable by a tenant until launch markets are decided. Fee rates are writable only by a platform administrator. The fee calculation engine is not in the database. `pay_at_pickup` is changed by a member with `settings.update`. The demo shop seeder sets it for Harbor Demo and Inland Demo only.

@@ -133,6 +133,23 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by(self::rateLimitKey($request));
         });
 
+        RateLimiter::for('signup', function (Request $request): Limit {
+            return Limit::perMinute(self::ratePerMinute('reserveworx.signup_rate_per_minute', 5))
+                ->by('signup|'.$request->ip());
+        });
+
+        RateLimiter::for('signup-availability', function (Request $request): Limit {
+            return Limit::perMinute(30)->by('signup-availability|'.$request->ip());
+        });
+
+        RateLimiter::for('signup-resend', function (Request $request): Limit {
+            return Limit::perMinute(5)->by('signup-resend|'.$request->ip());
+        });
+
+        RateLimiter::for('signup-verify', function (Request $request): Limit {
+            return Limit::perMinute(10)->by('signup-verify|'.$request->ip());
+        });
+
         Auth::extend('customer-token', function ($app, string $name, array $config): CustomerTokenGuard {
             if (! $app instanceof Application) {
                 throw new \RuntimeException('The customer guard needs the application.');

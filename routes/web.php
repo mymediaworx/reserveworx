@@ -8,6 +8,7 @@ use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\PlatformAuthController;
 use App\Http\Controllers\Web\PortfolioController;
+use App\Http\Controllers\Web\SignupController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\UiAssetController;
@@ -37,6 +38,23 @@ Route::get('/', HomeController::class)
 Route::get('/ui/app.css', [UiAssetController::class, 'stylesheet']);
 Route::get('/embed.js', [UiAssetController::class, 'embed'])
     ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, ValidateCsrfToken::class]);
+
+/*
+| Public signup, on the platform host only. A tenant domain has no signup page.
+*/
+Route::middleware('platform.host')->group(function (): void {
+    Route::get('/signup', [SignupController::class, 'create'])->name('signup.create');
+    Route::post('/signup', [SignupController::class, 'store'])->middleware('throttle:signup');
+    Route::get('/signup/availability', [SignupController::class, 'availability'])->middleware('throttle:signup-availability');
+    Route::get('/signup/check-email', [SignupController::class, 'checkEmail'])->name('signup.check-email');
+    Route::post('/signup/resend', [SignupController::class, 'resend'])->middleware('throttle:signup-resend');
+    Route::get('/signup/verify/{user}/{tenant}/{hash}', [SignupController::class, 'verify'])
+        ->whereUlid('user')
+        ->whereUlid('tenant')
+        ->where('hash', '[a-f0-9]{40}')
+        ->middleware(['signed', 'throttle:signup-verify'])
+        ->name('signup.verify');
+});
 
 /*
 | Platform administration, on the platform host only.

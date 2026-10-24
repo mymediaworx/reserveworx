@@ -651,6 +651,8 @@ body.auth { display: grid; place-items: center; min-height: 100vh; padding: 1rem
 .auth-tenant { color: var(--ink); font-weight: 600; margin: 0; font-size: 1.1rem; }
 .auth-panel h1 { margin-bottom: 1.25rem; }
 .auth-foot { margin: 1rem 0 0; font-size: 0.9rem; }
+.auth-panel.wide { width: min(36rem, 100%); }
+.hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }

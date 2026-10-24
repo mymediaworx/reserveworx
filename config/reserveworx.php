@@ -15,6 +15,30 @@ return [
     'platform_domains' => $platformDomains,
 
     /*
+    | Public signup addresses are {slug}.{apex}. Production uses reserveworx.com,
+    | so a request for "lakeside" becomes lakeside.reserveworx.com.
+    */
+    'booking_apex' => strtolower(trim((string) env('BOOKING_APEX', 'reserveworx.com'))),
+
+    /*
+    | Labels a new business cannot claim. The first label of each platform host
+    | is reserved as well, so app.reserveworx.com stays the platform.
+    */
+    'reserved_subdomains' => [
+        'app', 'www', 'admin', 'api', 'mail', 'staff', 'platform',
+        'ftp', 'smtp', 'pop', 'imap', 'webmail', 'ns', 'ns1', 'ns2', 'dns', 'mx',
+        'localhost', 'test', 'staging', 'stage', 'dev', 'demo', 'status', 'support', 'help',
+        'billing', 'docs', 'blog', 'cdn', 'static', 'assets', 'cpanel', 'whm', 'webdisk',
+        'autoconfig', 'autodiscover', 'reserveworx', 'brandworx', 'stripe', 'webhook', 'webhooks',
+        'login', 'signup', 'register', 'dashboard', 'root', 'system', 'security', 'ssl',
+        'email', 'noreply', 'no-reply', 'postmaster', 'hostmaster', 'abuse', 'webmaster',
+        'phpmyadmin', 'mysql', 'database', 'git', 'ssh', 'sftp', 'vpn', 'proxy', 'internal',
+        'auth', 'oauth', 'sso', 'account', 'accounts', 'user', 'users',
+    ],
+
+    'signup_rate_per_minute' => (int) env('SIGNUP_RATE_PER_MINUTE', 5),
+
+    /*
     | Seconds for each cron-triggered queue worker.
     | GoGeek budget, reported by BrandWorx Dev for distrosku.com on Oct 23, 2026
     | and not yet verified on app.reserveworx.com: 4,000 CPU-seconds/hour and

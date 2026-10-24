@@ -13,7 +13,8 @@
         <h1>ReserveWorx</h1>
         <p>Bookings, rentals, and tours for paddle and boat operators, with shared inventory that never double-books.</p>
         <p class="muted">Each operator works on their own address. Customers book through the operator’s booking link.</p>
-        <p class="top-gap"><a class="button primary" href="/platform/login">Platform sign in</a></p>
+        <p class="top-gap"><a class="button primary" href="/signup">Start a workspace</a></p>
+        <p class="auth-foot"><a href="/platform/login">Platform sign in</a></p>
     </main>
 </body>
 </html>

@@ -7,7 +7,7 @@
 **Payments:** Stripe Connect (Standard accounts, direct charges)
 **Revenue model:** Per-transaction application fee only. No subscription.
 **Product owner:** Michael (BrandWorx)
-**Document version:** 1.0, October 23, 2026
+**Document version:** 1.1, October 24, 2026
 
 ---
 
@@ -108,6 +108,7 @@ Assume there are **no persistent workers and no WebSockets** unless Phase 1 prov
 - Each tenant has its own branding, users, roles, locations, services, resources, pricing, policies, customers, bookings, waivers, Stripe connected account, GHL location connection, notification settings, and reports. Each tenant can optionally have its own custom domain or subdomain.
 - A platform administrator role has audited access to platform operations: tenant onboarding, suspension, data export, termination, and fee configuration.
 - Tenant lifecycle states: onboarding → active → suspended → terminated, with data export available before termination.
+- A new business can sign up at `app.reserveworx.com/signup` (Michael, October 24, 2026). The workspace is created in onboarding with the standard fee defaults. The owner verifies their email before that workspace can move to active from its checklist. Platform administrators still see it in the tenant list and can change its status. An owner who is already signed in can still add another business.
 
 ---
 
@@ -376,7 +377,7 @@ When a resource becomes unavailable, the system finds affected future bookings a
 - HTTPS everywhere, secure sessions, and Argon2id or bcrypt password hashing.
 - Role-based access control.
 - Server-side validation, plus protection against SQL injection, XSS, CSRF, and IDOR.
-- Rate limiting on login, availability, and checkout endpoints.
+- Rate limiting on login, public signup, availability, and checkout endpoints.
 - Encrypted storage for Stripe and GHL credentials, using Laravel encryption with the key stored outside the repository.
 - Audit logs for administrative, inventory, financial, and fee actions.
 - Automated database backups, with a documented and **tested** restore procedure.
@@ -500,6 +501,7 @@ Each phase becomes one GitHub milestone. Deliver working, tested functionality a
 | D8 | The fee is charged only on payments processed through Stripe. Offline payments carry no fee. |
 | D9 | Laravel, PHP, and MySQL or MariaDB on SiteGround, subject to verification |
 | D10 | GHL is never the source of truth for inventory |
+| D13 | A new business can sign up in public at `app.reserveworx.com/signup`. The workspace starts in onboarding with the standard fee defaults. Email verification is required before that workspace goes active from the checklist. Michael approved this on October 24, 2026 |
 
 ### 18.2 Open questions for the product owner
 
