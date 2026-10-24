@@ -15,6 +15,7 @@ use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\WebhookEvent;
 use App\Services\Allocation\Allocator;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Notifications\BookingEvents;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
@@ -29,6 +30,7 @@ final class WebhookProcessor
         private readonly TenantManager $tenants,
         private readonly RefundService $refunds,
         private readonly BookingEvents $events,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     public function handle(string $payload, string $signature): void
@@ -218,6 +220,21 @@ final class WebhookProcessor
             if (array_key_exists($key, $pending)) {
                 $payload[$key] = $pending[$key];
             }
+        }
+
+        $operatorLines = $pending['operator_fees'] ?? null;
+
+        if (is_array($operatorLines)) {
+            $booked = Booking::query()->find($payment->booking_id);
+
+            if ($booked instanceof Booking) {
+                $payload['operator_fees'] = $this->operatorFees->replace($booked, $operatorLines);
+            }
+
+            $payload['mandatory_operator_fees_cents'] = max(
+                0,
+                $this->cents($payload, 'mandatory_operator_fees_cents') + $this->cents($pending, 'operator_fees_delta_cents'),
+            );
         }
 
         unset($payload['pending_increase']);

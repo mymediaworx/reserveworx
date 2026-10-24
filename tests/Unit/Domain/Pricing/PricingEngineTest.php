@@ -58,6 +58,8 @@ class PricingEngineTest extends TestCase
         $this->assertSame('SAVE10', $snapshot['promo_code']);
         $this->assertSame(0, $snapshot['add_ons_cents']);
         $this->assertSame([], $snapshot['add_ons']);
+        $this->assertSame(0, $snapshot['mandatory_operator_fees_cents']);
+        $this->assertSame([], $snapshot['operator_fees']);
     }
 
     public function test_add_ons_join_the_fee_basis_and_the_snapshot_without_changing_service_tax(): void
@@ -96,6 +98,153 @@ class PricingEngineTest extends TestCase
         $this->assertSame(13_157, $snapshot['charge_cents']);
         $this->assertSame(357, $snapshot['application_fee_cents']);
         $this->assertFalse($snapshot['tax_includes_booking_fee']);
+        $this->assertSame(0, $snapshot['mandatory_operator_fees_cents']);
+    }
+
+    public function test_mandatory_fees_join_the_basis_and_a_promo_does_not_reduce_them(): void
+    {
+        $priced = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            10,
+            null,
+            'SAVE10',
+            100,
+            1_500,
+            [['name' => 'Cooler', 'total_cents' => 1_500]],
+            [
+                [
+                    'operator_fee_id' => '01FUEL',
+                    'name' => 'Fuel',
+                    'pricing' => 'percent',
+                    'scope' => 'location',
+                    'amount_cents' => null,
+                    'percent_bps' => 1_000,
+                ],
+                [
+                    'operator_fee_id' => '01CLEAN',
+                    'name' => 'Cleaning',
+                    'pricing' => 'flat',
+                    'scope' => 'service',
+                    'amount_cents' => 300,
+                    'percent_bps' => null,
+                ],
+            ],
+        );
+        $snapshot = $priced->toSnapshot();
+
+        $this->assertSame(10_000, $snapshot['services_cents']);
+        $this->assertSame(1_000, $snapshot['discount_cents']);
+        $this->assertSame(1_500, $snapshot['add_ons_cents']);
+        $this->assertSame(1_300, $snapshot['mandatory_operator_fees_cents']);
+        $this->assertSame(1_000, $snapshot['operator_fees'][0]['total_cents']);
+        $this->assertSame('Fuel', $snapshot['operator_fees'][0]['name']);
+        $this->assertSame(300, $snapshot['operator_fees'][1]['total_cents']);
+        $this->assertSame(11_800, $snapshot['basis_cents']);
+        $this->assertSame(900, $snapshot['tax_cents']);
+        $this->assertSame(354, $snapshot['fee_cents']);
+        $this->assertSame(13_054, $snapshot['customer_total_cents']);
+        $this->assertFalse($snapshot['tax_includes_booking_fee']);
+    }
+
+    public function test_a_party_size_increase_reprices_per_person_and_percent_fees(): void
+    {
+        $definitions = [
+            [
+                'operator_fee_id' => '01CLEAN',
+                'name' => 'Cleaning',
+                'pricing' => 'per_person',
+                'scope' => 'service',
+                'amount_cents' => 500,
+                'percent_bps' => null,
+            ],
+            [
+                'operator_fee_id' => '01FUEL',
+                'name' => 'Fuel',
+                'pricing' => 'percent',
+                'scope' => 'location',
+                'amount_cents' => null,
+                'percent_bps' => 1_000,
+            ],
+            [
+                'operator_fee_id' => '01ADMIN',
+                'name' => 'Admin',
+                'pricing' => 'flat',
+                'scope' => 'service',
+                'amount_cents' => 300,
+                'percent_bps' => null,
+            ],
+        ];
+        $increase = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('per_person', 5_000, 'weekday')],
+            4,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            10,
+            null,
+            10_000,
+            1_000,
+            900,
+            400,
+            800,
+            2_300,
+            $definitions,
+        );
+
+        $this->assertSame(10_000, $increase->servicesDeltaCents);
+        $this->assertSame(1_000, $increase->discountDeltaCents);
+        $this->assertSame(400, $increase->addOnsDeltaCents);
+        $this->assertSame(2_000, $increase->operatorFeesDeltaCents);
+        $this->assertSame(11_400, $increase->basisCents);
+        $this->assertSame(900, $increase->taxCents);
+        $this->assertSame(342, $increase->payment->applicationFeeCents);
+        $this->assertSame(12_642, $increase->payment->chargeCents);
+        $this->assertSame(2_000, $increase->operatorFeeLines[0]['total_cents']);
+        $this->assertSame(2_000, $increase->operatorFeeLines[1]['total_cents']);
+        $this->assertSame(300, $increase->operatorFeeLines[2]['total_cents']);
+    }
+
+    public function test_a_flat_fee_alone_does_not_invent_a_party_size_increase(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('This booking has no price increase.');
+
+        $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            4,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            0,
+            0,
+            0,
+            300,
+            [[
+                'operator_fee_id' => '01ADMIN',
+                'name' => 'Admin',
+                'pricing' => 'flat',
+                'scope' => 'service',
+                'amount_cents' => 300,
+                'percent_bps' => null,
+            ]],
+        );
     }
 
     public function test_a_weekend_rate_and_a_per_person_rate_add_together(): void

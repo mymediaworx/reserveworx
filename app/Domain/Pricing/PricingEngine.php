@@ -2,6 +2,7 @@
 
 namespace App\Domain\Pricing;
 
+use App\Domain\Catalog\OperatorFeeCharge;
 use App\Domain\Fees\FeeBasis;
 use App\Domain\Fees\FeeCalculator;
 use App\Domain\Fees\FeeChannel;
@@ -18,6 +19,7 @@ final class PricingEngine
     /**
      * @param  list<PriceRuleInput>  $rules
      * @param  list<array<string, mixed>>  $addOnLines
+     * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      */
     public function price(
         FeeChannel $channel,
@@ -34,6 +36,7 @@ final class PricingEngine
         int $depositPercent,
         int $addOnsCents = 0,
         array $addOnLines = [],
+        array $operatorFeeDefinitions = [],
     ): PricedBooking {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -60,10 +63,41 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
-        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, addOnsCents: $addOnsCents, discountsCents: $discount), $tax);
+        $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
+        $operatorCents = OperatorFeeCharge::cents($operatorLines);
+        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis(
+            $services,
+            addOnsCents: $addOnsCents,
+            mandatoryOperatorFeesCents: $operatorCents,
+            discountsCents: $discount,
+        ), $tax);
         $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
-        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode, $addOnsCents, $addOnLines, $timeWindows);
+        return new PricedBooking(
+            $services,
+            $discount,
+            $tax,
+            $quote,
+            $this->fees->firstStripePayment($quote, $requested),
+            $promoCode,
+            $addOnsCents,
+            $addOnLines,
+            $timeWindows,
+            $operatorCents,
+            $operatorLines,
+        );
+    }
+
+    /**
+     * The pre-discount service total for a party, before tax, promos, add-ons, and fees.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     */
+    public function serviceCents(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): int
+    {
+        [$services] = $this->components($rules, $participants, $durationMinutes, $on, 0, null, null);
+
+        return $services;
     }
 
     /**
@@ -74,6 +108,7 @@ final class PricingEngine
      * basis. Tax stays on the discounted service total.
      *
      * @param  list<PriceRuleInput>  $rules
+     * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      */
     public function increaseFromQuote(
         FeeChannel $channel,
@@ -91,6 +126,8 @@ final class PricingEngine
         int $quotedTaxCents,
         int $quotedAddOnsCents = 0,
         int $addOnsCents = 0,
+        int $quotedOperatorFeesCents = 0,
+        array $operatorFeeDefinitions = [],
     ): PriceIncrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -105,10 +142,13 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
+        $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
+        $operatorCents = OperatorFeeCharge::cents($operatorLines);
         $servicesDelta = $services - $quotedServicesCents;
         $discountDelta = $discount - $quotedDiscountCents;
         $addOnsDelta = $addOnsCents - $quotedAddOnsCents;
-        $basisDelta = $servicesDelta - $discountDelta + $addOnsDelta;
+        $operatorDelta = $operatorCents - $quotedOperatorFeesCents;
+        $basisDelta = $servicesDelta - $discountDelta + $addOnsDelta + $operatorDelta;
         $taxDelta = $tax - $quotedTaxCents;
 
         if ($basisDelta <= 0) {
@@ -130,6 +170,8 @@ final class PricingEngine
             $this->fees->priceIncreaseStripePayment($increase),
             $addOnsDelta,
             $timeWindows,
+            $operatorDelta,
+            $operatorLines,
         );
     }
 
@@ -140,6 +182,7 @@ final class PricingEngine
      * Add-on lines are part of the subtotal. Tax stays on the discounted service total.
      *
      * @param  list<PriceRuleInput>  $rules
+     * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      */
     public function decreaseFromQuote(
         array $rules,
@@ -154,6 +197,8 @@ final class PricingEngine
         int $quotedTaxCents,
         int $quotedAddOnsCents = 0,
         int $addOnsCents = 0,
+        int $quotedOperatorFeesCents = 0,
+        array $operatorFeeDefinitions = [],
     ): PriceDecrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -168,7 +213,12 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
-        $basisDelta = ($services - $quotedServicesCents) - ($discount - $quotedDiscountCents) + ($addOnsCents - $quotedAddOnsCents);
+        $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
+        $operatorCents = OperatorFeeCharge::cents($operatorLines);
+        $basisDelta = ($services - $quotedServicesCents)
+            - ($discount - $quotedDiscountCents)
+            + ($addOnsCents - $quotedAddOnsCents)
+            + ($operatorCents - $quotedOperatorFeesCents);
 
         if ($basisDelta >= 0) {
             throw new InvalidArgumentException('This booking has no price decrease.');
@@ -176,7 +226,7 @@ final class PricingEngine
 
         $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
 
-        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows);
+        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows, $operatorCents, $operatorLines);
     }
 
     /**

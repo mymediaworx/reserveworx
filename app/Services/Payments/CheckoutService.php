@@ -29,6 +29,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Catalog\BookingAddOnLines;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Notifications\BookingEvents;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -45,6 +46,7 @@ final class CheckoutService
         private readonly PricingEngine $pricing,
         private readonly RefundService $refunds,
         private readonly BookingAddOnLines $addOnLines,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     /**
@@ -298,6 +300,8 @@ final class CheckoutService
             'priced_on' => $this->pricedOn($booking),
             'priced_local_start' => $this->pricedLocalStart($booking),
             'time_windows' => $increase->timeWindows,
+            'operator_fees_delta_cents' => $increase->operatorFeesDeltaCents,
+            'operator_fees' => $increase->operatorFeeLines,
         ];
         $snapshot->payload = $payload;
         $snapshot->save();
@@ -486,6 +490,8 @@ final class CheckoutService
 
         [$channel, $rate, $payer, $rules, $on] = $this->quoteInputs($booking, $payload);
 
+        [$quotedOperatorFees, $operatorDefinitions] = $this->quotedOperatorFees($payload);
+
         try {
             return $this->pricing->increaseFromQuote(
                 $channel,
@@ -503,6 +509,8 @@ final class CheckoutService
                 $this->cents($payload, 'tax_cents'),
                 $this->cents($payload, 'add_ons_cents'),
                 $addOnsCents,
+                $quotedOperatorFees,
+                $operatorDefinitions,
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -536,6 +544,8 @@ final class CheckoutService
 
         [, , , $rules, $on] = $this->quoteInputs($booking, $payload);
 
+        [$quotedOperatorFees, $operatorDefinitions] = $this->quotedOperatorFees($payload);
+
         try {
             return $this->pricing->decreaseFromQuote(
                 $rules,
@@ -550,6 +560,8 @@ final class CheckoutService
                 $this->cents($payload, 'tax_cents'),
                 $this->cents($payload, 'add_ons_cents'),
                 $addOnsCents,
+                $quotedOperatorFees,
+                $operatorDefinitions,
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -605,6 +617,8 @@ final class CheckoutService
         $payload['priced_on'] = $this->pricedOn($booking);
         $payload['priced_local_start'] = $this->pricedLocalStart($booking);
         $payload['time_windows'] = $decrease->timeWindows;
+        $payload['mandatory_operator_fees_cents'] = $decrease->operatorFeesCents;
+        $payload['operator_fees'] = $this->operatorFees->replace($booking, $decrease->operatorFeeLines);
         $snapshot->payload = $payload;
         $snapshot->save();
     }
@@ -669,6 +683,27 @@ final class CheckoutService
         $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
 
         return CarbonImmutable::instance($booking->starts_at)->timezone($zone)->format('H:i');
+    }
+
+    /**
+     * Lines locked on the snapshot. A snapshot from before operator fees has neither
+     * the total nor the lines, and stays unchanged.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{0: int, 1: list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>}
+     */
+    private function quotedOperatorFees(array $payload): array
+    {
+        $lines = $payload['operator_fees'] ?? null;
+
+        if (! is_array($lines)) {
+            return [0, []];
+        }
+
+        return [
+            $this->cents($payload, 'mandatory_operator_fees_cents'),
+            $this->operatorFees->definitionsFromLines($lines),
+        ];
     }
 
     /**

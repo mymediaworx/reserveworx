@@ -2,6 +2,7 @@
     Itemized checkout summary (spec Section 7.6 items 2, 3 and 4).
 
     @param int $subtotalCents
+    @param list<array{name?: string, total_cents?: int|string}>|null $operatorFees
     @param int|null $bookingFeeCents  Customer-paid booking fee; null in operator-absorbed mode.
     @param int $taxCents
     @param int $totalCents
@@ -12,6 +13,7 @@
 @use('App\Domain\Fees\Disclosures\Money')
 @php
     $currency = $currency ?? 'USD';
+    $operatorFees = $operatorFees ?? [];
     $bookingFeeCents = $bookingFeeCents ?? null;
     $refundTerms = $refundTerms ?? null;
 
@@ -25,6 +27,14 @@
             <dt>Subtotal</dt>
             <dd>{{ Money::format($subtotalCents, $currency) }}</dd>
         </div>
+        @foreach ($operatorFees as $fee)
+            @if (is_array($fee) && is_string($fee['name'] ?? null) && is_numeric($fee['total_cents'] ?? null))
+                <div class="line operator-fee">
+                    <dt>{{ $fee['name'] }}</dt>
+                    <dd>{{ Money::format((int) $fee['total_cents'], $currency) }}</dd>
+                </div>
+            @endif
+        @endforeach
         @if ($bookingFeeCents !== null)
             <div class="line booking-fee">
                 <dt>{{ BookingFeeRefundTerms::LABEL }}</dt>

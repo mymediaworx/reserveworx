@@ -11,6 +11,7 @@ use App\Models\Blackout;
 use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
+use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
@@ -25,6 +26,7 @@ use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
 use App\Models\NotificationHook;
+use App\Models\OperatorFee;
 use App\Models\Participant;
 use App\Models\Payment;
 use App\Models\PlatformFee;
@@ -278,6 +280,8 @@ class TenantExporter
             PromoCode::class,
             AddOn::class,
             BookingAddOn::class,
+            OperatorFee::class,
+            BookingOperatorFee::class,
             PricingSnapshot::class,
             Payment::class,
             PlatformFee::class,

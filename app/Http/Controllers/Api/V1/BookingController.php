@@ -27,6 +27,7 @@ use App\Services\AuditLogger;
 use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Catalog\BookingAddOnLines;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -41,13 +42,14 @@ class BookingController extends Controller
         private readonly Waitlist $waitlist,
         private readonly WaitlistPromoter $promoter,
         private readonly BookingAddOnLines $addOnLines,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
 
-        $bookings = Booking::query()->with(['service', 'customer', 'addOns'])->withCount('namedParticipants')->orderBy('starts_at')->limit(100)->get();
+        $bookings = Booking::query()->with(['service', 'customer', 'addOns', 'operatorFees'])->withCount('namedParticipants')->orderBy('starts_at')->limit(100)->get();
 
         return response()->json(['data' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))]);
     }
@@ -192,7 +194,7 @@ class BookingController extends Controller
             $booking->save();
         }
 
-        $booking->load(['service', 'addOns']);
+        $booking->load(['service', 'addOns', 'operatorFees']);
 
         $this->audit->log('booking.held', $booking, [
             'service_id' => $booking->service_id,
@@ -478,7 +480,7 @@ class BookingController extends Controller
                         ->orWhereHas('holds', fn ($rows) => $rows->where('pool_id', $id));
                 });
             })
-            ->with(['service', 'customer'])
+            ->with(['service', 'customer', 'operatorFees'])
             ->withCount('namedParticipants')
             ->orderBy('starts_at')
             ->get();
@@ -546,7 +548,23 @@ class BookingController extends Controller
             'holds' => $booking->relationLoaded('holds') ? $booking->holds->count() : null,
             'allocations' => $booking->relationLoaded('allocations') ? $booking->allocations->count() : null,
             'add_ons' => $this->addOnPayload($booking),
+            'operator_fees' => $this->operatorFeePayload($booking),
         ];
+    }
+
+    /**
+     * @return list<array{id: string, operator_fee_id: string, name: string, scope: string, pricing: string, amount_cents: int|null, percent_bps: int|null, quantity: int, total_cents: int}>
+     */
+    private function operatorFeePayload(Booking $booking): array
+    {
+        $booking->loadMissing('operatorFees');
+        $rows = [];
+
+        foreach ($booking->operatorFees as $line) {
+            $rows[] = $this->operatorFees->row($line);
+        }
+
+        return $rows;
     }
 
     /**

@@ -15,6 +15,7 @@ use App\Models\PromoCode;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Catalog\BookingAddOnLines;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 
@@ -24,6 +25,7 @@ final class BookingPricer
         private readonly PricingEngine $pricing,
         private readonly DisclosurePublisher $disclosures,
         private readonly BookingAddOnLines $addOnLines,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     public function quote(Booking $booking, Tenant $tenant, FeeChannel $channel, int $taxBasisPoints, ?string $promoCode, int $depositPercent): PricingSnapshot
@@ -73,6 +75,7 @@ final class BookingPricer
             $addOnsCents += $line['total_cents'];
         }
 
+        $operatorDefinitions = $this->operatorFees->definitionsFor($booking->service_id, $booking->location_id);
         $priced = $this->pricing->price(
             $channel,
             $rate,
@@ -88,9 +91,11 @@ final class BookingPricer
             $depositPercent,
             $addOnsCents,
             $addOnLines,
+            $operatorDefinitions,
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
         $payload = $priced->toSnapshot();
+        $payload['operator_fees'] = $this->operatorFees->replace($booking, $priced->operatorFeeLines);
         $payload['tax_basis_points'] = $taxBasisPoints;
         $payload['priced_participants'] = $booking->participants;
         $payload['priced_duration_minutes'] = $duration;

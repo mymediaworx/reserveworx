@@ -139,6 +139,17 @@ class Booking extends Model
     }
 
     /**
+     * Required operator fee lines copied onto this booking. Per-person and percent
+     * totals are recalculated when the party size or service total is repriced.
+     *
+     * @return HasMany<BookingOperatorFee, $this>
+     */
+    public function operatorFees(): HasMany
+    {
+        return $this->hasMany(BookingOperatorFee::class)->orderBy('id');
+    }
+
+    /**
      * @return HasMany<BookingReminder, $this>
      */
     public function reminders(): HasMany

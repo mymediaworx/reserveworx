@@ -10,6 +10,7 @@ final readonly class PricedBooking
     /**
      * @param  list<array<string, mixed>>  $addOnLines
      * @param  list<array<string, mixed>>  $timeWindows
+     * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null, quantity: int, total_cents: int}>  $operatorFeeLines
      */
     public function __construct(
         public int $servicesCents,
@@ -21,6 +22,8 @@ final readonly class PricedBooking
         public int $addOnsCents = 0,
         public array $addOnLines = [],
         public array $timeWindows = [],
+        public int $operatorFeesCents = 0,
+        public array $operatorFeeLines = [],
     ) {}
 
     /**
@@ -32,6 +35,8 @@ final readonly class PricedBooking
             'services_cents' => $this->servicesCents,
             'add_ons_cents' => $this->addOnsCents,
             'add_ons' => $this->addOnLines,
+            'mandatory_operator_fees_cents' => $this->operatorFeesCents,
+            'operator_fees' => $this->operatorFeeLines,
             'discount_cents' => $this->discountCents,
             'promo_code' => $this->promoCode,
             'tax_includes_booking_fee' => false,
