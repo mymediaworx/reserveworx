@@ -24,6 +24,7 @@ class RoleAndPermissionSeeder extends Seeder
             'bookings.view' => 'View bookings and the calendar',
             'bookings.manage' => 'Hold, confirm, extend, and cancel bookings',
             'reminders.manage' => 'Read and update booking reminder offsets',
+            'customers.privacy' => 'Export and anonymize one customer',
         ];
 
         $saved = [];
@@ -47,6 +48,7 @@ class RoleAndPermissionSeeder extends Seeder
                 'bookings.view',
                 'bookings.manage',
                 'reminders.manage',
+                'customers.privacy',
             ]],
             'staff' => ['name' => 'Staff', 'permissions' => [
                 'settings.view',

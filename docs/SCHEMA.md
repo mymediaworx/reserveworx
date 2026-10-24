@@ -134,6 +134,10 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 `tenant_data_exports` records a private JSON file for one workspace. `path` is on the local disk, which is not public. `row_counts` is the number of rows written per table. Termination is refused while no completed file for that tenant is still on disk. The file omits passwords. It does not delete the workspace.
 
+## Customer data export and deletion
+
+`customers.anonymized_at` is set when direct identifiers are removed. The customer row stays, and `bookings.customer_id` still points at it. `customer_data_exports` records a queued, completed, or failed zip for one customer. `path` is on the local disk under `customer-exports/{tenant_id}/`. `row_counts` is the number of JSON values per file, and the manifest is not counted. The customer object counts as one. `GET /api/v1/customers/{customer}/exports/{export}/download` requires a signature and does not require a session. The signature expires 30 minutes after it is minted. `customer_data_deletions` is unique per tenant and customer. `confirmed` is true when deletion ran without an export file. `export_id` points at the completed export when one was on disk. Signed waiver rows are not deleted. How long they are kept is still open question 3.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
