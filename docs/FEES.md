@@ -120,7 +120,7 @@ Proportional fee refunds are computed from the **cumulative** subtotal refunded 
 
 `BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the discount, the promo code, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis.
 
-`POST /api/v1/bookings/{booking}/pricing` writes that snapshot and the current booking-fee disclosure version for a customer-paid tenant. `POST /api/v1/bookings/{booking}/offline-payment` records method `offline`, fee 0, and confirms a held booking as `offline_paid`.
+`POST /api/v1/bookings/{booking}/pricing` writes that snapshot and the current booking-fee disclosure version for a customer-paid tenant. `POST /api/v1/bookings/{booking}/offline-payment` records method `offline`, fee 0, and confirms a held booking as `offline_paid`. The recorded amount is the customer total minus the customer booking-fee line, so a customer-paid quote of $23.98 with a $0.66 booking fee is stored as $23.32. An operator-absorbed quote has no customer fee line, and the offline amount stays the customer total.
 
 Stripe uses Accounts v2 (`ConnectAccountSpec::API_VERSION`, `2026-09-30.preview`). The connected account is `dashboard: full`, with Stripe collecting processing fees and losses, and `card_payments` requested. There is no `type: standard` and no customer configuration. Direct charges are Checkout Sessions created with the `stripe_account` option and `payment_intent_data.application_fee_amount` when the fee is positive. `payment_method_types` is omitted. `integration_identifier` is `reserveworx_` plus eight random letters.
 
