@@ -1073,6 +1073,11 @@ harbor_home_check || post_failed=1
 if [[ "$post_failed" -ne 0 ]]; then
   exit 1
 fi
+# Smoke runs against the release that is already current. A failure stops
+# the job. It does not swap current back and it does not roll migrations back.
+if ! (cd "$current" && "$php_bin" artisan reserveworx:smoke --no-interaction); then
+  exit 1
+fi
 echo "deploy=complete"
 echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
 echo "cron_command_body=<not installed by this script>"

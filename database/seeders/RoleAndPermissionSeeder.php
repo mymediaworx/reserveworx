@@ -10,8 +10,13 @@ class RoleAndPermissionSeeder extends Seeder
 {
     /**
      * System roles shared by every tenant. Platform administration is not a tenant role.
+     *
+     * @return array{
+     *     permissions: array<string, string>,
+     *     roles: array<string, array{name: string, permissions: list<string>}>
+     * }
      */
-    public function run(): void
+    public static function catalog(): array
     {
         $permissions = [
             'settings.view' => 'View workspace settings',
@@ -34,41 +39,51 @@ class RoleAndPermissionSeeder extends Seeder
             'integrations.manage' => 'Link a workspace to a GoHighLevel sub-account',
         ];
 
+        return [
+            'permissions' => array_merge($permissions, $unassigned),
+            'roles' => [
+                'owner' => ['name' => 'Owner', 'permissions' => array_keys($permissions)],
+                'manager' => ['name' => 'Manager', 'permissions' => [
+                    'settings.view',
+                    'settings.update',
+                    'members.view',
+                    'audit.view',
+                    'inventory.view',
+                    'inventory.manage',
+                    'bookings.view',
+                    'bookings.manage',
+                    'reminders.manage',
+                    'customers.privacy',
+                    'webhooks.view',
+                    'webhooks.manage',
+                ]],
+                'staff' => ['name' => 'Staff', 'permissions' => [
+                    'settings.view',
+                    'members.view',
+                    'inventory.view',
+                    'bookings.view',
+                    'bookings.manage',
+                ]],
+            ],
+        ];
+    }
+
+    /**
+     * System roles shared by every tenant. Platform administration is not a tenant role.
+     */
+    public function run(): void
+    {
+        $catalog = self::catalog();
         $saved = [];
 
-        foreach (array_merge($permissions, $unassigned) as $slug => $name) {
+        foreach ($catalog['permissions'] as $slug => $name) {
             $saved[$slug] = Permission::query()->updateOrCreate(
                 ['slug' => $slug],
                 ['name' => $name],
             );
         }
 
-        $roles = [
-            'owner' => ['name' => 'Owner', 'permissions' => array_keys($permissions)],
-            'manager' => ['name' => 'Manager', 'permissions' => [
-                'settings.view',
-                'settings.update',
-                'members.view',
-                'audit.view',
-                'inventory.view',
-                'inventory.manage',
-                'bookings.view',
-                'bookings.manage',
-                'reminders.manage',
-                'customers.privacy',
-                'webhooks.view',
-                'webhooks.manage',
-            ]],
-            'staff' => ['name' => 'Staff', 'permissions' => [
-                'settings.view',
-                'members.view',
-                'inventory.view',
-                'bookings.view',
-                'bookings.manage',
-            ]],
-        ];
-
-        foreach ($roles as $slug => $definition) {
+        foreach ($catalog['roles'] as $slug => $definition) {
             $role = Role::query()->updateOrCreate(
                 ['slug' => $slug],
                 ['name' => $definition['name']],
