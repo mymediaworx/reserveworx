@@ -37,6 +37,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees. While the workspace is onboarding, the owner also sees the setup checklist and Go live |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
+| Tenant domain | `/staff/schedule` | Day or week resource board. Rows are locations, then boats and pools grouped by category. Bookings and holds are blocks in that location's local time, with buffers shaded. Read only |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closures, boats and gear, services with lengths, gear, prices, and departures |

@@ -22,6 +22,7 @@ use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
+use App\Livewire\Staff\Schedule;
 use App\Livewire\Staff\Settings;
 use App\Livewire\Staff\Setup\Locations;
 use App\Livewire\Staff\Setup\Resources;
@@ -98,6 +99,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
     Route::middleware(['auth', 'tenant.member'])->group(function (): void {
         Route::get('/', Dashboard::class)->name('staff.home');
         Route::get('/calendar', Calendar::class);
+        Route::get('/schedule', Schedule::class);
         Route::get('/bookings', Bookings::class);
         Route::get('/bookings/new', NewBooking::class);
         Route::get('/bookings/{booking}', BookingShow::class);
