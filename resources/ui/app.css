@@ -822,6 +822,27 @@ button.schedule-block:focus-visible,
 .schedule-who, .schedule-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
 .schedule-who { font-weight: 600; }
 
+.team-list { list-style: none; margin: 0; padding: 0; }
+.team-card {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0.9rem 0;
+    border-top: 1px solid var(--line);
+    min-width: 0;
+}
+.team-list .team-card:first-child { border-top: 0; }
+.team-who { min-width: 0; }
+.team-who strong, .team-who span { display: block; overflow-wrap: anywhere; }
+.team-who span { color: var(--muted); font-size: 0.875rem; }
+.team-card .form-row { align-items: stretch; }
+.team-card select { width: 100%; min-width: 0; }
+.team-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+@media (max-width: 420px) {
+    .team-card .form-row,
+    .team-actions { display: grid; }
+    .team-card .button { width: 100%; white-space: normal; }
+}
+
 @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

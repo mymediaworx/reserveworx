@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\SignupController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\StaffCheckInController;
+use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
@@ -36,6 +37,7 @@ use App\Livewire\Staff\Setup\Resources;
 use App\Livewire\Staff\Setup\ServiceDetail;
 use App\Livewire\Staff\Setup\Services;
 use App\Livewire\Staff\Share;
+use App\Livewire\Staff\Team;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -102,6 +104,14 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
     Route::get('/enter/{token}', [StaffBusinessController::class, 'enter'])
         ->where('token', '[a-f0-9]{64}')
         ->middleware('throttle:10,1');
+    Route::get('/invites/{membership}', [StaffInviteController::class, 'show'])
+        ->whereUlid('membership')
+        ->middleware(['signed', 'throttle:invite-accept'])
+        ->name('staff.invite.show');
+    Route::post('/invites/{membership}', [StaffInviteController::class, 'accept'])
+        ->whereUlid('membership')
+        ->middleware(['signed', 'throttle:invite-accept'])
+        ->name('staff.invite.accept');
 
     Route::middleware(['auth', 'tenant.member'])->group(function (): void {
         Route::get('/', Dashboard::class)->name('staff.home');
@@ -116,6 +126,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
+        Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);
         Route::get('/manifest', Manifest::class)->name('staff.manifest');
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');

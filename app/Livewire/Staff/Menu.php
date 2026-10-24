@@ -28,6 +28,7 @@ class Menu extends Component
     {
         return view('livewire.staff.menu', [
             'user' => $this->currentUser(),
+            'canManageTeam' => $this->allows('members.manage'),
         ]);
     }
 }

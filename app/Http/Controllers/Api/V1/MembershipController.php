@@ -11,6 +11,7 @@ use App\Models\Membership;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Team\RoleGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -19,7 +20,10 @@ use Illuminate\Validation\ValidationException;
 
 class MembershipController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly RoleGuard $roles,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -57,6 +61,13 @@ class MembershipController extends Controller
         }
 
         $role = Role::query()->where('slug', $request->string('role')->toString())->firstOrFail();
+        $this->roles->assertCanAssign($actor, $tenant->id, $role->slug, 'role');
+
+        if ($existing instanceof User && $existing->password_set_at === null && ! $request->filled('password')) {
+            throw ValidationException::withMessages([
+                'password' => 'A password of at least 12 characters is required for a new user.',
+            ]);
+        }
 
         $membership = DB::transaction(function () use ($request, $tenant, $email, $existing, $role, $actor): Membership {
             $user = $existing ?? User::query()->create([
@@ -64,6 +75,13 @@ class MembershipController extends Controller
                 'email' => $email,
                 'password' => $request->string('password')->toString(),
             ]);
+
+            if ($existing instanceof User && $existing->password_set_at === null && $request->filled('password')) {
+                $user->forceFill([
+                    'password' => $request->string('password')->toString(),
+                    'password_set_at' => now(),
+                ])->save();
+            }
 
             $already = Membership::query()
                 ->where('user_id', $user->id)
@@ -79,8 +97,11 @@ class MembershipController extends Controller
             $revoked = Membership::query()->where('user_id', $user->id)->first();
 
             if ($revoked !== null) {
+                $this->roles->assertCanTouch($actor, $revoked, 'role');
                 $revoked->role_id = $role->id;
                 $revoked->status = MembershipStatus::Active;
+                $revoked->invite_token_hash = null;
+                $revoked->invite_expires_at = null;
                 $revoked->save();
                 $membership = $revoked;
             } else {
@@ -115,25 +136,34 @@ class MembershipController extends Controller
     public function update(UpdateMembershipRequest $request, Membership $membership): MembershipResource
     {
         $actor = $request->user();
-        $status = MembershipStatus::from($request->string('status')->toString());
 
-        $removesLastOwner = $this->isLastActiveOwner($membership) && (
-            $status === MembershipStatus::Revoked
-            || ($request->filled('role') && $request->string('role')->toString() !== 'owner')
-        );
-
-        if ($removesLastOwner) {
-            throw ValidationException::withMessages([
-                'status' => 'The last owner of a workspace cannot be removed.',
-            ]);
+        if (! $actor instanceof User) {
+            abort(403);
         }
+
+        $status = MembershipStatus::from($request->string('status')->toString());
+        $membership->loadMissing('role');
+        $nextRole = $membership->role->slug;
+        $this->roles->assertCanTouch($actor, $membership, 'role');
+
+        if ($request->filled('role')) {
+            $nextRole = $request->string('role')->toString();
+            $this->roles->assertCanAssign($actor, $membership->tenant_id, $nextRole, 'role');
+        }
+
+        $this->roles->assertKeepsAnOwner($membership, $nextRole, $status, 'status');
 
         $before = $membership->status->value;
         $membership->status = $status;
 
         if ($request->filled('role')) {
-            $role = Role::query()->where('slug', $request->string('role')->toString())->firstOrFail();
+            $role = Role::query()->where('slug', $nextRole)->firstOrFail();
             $membership->role_id = $role->id;
+        }
+
+        if ($status === MembershipStatus::Revoked) {
+            $membership->invite_token_hash = null;
+            $membership->invite_expires_at = null;
         }
 
         $membership->save();
@@ -145,24 +175,10 @@ class MembershipController extends Controller
                 'before_status' => $before,
                 'after_status' => $membership->status->value,
             ],
-            actor: $actor instanceof User ? $actor : null,
+            actor: $actor,
             request: $request,
         );
 
         return new MembershipResource($membership->load(['user', 'role']));
-    }
-
-    private function isLastActiveOwner(Membership $membership): bool
-    {
-        $membership->loadMissing('role');
-
-        if ($membership->role?->slug !== 'owner' || $membership->status !== MembershipStatus::Active) {
-            return false;
-        }
-
-        return Membership::query()
-            ->where('status', MembershipStatus::Active)
-            ->whereHas('role', fn ($query) => $query->where('slug', 'owner'))
-            ->count() <= 1;
     }
 }

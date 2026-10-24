@@ -74,7 +74,7 @@ erDiagram
 
 `users.id` is a ULID. `sessions.user_id` and Sanctum's `personal_access_tokens.tokenable` use ULIDs as well. `audit_logs.tenant_id` is nullable because platform actions are not tenant-owned. Roles and permissions are system rows, not per tenant.
 
-`memberships` is already the link between a user and a workspace. `users` has no `tenant_id`. The unique key is `(tenant_id, user_id)`, and `role_id` is that person's role in that one workspace. One login can own one business and be staff in another. No second membership table was added, and no existing membership rows were moved.
+`memberships` is already the link between a user and a workspace. `users` has no `tenant_id`. The unique key is `(tenant_id, user_id)`, and `role_id` is that person's role in that one workspace. One login can own one business and be staff in another. No second membership table was added, and no existing membership rows were moved. A pending invitation uses the same row with status `invited`, plus `invite_token_hash` (SHA-256, nullable) and `invite_expires_at`. The plain token is not stored. `users.password_set_at` is set when a person chooses a password. It stays empty for an account created only to hold an invitation. Migration `database/migrations/2026_10_25_120000_add_team_invite_columns.php`.
 
 `signup_acceptances` is one row per workspace created at `/signup`. Columns are `tenant_id` (unique), `user_id`, `terms_version`, and `accepted_at`. The version is the text the owner accepted. `accepted_at` is the time they checked the box. Migration `database/migrations/2026_10_24_260000_create_signup_acceptances_table.php`.
 
