@@ -105,7 +105,7 @@ final class CheckoutService
             throw new AllocationUnavailableException('Price this booking before taking payment.');
         }
 
-        $charge = (int) ($snapshot->payload['customer_total_cents'] ?? $snapshot->payload['charge_cents'] ?? 0);
+        $charge = $this->offlineAmountCents($snapshot->payload);
         $payment = $this->createPayment([
             'tenant_id' => $booking->tenant_id,
             'booking_id' => $booking->id,
@@ -132,6 +132,21 @@ final class CheckoutService
         $this->events->paymentCompleted($payment);
 
         return $payment;
+    }
+
+    /**
+     * Cash and check do not include the customer booking-fee line. Operator-absorbed
+     * quotes store that line as null, so the customer total is already the amount due.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function offlineAmountCents(array $payload): int
+    {
+        $total = $payload['customer_total_cents'] ?? $payload['charge_cents'] ?? 0;
+        $line = $payload['customer_fee_line_cents'] ?? 0;
+        $amount = (is_numeric($total) ? (int) $total : 0) - (is_numeric($line) ? (int) $line : 0);
+
+        return max(0, $amount);
     }
 
     private function payloadHash(string $action, string $bookingId, ?string $successUrl = null, ?string $cancelUrl = null): string
