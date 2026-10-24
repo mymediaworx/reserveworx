@@ -23,6 +23,7 @@ use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
 use App\Models\RentalCheckout;
+use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\ServiceVariant;
@@ -417,6 +418,90 @@ class Allocator
         }));
     }
 
+    /**
+     * Move a confirmed booking to a new start, another asset in the same category
+     * and location, or both. The duration stays the same. One transaction takes
+     * the same locks as a new allocation, keeps this booking out of the recheck,
+     * and leaves the original rows when that recheck fails.
+     *
+     * A refusal because the time or asset is taken adds the nearby times and
+     * same-category assets a refused hold already offers. Those offers are hints.
+     */
+    public function move(Booking $booking, CarbonImmutable $newStart, CarbonImmutable $newEnd, ?string $toAssetId = null, ?string $fromAssetId = null): Booking
+    {
+        try {
+            return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newStart, $newEnd, $toAssetId, $fromAssetId): Booking {
+                $this->enterTenant($booking->tenant_id);
+                $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+                if ($booking->status !== BookingStatus::Confirmed) {
+                    throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
+                }
+
+                $newStart = $newStart->utc();
+                $newEnd = $newEnd->utc();
+
+                if ($newEnd->lessThanOrEqualTo($newStart)) {
+                    throw new AllocationUnavailableException('Choose a valid interval.');
+                }
+
+                $fromAssetId = $this->allocatedAssetId($booking, $fromAssetId);
+                $targetAssetId = $this->presentId($toAssetId) ?? $fromAssetId;
+
+                if ($targetAssetId !== null && $fromAssetId === null) {
+                    throw new AllocationUnavailableException('That asset is not on this booking.');
+                }
+
+                $timeChanges = ! CarbonImmutable::instance($booking->starts_at)->utc()->equalTo($newStart)
+                    || ! CarbonImmutable::instance($booking->ends_at)->utc()->equalTo($newEnd);
+                $assetChanges = $fromAssetId !== null && $targetAssetId !== null && $targetAssetId !== $fromAssetId;
+
+                if (! $timeChanges && ! $assetChanges) {
+                    return $booking->load(['allocations', 'lineItems', 'service']);
+                }
+
+                if ($timeChanges && $this->presentId($booking->departure_id) !== null) {
+                    throw new AllocationUnavailableException('Choose another departure to move a tour booking.');
+                }
+
+                $intent = $this->intentAt($booking, $newStart, $newEnd);
+                $plan = $this->plannedMove($booking, $intent, $fromAssetId, $assetChanges ? $targetAssetId : $fromAssetId);
+                $this->lock($plan);
+                $this->recheck($plan, $booking->id);
+
+                if ($timeChanges) {
+                    $booking->starts_at = Carbon::instance($newStart);
+                    $booking->ends_at = Carbon::instance($newEnd);
+                    $booking->save();
+                }
+
+                Allocation::query()->where('booking_id', $booking->id)->delete();
+                BookingLineItem::query()->where('booking_id', $booking->id)->delete();
+                $this->writeRows($booking, $plan, hold: false);
+                $this->refreshCounters($plan);
+                $this->webhooks->bookingChanged($booking);
+
+                return $booking->load(['allocations', 'lineItems', 'service']);
+            }));
+        } catch (AllocationUnavailableException $exception) {
+            if ($exception->offers !== [] || ! $this->availabilityRefusal($exception)) {
+                throw $exception;
+            }
+
+            try {
+                $offers = $this->moveOffers($booking, $newStart, $newEnd, $fromAssetId, $toAssetId);
+            } catch (\Throwable) {
+                throw $exception;
+            }
+
+            if ($offers['times'] === [] && $offers['other_asset_ids'] === []) {
+                throw $exception;
+            }
+
+            throw new AllocationUnavailableException($exception->getMessage(), $offers);
+        }
+    }
+
     public function changePartySize(Booking $booking, int $participants): Booking
     {
         return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $participants): Booking {
@@ -688,12 +773,13 @@ class Allocator
      * @param  Plan  $plan
      * @return Plan
      */
-    private function swapAsset(array $plan, Booking $booking, string $fromAssetId, string $toAssetId): array
+    private function swapAsset(array $plan, Booking $booking, string $fromAssetId, string $toAssetId, bool $keepCurrent = false): array
     {
         $from = Asset::query()->find($fromAssetId);
         $to = Asset::query()->find($toAssetId);
+        $keepsCurrentAssignment = $keepCurrent && $to instanceof Asset && $to->location_id === $booking->location_id;
 
-        if (! $to instanceof Asset || $to->status !== ResourceStatus::Active || $to->location_id !== $booking->location_id) {
+        if (! $to instanceof Asset || $to->location_id !== $booking->location_id || ($to->status !== ResourceStatus::Active && ! $keepsCurrentAssignment)) {
             throw new AllocationUnavailableException('That asset is not available.');
         }
 
@@ -1436,6 +1522,182 @@ class Allocator
             $booking->guide_user_id,
             variantId: $booking->service_variant_id,
         );
+    }
+
+    private function intentAt(Booking $booking, CarbonImmutable $start, CarbonImmutable $end): AllocationIntent
+    {
+        return new AllocationIntent(
+            $booking->tenant_id,
+            $booking->service_id,
+            $start->utc(),
+            $end->utc(),
+            $booking->participants,
+            null,
+            null,
+            null,
+            $booking->departure_id,
+            $booking->guide_user_id,
+            variantId: $booking->service_variant_id,
+        );
+    }
+
+    /**
+     * The asset this move starts from. A preferred id must already be allocated
+     * to the booking. With no preference, the first allocated asset is used.
+     */
+    private function allocatedAssetId(Booking $booking, ?string $preferred): ?string
+    {
+        $ids = [];
+
+        foreach (Allocation::query()->where('booking_id', $booking->id)->whereNotNull('asset_id')->orderBy('asset_id')->pluck('asset_id') as $id) {
+            if (is_string($id) && $id !== '') {
+                $ids[] = $id;
+            }
+        }
+
+        $preferred = $this->presentId($preferred);
+
+        if ($preferred !== null) {
+            if (! in_array($preferred, $ids, true)) {
+                throw new AllocationUnavailableException('That asset is not on this booking.');
+            }
+
+            return $preferred;
+        }
+
+        return $ids[0] ?? null;
+    }
+
+    /**
+     * Plan the new interval, keep assets the booking was already moved onto,
+     * then apply a requested swap. Lock and recheck happen after this returns.
+     *
+     * @return Plan
+     */
+    private function plannedMove(Booking $booking, AllocationIntent $intent, ?string $fromAssetId, ?string $toAssetId): array
+    {
+        $this->assertDuration($intent);
+        $plan = $this->plan($intent, $this->retiredRequirementId($booking) ?? $fromAssetId);
+        $plan = $this->keepAssignedAssets($plan, $booking);
+
+        if ($fromAssetId !== null && $toAssetId !== null && $toAssetId !== $fromAssetId) {
+            $plan = $this->swapAsset($plan, $booking, $fromAssetId, $toAssetId);
+        }
+
+        return $plan;
+    }
+
+    /**
+     * A service can still name a retired asset after the booking has moved off it.
+     * Planning that id lets the existing retired-source exception run.
+     */
+    private function retiredRequirementId(Booking $booking): ?string
+    {
+        $requirements = ResourceRequirement::query()->where('service_id', $booking->service_id)->get();
+
+        foreach ($requirements as $requirement) {
+            if ($requirement->resourceType() !== ResourceType::Asset) {
+                continue;
+            }
+
+            $asset = Asset::query()->find($requirement->resourceId());
+
+            if ($asset instanceof Asset && $asset->status === ResourceStatus::Retired) {
+                return $asset->id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Reschedule plans the service's required asset. A booking that was already
+     * reassigned stays on that asset unless this move picks a different one.
+     *
+     * @param  Plan  $plan
+     * @return Plan
+     */
+    private function keepAssignedAssets(array $plan, Booking $booking): array
+    {
+        $allocatedIds = [];
+
+        foreach (Allocation::query()->where('booking_id', $booking->id)->whereNotNull('asset_id')->orderBy('asset_id')->pluck('asset_id') as $id) {
+            if (is_string($id) && $id !== '') {
+                $allocatedIds[] = $id;
+            }
+        }
+
+        foreach ($allocatedIds as $allocatedId) {
+            $plannedIds = [];
+
+            foreach ($plan['demands'] as $demand) {
+                if ($demand['type'] === ResourceType::Asset) {
+                    $plannedIds[] = $demand['id'];
+                }
+            }
+
+            if (in_array($allocatedId, $plannedIds, true)) {
+                continue;
+            }
+
+            $allocated = Asset::query()->find($allocatedId);
+
+            if (! $allocated instanceof Asset || $allocated->resource_category_id === null) {
+                continue;
+            }
+
+            foreach ($plan['demands'] as $demand) {
+                if ($demand['type'] !== ResourceType::Asset || in_array($demand['id'], $allocatedIds, true)) {
+                    continue;
+                }
+
+                $planned = Asset::query()->find($demand['id']);
+
+                if (! $planned instanceof Asset || $planned->resource_category_id !== $allocated->resource_category_id) {
+                    continue;
+                }
+
+                $plan = $this->swapAsset($plan, $booking, $demand['id'], $allocatedId, true);
+
+                break;
+            }
+        }
+
+        return $plan;
+    }
+
+    /**
+     * Hints for a refused move. Not a lock.
+     *
+     * @return array{authoritative: false, times: list<array{starts_at: string, ends_at: string}>, other_asset_ids: list<string>}
+     */
+    private function moveOffers(Booking $booking, CarbonImmutable $newStart, CarbonImmutable $newEnd, ?string $fromAssetId, ?string $toAssetId): array
+    {
+        $this->enterTenant($booking->tenant_id);
+        $booking = Booking::query()->find($booking->id);
+        $empty = ['authoritative' => false, 'times' => [], 'other_asset_ids' => []];
+
+        if (! $booking instanceof Booking) {
+            return $empty;
+        }
+
+        $intent = $this->intentAt($booking, $newStart->utc(), $newEnd->utc());
+        $assets = [];
+
+        try {
+            $from = $this->allocatedAssetId($booking, $fromAssetId);
+            $target = $this->presentId($toAssetId) ?? $from;
+            $plan = $this->plannedMove($booking, $intent, $from, $target);
+            $assets = $this->otherAssets($booking->id, $plan);
+        } catch (AllocationUnavailableException) {
+            $assets = [];
+        }
+
+        return [
+            'authoritative' => false,
+            'times' => $this->nearbyTimes($intent),
+            'other_asset_ids' => $assets,
+        ];
     }
 
     private function assertDepartureParty(Booking $booking, int $participants): void

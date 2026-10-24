@@ -37,7 +37,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees. While the workspace is onboarding, the owner also sees the setup checklist and Go live |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
-| Tenant domain | `/staff/schedule` | Day or week resource board. Rows are locations, then boats and pools grouped by category. Bookings and holds are blocks in that location's local time, with buffers shaded. Read only |
+| Tenant domain | `/staff/schedule` | Day or week resource board. Rows are locations, then boats and pools grouped by category. Bookings and holds are blocks in that location's local time, with buffers shaded. Tapping a block opens a Move panel. A member with booking edit can choose a new start and another active resource in the same category. The length stays the same |
 | Tenant domain | `/staff/feedback` | Ratings left after a visit, with the average and filters for stars, service, and a comment. Owner and manager can set the wait, the on/off switch, and the public review link |
 | Tenant domain | `/feedback/{booking}` | Signed page where the customer rates that visit from 1 to 5 and can leave a comment. A 4 or 5 can show the workspace's review link. `/feedback/{booking}/opt-out` confirms before it stops later feedback email |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
@@ -65,6 +65,8 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 Each staff action calls the same service as the matching API endpoint (Allocator, BookingPricer, CheckoutService, Waitlist, WaitlistPromoter) and writes the same audit action. When an endpoint's orchestration changes, change the matching component too.
 
 `App\Services\Booking\SlotFinder` lists bookable start times. It steps every 30 minutes within the location's opening hours (08:00–20:00 when none are set) and asks `Allocator::hint` for each slot. Its answers are hints. The hold transaction is the real check. When that hold is refused because the time is taken, the booking form lists the same nearby times and same-category assets the API returns in `offers`.
+
+`/staff/schedule` uses `Allocator::move` for a new start and a same-category asset. That is the reschedule and reassignment lock, with this booking left out of the recheck. A conflict lists those same nearby-time hints. The audit actions and the `booking.guest_rescheduled` hook are the ones the booking screen and the guest reschedule already write. A price change stays on increase checkout and the proportional decrease refund.
 
 ## Platform admin
 

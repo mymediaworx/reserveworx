@@ -50,6 +50,66 @@
         </label>
     </form>
 
+    @if ($move)
+        <section id="move-panel" class="panel move-panel" aria-labelledby="move-heading" tabindex="-1" wire:key="move-{{ $move['id'] }}" x-data x-init="$nextTick(() => { $el.focus({ preventScroll: true }); $el.scrollIntoView({ block: 'nearest' }); })">
+            <div class="panel-head">
+                <h2 id="move-heading">{{ $move['canMove'] ? 'Move' : $move['who'] }}</h2>
+                <button type="button" class="button small" wire:click="closeMove">Close</button>
+            </div>
+            @if ($flash)
+                <p class="flash ok">{{ $flash }}</p>
+            @endif
+            @if ($problem)
+                <p class="flash bad" role="alert">{{ $problem }}</p>
+            @endif
+            <p class="lede">{{ $move['who'] }} · {{ $move['service'] }}</p>
+            <p>{{ $move['when'] }} <span class="muted small">{{ $move['zone'] }}</span></p>
+            @if ($move['resource'] !== '')
+                <p>On {{ $move['resource'] }}.</p>
+            @endif
+            <p><a class="button" href="{{ $move['href'] }}">Open booking</a></p>
+
+            @if ($move['canMove'])
+                <form wire:submit="moveBooking" class="stack top-gap">
+                    <label class="field">
+                        <span>New start</span>
+                        <input type="datetime-local" wire:model="moveStart" required>
+                    </label>
+                    @error('moveStart')<p class="error">{{ $message }}</p>@enderror
+                    <p class="muted small">Length stays {{ $move['length'] }}. The end moves with the start. Buffers stay on the resource.</p>
+                    @if ($move['assets']->isNotEmpty())
+                        <label class="field">
+                            <span>Resource</span>
+                            <select wire:model="moveAsset">
+                                @foreach ($move['assets'] as $asset)
+                                    <option value="{{ $asset->id }}">{{ $asset->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <p class="muted small">Another resource has to be active and in the same category at this location.</p>
+                    @endif
+                    @if ($suggestedTimes !== [] || $suggestedAssets !== [])
+                        <div class="move-suggestions">
+                            <p class="muted small">Suggestions from the same nearby-time search. Choosing one fills this form. Moving still checks the boats.</p>
+                            @foreach ($suggestedTimes as $time)
+                                <button type="button" class="button small suggestion-time" wire:click="useTime('{{ $time['starts_at'] }}')" data-start="{{ $time['starts_at'] }}">{{ $time['label'] }}</button>
+                            @endforeach
+                            @foreach ($suggestedAssets as $asset)
+                                <button type="button" class="button small suggestion-asset" wire:click="useAsset('{{ $asset['id'] }}')" data-asset="{{ $asset['id'] }}">{{ $asset['name'] }}</button>
+                            @endforeach
+                        </div>
+                    @endif
+                    <button type="submit" class="button primary" wire:loading.attr="disabled" wire:target="moveBooking">
+                        <span wire:loading.remove wire:target="moveBooking">Move booking</span>
+                        <span wire:loading wire:target="moveBooking">Moving…</span>
+                    </button>
+                </form>
+            @elseif (! $move['confirmed'])
+                <p>Only a confirmed booking can be moved.</p>
+            @endif
+        </section>
+    @endif
+
     @if ($board['locations'] === [])
         <p class="empty">{{ $location !== '' ? 'That location is not in this workspace.' : 'Add a location to build the schedule.' }}</p>
     @else
@@ -84,12 +144,12 @@
                         @endforeach
                     </div>
 
-                    @include('livewire.staff.partials.schedule-row', ['row' => $place['summary'], 'days' => $place['days']])
+                    @include('livewire.staff.partials.schedule-row', ['row' => $place['summary'], 'days' => $place['days'], 'selected' => $selected])
 
                     @foreach ($place['groups'] as $group)
                         <h3 class="schedule-category">{{ $group['name'] }}</h3>
                         @foreach ($group['rows'] as $row)
-                            @include('livewire.staff.partials.schedule-row', ['row' => $row, 'days' => $place['days']])
+                            @include('livewire.staff.partials.schedule-row', ['row' => $row, 'days' => $place['days'], 'selected' => $selected])
                         @endforeach
                     @endforeach
                 </div>

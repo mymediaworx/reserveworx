@@ -2,29 +2,46 @@
 
 namespace Tests\Feature\Web;
 
+use App\Livewire\Staff\Schedule;
+use App\Models\Allocation;
 use App\Models\Asset;
+use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\NotificationHook;
+use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\Pool;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\Allocator;
 use App\Tenancy\TenantManager;
+use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Livewire\Livewire;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class StaffScheduleTest extends TestCase
 {
     use CreatesWorkspace, RefreshDatabase;
+
+    protected function tearDown(): void
+    {
+        CarbonImmutable::setTestNow();
+        app(TenantManager::class)->forget();
+        parent::tearDown();
+    }
 
     public function test_the_schedule_stays_inside_the_workspace_location_and_category(): void
     {
@@ -83,7 +100,7 @@ class StaffScheduleTest extends TestCase
         $this->assertBlock($html, $northBooking->id, 'location:'.$north->id, ['data-kind' => 'hold']);
         $this->assertBlock($html, $poolBooking->id, 'pool:'.$spare->id, ['data-kind' => 'hold']);
         $this->assertBlock($html, $southBooking->id, 'asset:'.$canoe->id, ['data-kind' => 'allocation']);
-        $this->assertStringContainsString('href="/staff/bookings/'.$northBooking->id.'"', $html);
+        $this->assertStringContainsString('wire:click="openMove(\''.$northBooking->id.'\'', $html);
         $this->assertStringNotContainsString('data-booking="'.$later->id.'"', $html);
         $this->assertStringNotContainsString('data-booking="'.$expired->id.'"', $html);
         $this->assertStringNotContainsString('data-booking="'.$betaBooking->id.'"', $html);
@@ -165,7 +182,7 @@ class StaffScheduleTest extends TestCase
             'data-buffer-before' => '0.000',
             'data-buffer-after' => '0.000',
         ]);
-        preg_match('/data-booking="'.$islandBooking->id.'".*?<\/a>/s', $june16, $islandBlock);
+        preg_match('/data-booking="'.$islandBooking->id.'".*?<\/button>/s', $june16, $islandBlock);
         $this->assertArrayHasKey(0, $islandBlock);
         $this->assertStringNotContainsString('schedule-buffer', $islandBlock[0]);
 
@@ -229,6 +246,197 @@ class StaffScheduleTest extends TestCase
 
         $this->get($this->tenantUrl('dock.test', '/staff/schedule'))
             ->assertForbidden();
+    }
+
+    public function test_moving_requires_booking_edit_permission(): void
+    {
+        $staff = $this->workspace('dock.test', 'staff');
+        $dock = $this->location($staff['tenant'], 'Dock', 'UTC');
+        $boats = $this->category($staff['tenant'], 'Boats');
+        $skiff = $this->asset($dock, $boats, 'Staff skiff');
+        $booking = $this->hold($staff, $this->service($staff['tenant'], $dock, $skiff, 'Staff rental'), '2026-07-20 15:00:00', 'Staff Guest');
+        $this->confirm($staff, $booking);
+
+        $role = Role::query()->where('slug', 'staff')->firstOrFail();
+        $permission = Permission::query()->where('slug', 'bookings.manage')->firstOrFail();
+        $role->permissions()->detach($permission->id);
+
+        app(TenantManager::class)->set($staff['tenant']);
+        $this->actingAs($staff['user']);
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->assertSee('Open booking')
+            ->assertSee('href="/staff/bookings/'.$booking->id.'"', false)
+            ->assertDontSee('Move booking')
+            ->call('moveBooking')
+            ->assertForbidden();
+
+        app(TenantManager::class)->set($staff['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', $booking->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($skiff->id, Allocation::query()->where('booking_id', $booking->id)->value('asset_id'));
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.guest_rescheduled')->count());
+    }
+
+    public function test_a_conflicting_move_keeps_the_booking_and_offers_alternatives(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $dock = $this->location($alpha['tenant'], 'Dock', 'UTC');
+        $boats = $this->category($alpha['tenant'], 'Boats');
+        $skiff = $this->asset($dock, $boats, 'Skiff A', 0, 30);
+        $spare = $this->asset($dock, $boats, 'Skiff B', 0, 30);
+        $service = $this->service($alpha['tenant'], $dock, $skiff, 'Skiff rental');
+        $first = $this->hold($alpha, $service, '2026-07-20 15:00:00', 'First Guest');
+        $second = $this->hold($alpha, $service, '2026-07-20 17:00:00', 'Second Guest');
+        $this->confirm($alpha, $first);
+        $this->confirm($alpha, $second);
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+
+        $panel = Livewire::test(Schedule::class)
+            ->set('date', '2026-07-20')
+            ->call('openMove', $first->id, 'asset:'.$skiff->id)
+            ->assertSee('Move')
+            ->assertSee('Move booking')
+            ->set('moveStart', '2026-07-20T18:00')
+            ->call('moveBooking')
+            ->assertSee('That time is no longer available.')
+            ->assertSee('Suggestions from the same nearby-time search');
+
+        $html = $panel->html();
+        $this->assertLessThan(strpos($html, 'schedule-scroll'), strpos($html, 'id="move-panel"'));
+        $this->assertStringContainsString('class="button small suggestion-asset"', $html);
+        $this->assertStringContainsString('data-asset="'.$spare->id.'"', $html);
+        $this->assertStringContainsString('class="button small suggestion-time"', $html);
+        $this->assertMatchesRegularExpression('/\.move-panel\s*\{[^}]*max-width:\s*100%/s', (string) file_get_contents(resource_path('ui/app.css')));
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', $first->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-20 16:00:00', $first->fresh()->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($skiff->id, Allocation::query()->where('booking_id', $first->id)->value('asset_id'));
+        $this->assertSame(0, AuditLog::query()->whereIn('action', ['booking.rescheduled', 'booking.reassigned'])->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.guest_rescheduled')->count());
+    }
+
+    public function test_a_move_can_reassign_to_another_resource_in_the_category(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $dock = $this->location($alpha['tenant'], 'Dock', 'UTC');
+        $boats = $this->category($alpha['tenant'], 'Boats');
+        $canoes = $this->category($alpha['tenant'], 'Canoes');
+        $skiff = $this->asset($dock, $boats, 'Skiff A');
+        $spare = $this->asset($dock, $boats, 'Skiff B');
+        $canoe = $this->asset($dock, $canoes, 'River canoe');
+        $booking = $this->hold($alpha, $this->service($alpha['tenant'], $dock, $skiff, 'Skiff rental'), '2026-07-20 15:00:00', 'Moving Guest');
+        $this->confirm($alpha, $booking);
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        PricingSnapshot::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'booking_id' => $booking->id,
+            'currency' => 'usd',
+            'rules_version' => 'test',
+            'payload' => ['services_cents' => 10_000, 'basis_cents' => 10_000],
+        ]);
+        $this->actingAs($alpha['user']);
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-07-20T19:00')
+            ->set('moveAsset', $canoe->id)
+            ->call('moveBooking')
+            ->assertSee('Choose another asset in the same category.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', $booking->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($skiff->id, Allocation::query()->where('booking_id', $booking->id)->value('asset_id'));
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-07-20T19:00')
+            ->set('moveAsset', $spare->id)
+            ->call('moveBooking')
+            ->assertSee('Moved.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $moved = $booking->fresh();
+        $this->assertSame('2026-07-20 19:00:00', $moved->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-20 20:00:00', $moved->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($spare->id, Allocation::query()->where('booking_id', $booking->id)->value('asset_id'));
+        $this->assertNull(Allocation::query()->where('booking_id', $booking->id)->where('asset_id', $skiff->id)->value('id'));
+        $this->assertSame(1, AuditLog::query()->where('action', 'booking.rescheduled')->where('subject_id', $booking->id)->count());
+        $this->assertSame(1, AuditLog::query()->where('action', 'booking.reassigned')->where('subject_id', $booking->id)->count());
+        $reassigned = AuditLog::query()->where('action', 'booking.reassigned')->where('subject_id', $booking->id)->firstOrFail();
+        $this->assertSame($skiff->id, $reassigned->properties['from_asset_id'] ?? null);
+        $this->assertSame($spare->id, $reassigned->properties['to_asset_id'] ?? null);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.guest_rescheduled')->where('booking_id', $booking->id)->count());
+        $this->assertSame(10_000, PricingSnapshot::query()->where('booking_id', $booking->id)->firstOrFail()->payload['services_cents']);
+        $this->assertSame(0, Payment::query()->count());
+        $this->assertSame(0, Refund::query()->count());
+    }
+
+    public function test_a_move_cannot_reach_another_workspace(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        $beta = $this->workspace('beta.test');
+        $dock = $this->location($alpha['tenant'], 'Alpha dock', 'UTC');
+        $boats = $this->category($alpha['tenant'], 'Boats');
+        $skiff = $this->asset($dock, $boats, 'Alpha skiff');
+        $booking = $this->hold($alpha, $this->service($alpha['tenant'], $dock, $skiff, 'Alpha rental'), '2026-07-20 15:00:00', 'Alpha Guest');
+        $this->confirm($alpha, $booking);
+        $betaDock = $this->location($beta['tenant'], 'Beta dock', 'UTC');
+        $betaBoat = $this->asset($betaDock, $this->category($beta['tenant'], 'Beta boats'), 'Beta boat');
+        $betaBooking = $this->hold($beta, $this->service($beta['tenant'], $betaDock, $betaBoat, 'Beta rental'), '2026-07-20 15:00:00', 'Beta Guest');
+        $this->confirm($beta, $betaBooking);
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $betaBooking->id, 'asset:'.$betaBoat->id)
+            ->assertNotFound();
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveAsset', $betaBoat->id)
+            ->set('moveStart', '2026-07-20T19:00')
+            ->call('moveBooking')
+            ->assertSee('That asset is not available.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', $booking->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($skiff->id, Allocation::query()->where('booking_id', $booking->id)->value('asset_id'));
+        app(TenantManager::class)->forget();
+
+        $html = $this->actingAs($alpha['user'])
+            ->get($this->tenantUrl('alpha.test', '/staff/schedule?date=2026-07-20'))
+            ->assertOk()
+            ->assertDontSee('Beta Guest')
+            ->getContent();
+        preg_match('/wire:snapshot="([^"]+)"/', (string) $html, $match);
+        $this->assertNotEmpty($match);
+        $snapshot = html_entity_decode($match[1]);
+        $uri = app('livewire')->getUpdateUri();
+        $payload = ['components' => [['snapshot' => $snapshot, 'updates' => [], 'calls' => [['path' => '', 'method' => 'moveBooking', 'params' => []]]]]];
+        $headers = ['X-Livewire' => '1', 'X-CSRF-TOKEN' => csrf_token()];
+
+        $this->withHeaders($headers)
+            ->postJson($this->tenantUrl('beta.test', $uri), $payload)
+            ->assertForbidden();
+
+        $this->actingAs($beta['user'])
+            ->withHeaders($headers)
+            ->postJson($this->tenantUrl('beta.test', $uri), $payload)
+            ->assertNotFound();
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', Booking::query()->findOrFail($booking->id)->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($skiff->id, Allocation::withoutGlobalScope(TenantScope::class)->where('booking_id', $booking->id)->value('asset_id'));
+        app(TenantManager::class)->set($beta['tenant']);
+        $this->assertSame('2026-07-20 15:00:00', $betaBooking->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
     }
 
     private function schedule(string $host, array $query = []): TestResponse
@@ -323,11 +531,21 @@ class StaffScheduleTest extends TestCase
     }
 
     /**
+     * @param  array{tenant: Tenant, user: User}  $workspace
+     */
+    private function confirm(array $workspace, Booking $booking): void
+    {
+        app(TenantManager::class)->set($workspace['tenant']);
+        app(Allocator::class)->confirm($booking);
+        app(TenantManager::class)->forget();
+    }
+
+    /**
      * @param  array<string, string>  $expect
      */
     private function assertBlock(string $html, string $bookingId, string $row, array $expect): void
     {
-        preg_match_all('/<a\b[^>]*data-booking="'.preg_quote($bookingId, '/').'"[^>]*>/', $html, $matches);
+        preg_match_all('/<button\b[^>]*data-booking="'.preg_quote($bookingId, '/').'"[^>]*>/', $html, $matches);
         $this->assertNotEmpty($matches[0], 'Missing a block for '.$bookingId);
         $found = false;
 
