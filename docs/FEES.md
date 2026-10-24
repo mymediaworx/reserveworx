@@ -128,7 +128,7 @@ The browser return URL does not confirm a booking. `checkout.session.completed` 
 
 Without `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET`, the gateway is `UnconfiguredStripeGateway`. Checkout returns 409. The webhook returns 400. Tests use `FakeStripeGateway` plus one real HMAC check in `StripeSdkGateway`. No live Stripe call is made.
 
-`POST /api/v1/bookings/{booking}/refunds` runs the calculator and then Stripe. A full refund with nothing refunded before sends `refund_application_fee=true`. Every other fee refund omits that flag and creates an application fee refund for the calculator's amount. `charge.dispute.closed` uses `dispute_lost` or `dispute_won`. Without the platform secret the endpoint returns 409 and does not write a refund. Receipt rendering is the disclosure partials; sending a receipt waits on an email provider. A platform-only manual fee refund, separate from these reason codes, is not built.
+`POST /api/v1/bookings/{booking}/refunds` runs the calculator and then Stripe. A full refund with nothing refunded before sends `refund_application_fee=true`. Every other fee refund omits that flag and creates an application fee refund for the calculator's amount. `charge.dispute.closed` uses `dispute_lost` or `dispute_won`. Without the platform secret the endpoint returns 409 and does not write a refund. The `booking.refunded` hook records the customer refund, the booking-fee portion of that refund, and the application-fee refund. Sending a receipt waits on an email provider. Receipt rendering is the disclosure partials. A platform-only manual fee refund, separate from these reason codes, is not built.
 
 ## Not in this repository
 
