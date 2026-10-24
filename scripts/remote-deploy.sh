@@ -675,7 +675,7 @@ harbor_home_check() {
   headers="$(mktemp)"
   code="$(https_get "https://harbor.reserveworx.com/" "$body" "$headers")"
   echo "harbor_home_http=${code:-none}"
-  if [[ "$code" == "200" ]] && grep -q "Harbor Demo bookings" "$body" && grep -q "<h1>Harbor Demo</h1>" "$body"; then
+  if [[ "$code" == "200" ]] && grep -q "Harbor Demo bookings" "$body" && grep -q "<h1>Harbor Demo</h1>" "$body" && grep -q "Single kayak rental" "$body" && grep -q "Paddleboard rental" "$body" && grep -q "Sunset paddle tour" "$body"; then
     echo "harbor_home=ok"
     rm -f "$body" "$headers"
     return 0
@@ -694,6 +694,14 @@ note_laravel_log() {
     tail -n 40 "$log" >&2 || true
     echo "laravel_log_tail_end" >&2
   fi
+}
+
+seed_demo_shop() {
+  (cd "$current" && "$php_bin" artisan db:seed --class=DemoShopSeeder --force --no-interaction)
+}
+
+grant_demo_owner() {
+  (cd "$current" && "$php_bin" artisan reserveworx:grant-demo-owner michael@brandworx.ai harbor-demo --no-interaction)
 }
 
 grant_platform_admin() {
@@ -842,12 +850,13 @@ fi
 grant_platform_admin
 install_harbor_front_controller
 (cd "$current" && "$php_bin" artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com --no-interaction)
-platform_failed=0
-harbor_failed=0
-platform_check || platform_failed=1
-harbor_login_check || harbor_failed=1
-harbor_home_check || harbor_failed=1
-if [[ "$platform_failed" -ne 0 || "$harbor_failed" -ne 0 ]]; then
+post_failed=0
+seed_demo_shop || post_failed=1
+grant_demo_owner || post_failed=1
+platform_check || post_failed=1
+harbor_login_check || post_failed=1
+harbor_home_check || post_failed=1
+if [[ "$post_failed" -ne 0 ]]; then
   exit 1
 fi
 echo "deploy=complete"

@@ -47,6 +47,10 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('https://harbor.reserveworx.com/', $remote);
         $this->assertStringContainsString('Harbor Demo bookings', $remote);
         $this->assertStringContainsString('<h1>Harbor Demo</h1>', $remote);
+        $this->assertStringContainsString('Single kayak rental', $remote);
+        $this->assertStringContainsString('db:seed --class=DemoShopSeeder --force', $remote);
+        $this->assertStringContainsString('reserveworx:grant-demo-owner michael@brandworx.ai harbor-demo', $remote);
+        $this->assertStringNotContainsString('artisan db:seed --force', $remote);
 
         $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
         $this->assertStringContainsString('ssh_connect_retry', $ssh);
