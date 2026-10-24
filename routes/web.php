@@ -12,6 +12,7 @@ use App\Http\Controllers\Web\PortfolioController;
 use App\Http\Controllers\Web\SignupController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
+use App\Http\Controllers\Web\StaffCheckInController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
@@ -20,6 +21,7 @@ use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
 use App\Livewire\Staff\Branding;
 use App\Livewire\Staff\Calendar;
+use App\Livewire\Staff\CheckIn;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Menu;
@@ -111,6 +113,15 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
         Route::get('/feedback', Feedback::class);
+        Route::get('/check-in', CheckIn::class)->name('staff.check-in');
+        Route::get('/check-in/{booking}', [StaffCheckInController::class, 'show'])
+            ->whereUlid('booking')
+            ->middleware('signed')
+            ->name('staff.check-in.arrive');
+        Route::post('/check-in/{booking}', [StaffCheckInController::class, 'override'])
+            ->whereUlid('booking')
+            ->middleware('signed')
+            ->name('staff.check-in.override');
         Route::get('/menu', Menu::class);
         Route::get('/branding', Branding::class);
         Route::get('/share', Share::class);

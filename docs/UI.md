@@ -38,6 +38,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees. While the workspace is onboarding, the owner also sees the setup checklist and Go live |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
 | Tenant domain | `/staff/schedule` | Day or week resource board. Rows are locations, then boats and pools grouped by category. Bookings and holds are blocks in that location's local time, with buffers shaded. Tapping a block opens a Move panel. A member with booking edit can choose a new start and another active resource in the same category. The length stays the same |
+| Tenant domain | `/staff/check-in` | Today's arrivals for one location, with search. The signed link checks that booking in and shows waivers and the balance due. A missing current waiver needs a reason |
 | Tenant domain | `/staff/feedback` | Ratings left after a visit, with the average and filters for stars, service, and a comment. Owner and manager can set the wait, the on/off switch, and the public review link |
 | Tenant domain | `/feedback/{booking}` | Signed page where the customer rates that visit from 1 to 5 and can leave a comment. A 4 or 5 can show the workspace's review link. `/feedback/{booking}/opt-out` confirms before it stops later feedback email |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
@@ -50,7 +51,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/businesses/new` | Add a business. Fee rates stay at the standard defaults. An optional address is saved unverified |
 | Tenant domain | `/staff/switch/{tenant}`, `/staff/enter/{token}` | Move to another business this login belongs to. The entry token lasts two minutes and works once, on that business's verified address |
 | Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
-| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. When `pay_at_pickup` is on, the review page also offers Pay at pickup. |
+| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page shows a check-in code once the booking is confirmed |
 
 ## Tenant isolation
 

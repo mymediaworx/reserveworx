@@ -29,4 +29,14 @@ class BookingPolicy
     {
         return $this->sameTenant($booking->tenant_id) && $this->tenantAllows($user, 'bookings.manage');
     }
+
+    public function checkInAny(User $user): bool
+    {
+        return $this->tenantAllows($user, 'bookings.check_in');
+    }
+
+    public function checkIn(User $user, Booking $booking): bool
+    {
+        return $this->sameTenant($booking->tenant_id) && $this->tenantAllows($user, 'bookings.check_in');
+    }
 }

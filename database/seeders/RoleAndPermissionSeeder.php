@@ -28,6 +28,7 @@ class RoleAndPermissionSeeder extends Seeder
             'inventory.manage' => 'Create and update locations and resources',
             'bookings.view' => 'View bookings and the calendar',
             'bookings.manage' => 'Hold, confirm, extend, and cancel bookings',
+            'bookings.check_in' => 'Check in a confirmed booking',
             'reminders.manage' => 'Read and update booking reminder offsets',
             'customers.privacy' => 'Export and anonymize one customer',
             'webhooks.view' => 'View webhook endpoints and the delivery log',
@@ -52,6 +53,7 @@ class RoleAndPermissionSeeder extends Seeder
                     'inventory.manage',
                     'bookings.view',
                     'bookings.manage',
+                    'bookings.check_in',
                     'reminders.manage',
                     'customers.privacy',
                     'webhooks.view',
@@ -63,6 +65,7 @@ class RoleAndPermissionSeeder extends Seeder
                     'inventory.view',
                     'bookings.view',
                     'bookings.manage',
+                    'bookings.check_in',
                 ]],
             ],
         ];

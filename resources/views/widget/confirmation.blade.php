@@ -10,4 +10,20 @@
     @else
         <p>A card payment is confirmed only after Stripe notifies ReserveWorx. This page does not complete the payment.</p>
     @endif
+    @if (is_string($checkInQr ?? null) && $checkInQr !== '')
+        <h2>Check-in code</h2>
+        <p>Show this code when you arrive.</p>
+        <div class="confirm-qr">{!! $checkInQr !!}</div>
+        @if (is_string($checkInUrl ?? null) && $checkInUrl !== '')
+            <p class="confirm-url">{{ $checkInUrl }}</p>
+        @endif
+        <style>
+            .confirm-qr { max-width: 11rem; width: 100%; }
+            .confirm-qr svg { width: 100%; height: auto; display: block; }
+            .confirm-url { overflow-wrap: anywhere; }
+            @media (max-width: 390px) {
+                .confirm-qr { max-width: 100%; }
+            }
+        </style>
+    @endif
 @endsection

@@ -26,6 +26,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Catalog\BookingOperatorFeeLines;
+use App\Services\CheckIn\CheckInPass;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Widget\WidgetTokens;
@@ -47,6 +48,7 @@ class WidgetController extends Controller
         private readonly BookingPricer $pricer,
         private readonly CheckoutService $checkout,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly CheckInPass $checkInPass,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -262,8 +264,12 @@ class WidgetController extends Controller
         $this->activeToken($token);
         $fresh = $booking->fresh() ?? $booking;
 
+        $fresh->load('service');
+
         return view('widget.confirmation', [
-            'booking' => $fresh->load('service'),
+            'booking' => $fresh,
+            'checkInQr' => $this->checkInPass->svg($fresh),
+            'checkInUrl' => $this->checkInPass->url($fresh),
         ]);
     }
 

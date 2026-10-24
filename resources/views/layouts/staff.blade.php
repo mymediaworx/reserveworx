@@ -21,7 +21,7 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/settings', 'staff/branding', 'staff/feedback')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/settings', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*')],
@@ -59,6 +59,9 @@
                 @endforeach
                 <a href="/staff/feedback" wire:navigate @class(['is-active' => request()->is('staff/feedback')]) @if(request()->is('staff/feedback')) aria-current="page" @endif>
                     <x-icon name="message" size="20" /> Feedback
+                </a>
+                <a href="/staff/check-in" wire:navigate @class(['is-active' => request()->is('staff/check-in')]) @if(request()->is('staff/check-in')) aria-current="page" @endif>
+                    <x-icon name="check" size="20" /> Check in
                 </a>
                 <p class="side-group">Setup</p>
                 @foreach ($setup as $item)

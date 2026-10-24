@@ -10,13 +10,15 @@ use App\Services\Feedback\FeedbackRequests;
 
 /**
  * Queues the notification hooks staff and guest flows already perform.
- * A return also records one feedback request. Mail waits for feedback:dispatch.
+ * A confirmed booking also sends its email when a delivering mailer is configured.
+ * A return records one feedback request. That mail waits for feedback:dispatch.
  */
 final class BookingEvents
 {
     public function __construct(
         private readonly NotificationHooks $hooks,
         private readonly FeedbackRequests $feedback,
+        private readonly BookingConfirmationMail $confirmationMail,
     ) {}
 
     public function confirmed(Booking $booking): void
@@ -32,6 +34,7 @@ final class BookingEvents
             'booking.confirmed:'.$booking->id,
             ['booking_id' => $booking->id],
         );
+        $this->confirmationMail->send($booking);
     }
 
     public function cancelled(Booking $booking): void
