@@ -76,6 +76,10 @@ erDiagram
 
 `tenant_settings` stores fee rates and payer, hold length, ledger bucket, currency, and `pay_at_pickup` (default false). Currency defaults to `USD` and is not writable by a tenant until launch markets are decided. Fee rates are writable only by a platform administrator. The fee calculation engine is not in the database. `pay_at_pickup` is changed by a member with `settings.update`. The demo shop seeder sets it for Harbor Demo and Inland Demo only.
 
+`tenant_brandings` stores the workspace display name, an optional external `logo_url` or a private `logo_path` on the local disk, `primary_color` and `accent_color` (`#RRGGBB`), and optional support email and phone. Defaults are the workspace name, `#0E7C86`, and `#F26B3A`. `GET` and `PATCH /api/v1/branding` read and update that row for the workspace resolved from the host. `GET /api/v1/branding/logo` serves the uploaded file for that same host and ignores any other path. Owner and manager (`settings.update`) can change it. Staff (`settings.view`) can read it. A new workspace gets a row when it is created. Existing views receive the current workspace as `workspaceBranding` from a view composer. Layouts are unchanged until they read that variable.
+
+`tenant_notification_settings` stores `reply_to`, `staff_alert_recipients` (up to 20 email addresses), and `transactional_emails`. Every known kind starts on: `booking.confirmed`, `booking.cancelled`, `booking.guest_cancelled`, `booking.guest_rescheduled`, `booking.checked_out`, `booking.returned`, `booking.reminder`, `payment.completed`, `payment.failed`, `refund.issued`, `rental.overdue`, and `waitlist.promoted`. `GET` and `PATCH /api/v1/notification-settings` use the same owner and manager permission. A partial `transactional_emails` object changes only the kinds it names. Notification hooks are still queued. `App\Services\Notifications\TransactionalEmailPreferences` is what a mailer checks before it sends.
+
 Foundation migration: `database/migrations/2026_10_23_170000_create_foundation_tables.php`. Laravel cache, jobs, and sessions tables are also migrated.
 
 ## Inventory resources

@@ -8,12 +8,14 @@ use App\Http\Controllers\Api\V1\AvailabilityController;
 use App\Http\Controllers\Api\V1\AvailabilityScheduleController;
 use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\BookingController;
+use App\Http\Controllers\Api\V1\BrandingLogoController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\DepartureController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\NotificationHookController;
+use App\Http\Controllers\Api\V1\NotificationSettingController;
 use App\Http\Controllers\Api\V1\OperationsController;
 use App\Http\Controllers\Api\V1\OutboxController;
 use App\Http\Controllers\Api\V1\ParticipantController;
@@ -32,6 +34,7 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ResourceCategoryController;
 use App\Http\Controllers\Api\V1\ServiceController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Controllers\Api\V1\TenantBrandingController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use App\Http\Controllers\Api\V1\WaitlistController;
 use App\Http\Controllers\Api\V1\WidgetTokenController;
@@ -62,10 +65,16 @@ Route::prefix('v1')->group(function (): void {
     });
 
     Route::middleware('tenant.resolve')->group(function (): void {
+        Route::get('/branding/logo', [BrandingLogoController::class, 'show']);
+
         Route::middleware(['auth:sanctum', 'tenant.member'])->group(function (): void {
             Route::get('/tenant', [CurrentTenantController::class, 'show']);
             Route::get('/settings', [TenantSettingController::class, 'show']);
             Route::patch('/settings', [TenantSettingController::class, 'update']);
+            Route::get('/branding', [TenantBrandingController::class, 'show']);
+            Route::patch('/branding', [TenantBrandingController::class, 'update']);
+            Route::get('/notification-settings', [NotificationSettingController::class, 'show']);
+            Route::patch('/notification-settings', [NotificationSettingController::class, 'update']);
             Route::get('/members', [MembershipController::class, 'index']);
             Route::post('/members', [MembershipController::class, 'store']);
             Route::get('/members/{membership}', [MembershipController::class, 'show']);
