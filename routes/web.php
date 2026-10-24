@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\GuestBookingController;
+use App\Http\Controllers\Web\FeedbackController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\PlatformAuthController;
 use App\Http\Controllers\Web\PortfolioController;
@@ -20,6 +21,7 @@ use App\Livewire\Staff\BookingShow;
 use App\Livewire\Staff\Branding;
 use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\Dashboard;
+use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
 use App\Livewire\Staff\Schedule;
@@ -108,6 +110,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
+        Route::get('/feedback', Feedback::class);
         Route::get('/menu', Menu::class);
         Route::get('/branding', Branding::class);
         Route::get('/share', Share::class);
@@ -118,6 +121,21 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::post('/businesses', [StaffBusinessController::class, 'store']);
         Route::post('/switch/{tenant}', [StaffBusinessController::class, 'switch'])->middleware('throttle:10,1');
     });
+});
+
+Route::middleware(['tenant.resolve', 'throttle:feedback'])->group(function (): void {
+    Route::get('/feedback/{booking}', [FeedbackController::class, 'show'])
+        ->whereUlid('booking')
+        ->middleware('signed')
+        ->name('feedback.show');
+    Route::post('/feedback/{booking}', [FeedbackController::class, 'store'])
+        ->whereUlid('booking')
+        ->middleware('signed')
+        ->name('feedback.store');
+    Route::match(['get', 'post'], '/feedback/{booking}/opt-out', [FeedbackController::class, 'optOut'])
+        ->whereUlid('booking')
+        ->middleware('signed')
+        ->name('feedback.opt-out');
 });
 
 Route::middleware('tenant.resolve')->group(function (): void {

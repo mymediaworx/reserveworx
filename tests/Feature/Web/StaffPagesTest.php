@@ -54,6 +54,7 @@ class StaffPagesTest extends TestCase
             '/staff/setup/services' => 'Kayak rental',
             '/staff/setup/services/'.$shop['service']->id => 'Per paddler',
             '/staff/settings' => 'Who pays the booking fee',
+            '/staff/feedback' => 'No ratings yet.',
             '/staff/menu' => 'Set up your business',
             '/staff/branding' => 'Customer support',
             '/staff/share' => 'How do you want to share it?',

@@ -10,6 +10,7 @@
             <a href="/staff/bookings" wire:navigate><span class="app-circle"><x-icon name="bookings" size="26" /></span>Bookings</a>
             <a href="/staff/calendar" wire:navigate><span class="app-circle"><x-icon name="calendar" size="26" /></span>Calendar</a>
             <a href="/staff/schedule" wire:navigate><span class="app-circle"><x-icon name="schedule" size="26" /></span>Schedule</a>
+            <a href="/staff/feedback" wire:navigate><span class="app-circle"><x-icon name="message" size="26" /></span>Feedback</a>
             <a href="/staff/share" wire:navigate><span class="app-circle"><x-icon name="share" size="26" /></span>Share & embed</a>
         </div>
     </section>

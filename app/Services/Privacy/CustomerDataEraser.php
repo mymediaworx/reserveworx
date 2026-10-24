@@ -8,6 +8,7 @@ use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
 use App\Models\CustomerSignInToken;
+use App\Models\FeedbackRequest;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\NotificationHook;
@@ -133,13 +134,18 @@ class CustomerDataEraser
                 ]);
             }
 
+            $feedbackIds = $bookingIds === []
+                ? []
+                : FeedbackRequest::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->pluck('id')->all();
             $subjectIds = array_values(array_unique(array_filter(array_merge(
                 [$locked->id, $account?->id],
                 $bookingIds,
                 $participants->modelKeys(),
                 $signatures->modelKeys(),
                 $waitlist->modelKeys(),
+                $feedbackIds,
             ), is_string(...))));
+            $this->scrubFeedback($bookingIds, $names, $fragments);
             $this->scrubAudits($subjectIds, $fragments, $names);
 
             $anonymizedAt = now();
@@ -340,6 +346,25 @@ class CustomerDataEraser
                 $incident->summary = $summary ?? $incident->summary;
                 $incident->save();
             }
+        }
+    }
+
+    /**
+     * @param  list<string>  $bookingIds
+     * @param  list<string>  $names
+     * @param  list<string>  $fragments
+     */
+    private function scrubFeedback(array $bookingIds, array $names, array $fragments): void
+    {
+        if ($bookingIds === []) {
+            return;
+        }
+
+        foreach (FeedbackRequest::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->get() as $request) {
+            $reason = $this->scrubText($request->skip_reason, $names, $fragments);
+            $request->comment = null;
+            $request->skip_reason = $reason;
+            $request->save();
         }
     }
 

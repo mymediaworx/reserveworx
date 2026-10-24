@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Booking extends Model
 {
@@ -164,5 +165,13 @@ class Booking extends Model
     public function reminders(): HasMany
     {
         return $this->hasMany(BookingReminder::class);
+    }
+
+    /**
+     * @return HasOne<FeedbackRequest, $this>
+     */
+    public function feedbackRequest(): HasOne
+    {
+        return $this->hasOne(FeedbackRequest::class);
     }
 }

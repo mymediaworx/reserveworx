@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TransactionalEmail;
 use App\Models\Concerns\BelongsToTenant;
+use App\Services\Feedback\FeedbackRequests;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,11 +19,14 @@ class TenantNotificationSetting extends Model
         'reply_to',
         'staff_alert_recipients',
         'transactional_emails',
+        'feedback_delay_minutes',
+        'review_url',
     ];
 
     protected $casts = [
         'staff_alert_recipients' => 'array',
         'transactional_emails' => 'array',
+        'feedback_delay_minutes' => 'integer',
     ];
 
     /**
@@ -67,6 +71,17 @@ class TenantNotificationSetting extends Model
         return $preferences[$kind] ?? false;
     }
 
+    public function feedbackDelayMinutes(): int
+    {
+        $stored = $this->getAttributes()['feedback_delay_minutes'] ?? null;
+
+        if (! is_numeric($stored)) {
+            return FeedbackRequests::DEFAULT_DELAY_MINUTES;
+        }
+
+        return max(0, min(FeedbackRequests::MAX_DELAY_MINUTES, (int) $stored));
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -76,6 +91,8 @@ class TenantNotificationSetting extends Model
             'reply_to' => $this->reply_to,
             'staff_alert_recipients' => $this->recipients(),
             'transactional_emails' => $this->preferences(),
+            'feedback_delay_minutes' => $this->feedbackDelayMinutes(),
+            'review_url' => $this->review_url,
         ];
     }
 }

@@ -38,6 +38,8 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees. While the workspace is onboarding, the owner also sees the setup checklist and Go live |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
 | Tenant domain | `/staff/schedule` | Day or week resource board. Rows are locations, then boats and pools grouped by category. Bookings and holds are blocks in that location's local time, with buffers shaded. Read only |
+| Tenant domain | `/staff/feedback` | Ratings left after a visit, with the average and filters for stars, service, and a comment. Owner and manager can set the wait, the on/off switch, and the public review link |
+| Tenant domain | `/feedback/{booking}` | Signed page where the customer rates that visit from 1 to 5 and can leave a comment. A 4 or 5 can show the workspace's review link. `/feedback/{booking}/opt-out` confirms before it stops later feedback email |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closures, boats and gear, services with lengths, gear, prices, and departures |

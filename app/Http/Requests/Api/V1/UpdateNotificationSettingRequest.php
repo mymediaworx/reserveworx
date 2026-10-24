@@ -6,6 +6,7 @@ use App\Enums\TransactionalEmail;
 use App\Models\TenantNotificationSetting;
 use App\Models\User;
 use App\Services\Branding\WorkspaceProfiles;
+use App\Services\Feedback\FeedbackRequests;
 use App\Tenancy\Access;
 use App\Tenancy\TenantManager;
 use Illuminate\Foundation\Http\FormRequest;
@@ -61,6 +62,11 @@ class UpdateNotificationSettingRequest extends FormRequest
 
             $this->merge(['transactional_emails' => $normalized]);
         }
+
+        if ($this->exists('review_url') && is_string($this->input('review_url'))) {
+            $review = trim($this->input('review_url'));
+            $this->merge(['review_url' => $review === '' ? null : $review]);
+        }
     }
 
     /**
@@ -74,6 +80,8 @@ class UpdateNotificationSettingRequest extends FormRequest
             'staff_alert_recipients.*' => ['required', 'string', 'email', 'max:255', 'distinct'],
             'transactional_emails' => ['sometimes', 'array'],
             'transactional_emails.*' => ['required', 'boolean'],
+            'feedback_delay_minutes' => ['sometimes', 'integer', 'min:0', 'max:'.FeedbackRequests::MAX_DELAY_MINUTES],
+            'review_url' => ['sometimes', 'nullable', 'string', 'max:2048'],
         ];
     }
 
@@ -82,14 +90,26 @@ class UpdateNotificationSettingRequest extends FormRequest
         $validator->after(function (Validator $validator): void {
             $emails = $this->input('transactional_emails');
 
-            if (! is_array($emails)) {
+            if (is_array($emails)) {
+                $unknown = array_diff(array_map(strval(...), array_keys($emails)), TransactionalEmail::values());
+
+                if ($unknown !== []) {
+                    $validator->errors()->add('transactional_emails', 'Unknown transactional email: '.implode(', ', $unknown));
+                }
+            }
+
+            if (! $this->exists('review_url')) {
                 return;
             }
 
-            $unknown = array_diff(array_map(strval(...), array_keys($emails)), TransactionalEmail::values());
+            $review = $this->input('review_url');
 
-            if ($unknown !== []) {
-                $validator->errors()->add('transactional_emails', 'Unknown transactional email: '.implode(', ', $unknown));
+            if ($review === null) {
+                return;
+            }
+
+            if (! is_string($review) || FeedbackRequests::acceptableReviewUrl($review) === null) {
+                $validator->errors()->add('review_url', 'The review link must be an https address.');
             }
         });
     }

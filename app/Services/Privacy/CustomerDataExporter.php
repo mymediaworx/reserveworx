@@ -14,6 +14,7 @@ use App\Models\BookingReminder;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDataExport;
+use App\Models\FeedbackRequest;
 use App\Models\Hold;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
@@ -281,6 +282,7 @@ class CustomerDataExporter
         $payments = $this->modelsForBookings(Payment::class, $bookingIds, $tenantId);
         $refunds = $this->modelsForBookings(Refund::class, $bookingIds, $tenantId);
         $waitlist = $this->waitlist($customer, $bookingIds, $tenantId);
+        $feedback = $this->modelsForBookings(FeedbackRequest::class, $bookingIds, $tenantId);
 
         $accountId = is_string($customer->customer_account_id) ? $customer->customer_account_id : null;
         $subjectIds = array_values(array_unique(array_filter(array_merge(
@@ -291,6 +293,7 @@ class CustomerDataExporter
             $this->ids($payments),
             $this->ids($refunds),
             $this->ids($waitlist),
+            $this->ids($feedback),
         ), is_string(...))));
 
         return [
@@ -315,6 +318,7 @@ class CustomerDataExporter
             'booking_add_ons' => $this->modelsForBookings(BookingAddOn::class, $bookingIds, $tenantId),
             'booking_operator_fees' => $this->modelsForBookings(BookingOperatorFee::class, $bookingIds, $tenantId),
             'booking_reminders' => $this->modelsForBookings(BookingReminder::class, $bookingIds, $tenantId),
+            'feedback_requests' => $feedback,
             'incidents' => $this->modelsForBookings(Incident::class, $bookingIds, $tenantId),
             'rental_checkouts' => $this->modelsForBookings(RentalCheckout::class, $bookingIds, $tenantId),
             'rental_returns' => $this->modelsForBookings(RentalReturn::class, $bookingIds, $tenantId),
