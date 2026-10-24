@@ -9,6 +9,7 @@ use App\Enums\PaymentStatus;
 use App\Enums\ServiceKind;
 use App\Models\Booking;
 use App\Models\Location;
+use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
 use App\Models\PricingSnapshot;
@@ -56,6 +57,11 @@ class RefundTest extends TestCase
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame(300, PlatformFee::query()->firstOrFail()->refunded_cents);
         $this->assertSame(1, Refund::query()->count());
+        $hook = NotificationHook::query()->where('kind', 'booking.refunded')->where('booking_id', $booking->id)->firstOrFail();
+        $this->assertSame(10_300, $hook->payload['customer_refund_cents'] ?? null);
+        $this->assertSame(300, $hook->payload['customer_fee_refund_cents'] ?? null);
+        $this->assertSame(300, $hook->payload['application_fee_refund_cents'] ?? null);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.refunded')->where('booking_id', $booking->id)->count());
         app(TenantManager::class)->forget();
 
         $partial = $this->paidBooking($workspace['tenant']->id, 'pi_partial');
@@ -72,6 +78,13 @@ class RefundTest extends TestCase
         $this->assertSame(5_150, $fake->refunds[1]['params']['amount']);
         $this->assertSame(150, $fake->feeRefunds[0]['amount']);
         $this->assertSame('fee_pi_partial', $fake->feeRefunds[0]['fee']);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $partialHook = NotificationHook::query()->where('kind', 'booking.refunded')->where('booking_id', $partial->id)->firstOrFail();
+        $this->assertSame(5_150, $partialHook->payload['customer_refund_cents'] ?? null);
+        $this->assertSame(150, $partialHook->payload['customer_fee_refund_cents'] ?? null);
+        $this->assertSame(150, $partialHook->payload['application_fee_refund_cents'] ?? null);
+        app(TenantManager::class)->forget();
     }
 
     public function test_refunds_wait_for_a_platform_secret_and_a_lost_dispute_returns_only_the_fee(): void
