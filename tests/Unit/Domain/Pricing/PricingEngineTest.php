@@ -140,6 +140,50 @@ class PricingEngineTest extends TestCase
         $this->assertNull($increase->quote->rate->minimumCents);
     }
 
+    public function test_a_lower_price_returns_the_subtotal_and_tax_reduction(): void
+    {
+        $rules = [
+            new PriceRuleInput('base', 10_000, 'weekday'),
+            new PriceRuleInput('base', 20_000, 'weekend'),
+        ];
+        $decrease = $this->engine->decreaseFromQuote(
+            $rules,
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            800,
+            10,
+            null,
+            20_000,
+            2_000,
+            1_440,
+        );
+
+        $this->assertSame(10_000, $decrease->servicesCents);
+        $this->assertSame(1_000, $decrease->discountCents);
+        $this->assertSame(9_000, $decrease->basisReductionCents);
+        $this->assertSame(720, $decrease->taxReductionCents);
+    }
+
+    public function test_a_price_that_did_not_fall_is_not_a_decrease(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('This booking has no price decrease.');
+
+        $this->engine->decreaseFromQuote(
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            0,
+        );
+    }
+
     public function test_a_price_that_did_not_rise_is_not_an_increase(): void
     {
         $this->expectException(InvalidArgumentException::class);

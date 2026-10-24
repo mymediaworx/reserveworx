@@ -10,12 +10,15 @@ use App\Models\Booking;
 use App\Models\PlatformFee;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Payments\CheckoutService;
+use App\Services\Payments\RefundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 
 class PaymentController extends Controller
 {
@@ -178,6 +181,41 @@ class PaymentController extends Controller
             'amount_cents' => $started['payment']->amount_cents,
             'fee_cents' => $started['payment']->fee_cents,
         ]]);
+    }
+
+    public function decrease(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
+        ]);
+        $user = $request->user();
+
+        try {
+            $refund = $this->checkout->refundPriceDecrease(
+                $booking,
+                $this->idempotencyKey($request, $validated['idempotency_key'] ?? null),
+                $user instanceof User ? $user : null,
+            );
+        } catch (StripeNotConfiguredException|RefundException|AllocationUnavailableException|IdempotencyConflictException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
+        } catch (InvalidArgumentException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 422);
+        }
+
+        $fresh = $booking->fresh();
+
+        return response()->json(['data' => [
+            'id' => $refund->id,
+            'customer_refund_cents' => $refund->customer_refund_cents,
+            'customer_fee_refund_cents' => $refund->customer_fee_refund_cents,
+            'application_fee_refund_cents' => $refund->application_fee_refund_cents,
+            'refund_subtotal_cents' => $refund->refund_subtotal_cents,
+            'refund_tax_cents' => $refund->refund_tax_cents,
+            'stripe_refund_id' => $refund->stripe_refund_id,
+            'stripe_fee_refund_id' => $refund->stripe_fee_refund_id,
+            'payment_status' => $fresh instanceof Booking ? $fresh->payment_status->value : $booking->payment_status->value,
+        ]], 201);
     }
 
     public function offline(Request $request, Booking $booking): JsonResponse

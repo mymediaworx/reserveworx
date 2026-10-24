@@ -117,6 +117,45 @@ final class PricingEngine
     }
 
     /**
+     * Price the booking as it stands and measure the drop below the quoted snapshot.
+     *
+     * A lower tax is refunded with the subtotal. A higher tax is not collected here.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     */
+    public function decreaseFromQuote(
+        array $rules,
+        int $participants,
+        int $durationMinutes,
+        CarbonImmutable $on,
+        int $taxBasisPoints,
+        ?int $percentOff,
+        ?int $amountOffCents,
+        int $quotedServicesCents,
+        int $quotedDiscountCents,
+        int $quotedTaxCents,
+    ): PriceDecrease {
+        [$services, $discount, $tax] = $this->components(
+            $rules,
+            $participants,
+            $durationMinutes,
+            $on,
+            $taxBasisPoints,
+            $percentOff,
+            $amountOffCents,
+        );
+        $basisDelta = ($services - $quotedServicesCents) - ($discount - $quotedDiscountCents);
+
+        if ($basisDelta >= 0) {
+            throw new InvalidArgumentException('This booking has no price decrease.');
+        }
+
+        $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
+
+        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction);
+    }
+
+    /**
      * @param  list<PriceRuleInput>  $rules
      * @return array{0: int, 1: int, 2: int}
      */

@@ -6,9 +6,11 @@ use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeExceedsChargeException;
 use App\Domain\Fees\FeeRate;
 use App\Domain\Fees\PaymentKind;
+use App\Domain\Fees\Refunds\RefundReason;
 use App\Domain\Payments\CheckoutSessionSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
+use App\Domain\Pricing\PriceDecrease;
 use App\Domain\Pricing\PriceIncrease;
 use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
@@ -19,14 +21,17 @@ use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\StripeAccount;
 use App\Models\TenantSetting;
+use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Notifications\BookingEvents;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -37,6 +42,7 @@ final class CheckoutService
         private readonly Allocator $allocator,
         private readonly BookingEvents $events,
         private readonly PricingEngine $pricing,
+        private readonly RefundService $refunds,
     ) {}
 
     /**
@@ -291,6 +297,82 @@ final class CheckoutService
         return ['payment' => $payment, 'url' => $session['url']];
     }
 
+    /**
+     * Refund the difference when a confirmed booking now prices lower than its snapshot.
+     *
+     * Spec 7.7: the booking fee already charged is returned in proportion to the
+     * subtotal reduction. The customer is refunded that share plus the tax that fell.
+     */
+    public function refundPriceDecrease(Booking $booking, ?string $idempotencyKey, ?User $actor): Refund
+    {
+        return DB::transaction(function () use ($booking, $idempotencyKey, $actor): Refund {
+            $locked = Booking::query()->whereKey($booking->id)->lockForUpdate()->first();
+
+            if (! $locked instanceof Booking) {
+                throw new AllocationUnavailableException('This booking has no price decrease.');
+            }
+
+            $existing = $this->storedDecreaseRefund($locked, $idempotencyKey);
+
+            if ($existing instanceof Refund) {
+                return $existing;
+            }
+
+            $snapshot = PricingSnapshot::query()->where('booking_id', $locked->id)->lockForUpdate()->first();
+
+            if (! $snapshot instanceof PricingSnapshot) {
+                throw new AllocationUnavailableException('Price this booking before refunding a price decrease.');
+            }
+
+            if ($locked->status !== BookingStatus::Confirmed) {
+                throw new AllocationUnavailableException('Only a confirmed booking can be refunded for a price decrease.');
+            }
+
+            if (! in_array($locked->payment_status, [PaymentStatus::DepositPaid, PaymentStatus::Paid, PaymentStatus::PartiallyRefunded], true)) {
+                throw new AllocationUnavailableException('Pay this booking before refunding a price decrease.');
+            }
+
+            $payload = $snapshot->payload;
+
+            if (is_array($payload['pending_increase'] ?? null)) {
+                throw new AllocationUnavailableException('A price increase checkout is already open.');
+            }
+
+            $decrease = $this->priceDecrease($locked, $payload);
+
+            try {
+                $refund = $this->refunds->issue(
+                    $locked,
+                    RefundReason::PriceReduced,
+                    $decrease->basisReductionCents,
+                    $decrease->taxReductionCents,
+                    $idempotencyKey,
+                    $actor,
+                );
+            } catch (QueryException $exception) {
+                if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+                    throw $exception;
+                }
+
+                $stored = $this->storedDecreaseRefund($locked, $idempotencyKey);
+
+                if (! $stored instanceof Refund) {
+                    throw $exception;
+                }
+
+                return $stored;
+            }
+
+            if (! $refund->wasRecentlyCreated) {
+                return $refund;
+            }
+
+            $this->applyPriceDecrease($snapshot, $payload, $locked, $decrease, $refund);
+
+            return $refund;
+        });
+    }
+
     public function recordOffline(Booking $booking, ?string $idempotencyKey = null): Payment
     {
         $hash = $this->payloadHash('offline', $booking->id);
@@ -389,26 +471,7 @@ final class CheckoutService
             throw new AllocationUnavailableException('This booking has no price increase.');
         }
 
-        $channelValue = $payload['channel'] ?? FeeChannel::Direct->value;
-        $channel = is_string($channelValue) ? (FeeChannel::tryFrom($channelValue) ?? FeeChannel::Direct) : FeeChannel::Direct;
-        $payerValue = $payload['fee_payer'] ?? FeePayer::CustomerPaid->value;
-        $payer = is_string($payerValue) ? (FeePayer::tryFrom($payerValue) ?? FeePayer::CustomerPaid) : FeePayer::CustomerPaid;
-        $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
-        $rate = $setting instanceof TenantSetting
-            ? FeeRate::fromTenantSetting($setting, $channel)
-            : FeeRate::defaultFor($channel);
-        $rules = PriceRule::query()->where('service_id', $booking->service_id)->get()->map(function (PriceRule $rule): PriceRuleInput {
-            return new PriceRuleInput(
-                $rule->kind,
-                $rule->amount_cents,
-                $rule->window,
-                $rule->duration_minutes,
-                $rule->starts_on?->toDateString(),
-                $rule->ends_on?->toDateString(),
-            );
-        })->all();
-        $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
-        $on = CarbonImmutable::parse($onDate, $zone);
+        [$channel, $rate, $payer, $rules, $on] = $this->quoteInputs($booking, $payload, $onDate);
 
         try {
             return $this->pricing->increaseFromQuote(
@@ -429,6 +492,124 @@ final class CheckoutService
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function priceDecrease(Booking $booking, array $payload): PriceDecrease
+    {
+        $duration = $this->durationMinutes($booking);
+        $onDate = $this->pricedOn($booking);
+        $storedOn = $payload['priced_on'] ?? null;
+        $storedDuration = $payload['priced_duration_minutes'] ?? null;
+        $storedParticipants = $payload['priced_participants'] ?? null;
+        $scheduleKnown = is_string($storedOn) && $storedOn !== ''
+            && is_numeric($storedDuration)
+            && is_numeric($storedParticipants);
+
+        if ($scheduleKnown
+            && $storedOn === $onDate
+            && (int) $storedDuration === $duration
+            && (int) $storedParticipants === $booking->participants) {
+            throw new AllocationUnavailableException('This booking has no price decrease.');
+        }
+
+        [, , , $rules, $on] = $this->quoteInputs($booking, $payload, $onDate);
+
+        try {
+            return $this->pricing->decreaseFromQuote(
+                $rules,
+                $booking->participants,
+                $duration,
+                $on,
+                $this->cents($payload, 'tax_basis_points'),
+                $this->optionalInt($payload, 'promo_percent_off'),
+                $this->optionalInt($payload, 'promo_amount_off_cents'),
+                $this->cents($payload, 'services_cents'),
+                $this->cents($payload, 'discount_cents'),
+                $this->cents($payload, 'tax_cents'),
+            );
+        } catch (InvalidArgumentException $exception) {
+            throw new AllocationUnavailableException($exception->getMessage());
+        }
+    }
+
+    private function storedDecreaseRefund(Booking $booking, ?string $key): ?Refund
+    {
+        if ($key === null || $key === '') {
+            return null;
+        }
+
+        $existing = Refund::query()->where('idempotency_key', $key)->first();
+
+        if (! $existing instanceof Refund) {
+            return null;
+        }
+
+        if ($existing->booking_id !== $booking->id || $existing->reason !== RefundReason::PriceReduced->value) {
+            throw new IdempotencyConflictException;
+        }
+
+        return $existing;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyPriceDecrease(PricingSnapshot $snapshot, array $payload, Booking $booking, PriceDecrease $decrease, Refund $refund): void
+    {
+        if (! is_numeric($payload['charged_basis_cents'] ?? null)) {
+            $payload['charged_basis_cents'] = $this->cents($payload, 'basis_cents');
+        }
+
+        $payload['services_cents'] = $decrease->servicesCents;
+        $payload['discount_cents'] = $decrease->discountCents;
+        $payload['basis_cents'] = max(0, $this->cents($payload, 'basis_cents') - $decrease->basisReductionCents);
+        $payload['tax_cents'] = max(0, $this->cents($payload, 'tax_cents') - $decrease->taxReductionCents);
+        $payload['fee_cents'] = max(0, $this->cents($payload, 'fee_cents') - $refund->application_fee_refund_cents);
+        $payload['customer_total_cents'] = max(0, $this->cents($payload, 'customer_total_cents') - $refund->customer_refund_cents);
+
+        $line = $payload['customer_fee_line_cents'] ?? null;
+
+        if (is_numeric($line)) {
+            $payload['customer_fee_line_cents'] = max(0, (int) $line - $refund->customer_fee_refund_cents);
+        }
+
+        $payload['priced_participants'] = $booking->participants;
+        $payload['priced_duration_minutes'] = $this->durationMinutes($booking);
+        $payload['priced_on'] = $this->pricedOn($booking);
+        $snapshot->payload = $payload;
+        $snapshot->save();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{0: FeeChannel, 1: FeeRate, 2: FeePayer, 3: list<PriceRuleInput>, 4: CarbonImmutable}
+     */
+    private function quoteInputs(Booking $booking, array $payload, string $onDate): array
+    {
+        $channelValue = $payload['channel'] ?? FeeChannel::Direct->value;
+        $channel = is_string($channelValue) ? (FeeChannel::tryFrom($channelValue) ?? FeeChannel::Direct) : FeeChannel::Direct;
+        $payerValue = $payload['fee_payer'] ?? FeePayer::CustomerPaid->value;
+        $payer = is_string($payerValue) ? (FeePayer::tryFrom($payerValue) ?? FeePayer::CustomerPaid) : FeePayer::CustomerPaid;
+        $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
+        $rate = $setting instanceof TenantSetting
+            ? FeeRate::fromTenantSetting($setting, $channel)
+            : FeeRate::defaultFor($channel);
+        $rules = PriceRule::query()->where('service_id', $booking->service_id)->get()->map(function (PriceRule $rule): PriceRuleInput {
+            return new PriceRuleInput(
+                $rule->kind,
+                $rule->amount_cents,
+                $rule->window,
+                $rule->duration_minutes,
+                $rule->starts_on?->toDateString(),
+                $rule->ends_on?->toDateString(),
+            );
+        })->all();
+        $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
+
+        return [$channel, $rate, $payer, $rules, CarbonImmutable::parse($onDate, $zone)];
     }
 
     private function durationMinutes(Booking $booking): int

@@ -3,6 +3,8 @@
 namespace Tests\Feature\Payments;
 
 use App\Domain\Payments\StripeGateway;
+use App\Enums\BookingStatus;
+use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Asset;
 use App\Models\AuditLog;
@@ -14,6 +16,7 @@ use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
 use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\StripeAccount;
@@ -747,6 +750,248 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame('2026-06-20', $snapshot->payload['priced_on']);
         $this->assertArrayNotHasKey('pending_increase', $snapshot->payload);
         $this->assertSame(1, AuditLog::query()->where('action', 'payment.increase_checkout_started')->count());
+        app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
+    public function test_a_reschedule_onto_a_lower_rate_refunds_the_difference_and_a_proportional_fee(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service, '', '2026-06-20T15:00:00Z', '2026-06-20T16:00:00Z');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekday',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+            'window' => 'weekday',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekend',
+            'kind' => 'base',
+            'amount_cents' => 20_000,
+            'window' => 'weekend',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))
+            ->assertOk()
+            ->assertJsonPath('data.payload.services_cents', 20_000)
+            ->assertJsonPath('data.payload.customer_total_cents', 20_600)
+            ->assertJsonPath('data.payload.priced_on', '2026-06-20');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+        $this->postWebhook('evt_paid_decrease', 'checkout.session.completed', [
+            'id' => 'cs_test_123',
+            'payment_status' => 'paid',
+            'amount_total' => 20_600,
+            'payment_intent' => 'pi_weekend',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'))
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This booking has no price decrease.');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/reschedule'), [
+            'starts_at' => '2026-06-15T15:00:00Z',
+            'ends_at' => '2026-06-15T16:00:00Z',
+        ])->assertOk()->assertJsonPath('data.starts_at', '2026-06-15T15:00:00Z');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), [
+            'idempotency_key' => 'decrease-early',
+        ])->assertStatus(409)->assertJsonPath('message', 'The Stripe fee has not been recorded yet.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(0, Refund::query()->count());
+        PlatformFee::query()->where('booking_id', $bookingId)->update(['stripe_fee_id' => 'fee_weekend']);
+        app(TenantManager::class)->forget();
+
+        $body = ['idempotency_key' => 'decrease-1'];
+        $started = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), $body)
+            ->assertCreated();
+        $this->assertSame(10_300, $started->json('data.customer_refund_cents'));
+        $this->assertSame(300, $started->json('data.customer_fee_refund_cents'));
+        $this->assertSame(300, $started->json('data.application_fee_refund_cents'));
+        $this->assertSame(10_000, $started->json('data.refund_subtotal_cents'));
+        $this->assertSame(0, $started->json('data.refund_tax_cents'));
+        $this->assertSame('partially_refunded', $started->json('data.payment_status'));
+        $this->assertSame(10_300, $fake->refunds[0]['params']['amount']);
+        $this->assertArrayNotHasKey('refund_application_fee', $fake->refunds[0]['params']);
+        $this->assertSame(300, $fake->feeRefunds[0]['amount']);
+        $this->assertSame('fee_weekend', $fake->feeRefunds[0]['fee']);
+
+        $replay = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), $body)
+            ->assertCreated();
+        $this->assertSame($started->json('data.id'), $replay->json('data.id'));
+        $this->assertCount(1, $fake->refunds);
+        $this->assertCount(1, $fake->feeRefunds);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $snapshot = PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertSame(10_000, $snapshot->payload['services_cents']);
+        $this->assertSame(10_000, $snapshot->payload['basis_cents']);
+        $this->assertSame(20_000, $snapshot->payload['charged_basis_cents']);
+        $this->assertSame(300, $snapshot->payload['fee_cents']);
+        $this->assertSame(300, $snapshot->payload['customer_fee_line_cents']);
+        $this->assertSame(10_300, $snapshot->payload['customer_total_cents']);
+        $this->assertSame(600, $snapshot->payload['application_fee_cents']);
+        $this->assertSame('2026-06-15', $snapshot->payload['priced_on']);
+        $this->assertSame(300, PlatformFee::query()->where('booking_id', $bookingId)->firstOrFail()->refunded_cents);
+        $audit = AuditLog::query()->where('action', 'payment.refund')->firstOrFail();
+        $this->assertSame('price_reduced', $audit->properties['reason_code'] ?? null);
+        $other = Booking::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => BookingStatus::Confirmed,
+            'payment_status' => PaymentStatus::Paid,
+            'operational_status' => OperationalStatus::NotArrived,
+            'starts_at' => '2026-07-01 15:00:00',
+            'ends_at' => '2026-07-01 16:00:00',
+            'participants' => 1,
+            'payload_hash' => hash('sha256', 'other-booking'),
+        ]);
+        Refund::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $other->id,
+            'reason' => 'operator_cancelled',
+            'rules_version' => 'spec-1.0/7.7',
+            'customer_refund_cents' => 0,
+            'customer_fee_refund_cents' => 0,
+            'application_fee_refund_cents' => 0,
+            'refund_subtotal_cents' => 0,
+            'refund_tax_cents' => 0,
+            'idempotency_key' => 'taken-key',
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), [
+            'idempotency_key' => 'taken-key',
+        ])->assertStatus(409)->assertJsonPath('message', 'That idempotency key was already used for a different request.');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), [
+            'idempotency_key' => 'decrease-2',
+        ])->assertStatus(409)->assertJsonPath('message', 'This booking has no price decrease.');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/refunds'), [
+            'reason' => 'customer_cancelled_partial_refund',
+            'refund_subtotal_cents' => 5_000,
+            'idempotency_key' => 'after-decrease',
+        ])->assertCreated()
+            ->assertJsonPath('data.customer_refund_cents', 5_150)
+            ->assertJsonPath('data.application_fee_refund_cents', 150);
+
+        $otherWorkspace = $this->workspace('other.test');
+        $this->actingAsWorkspace($otherWorkspace);
+        $this->postJson($this->tenantUrl('other.test', '/api/v1/bookings/'.$bookingId.'/decrease-refund'), $body)
+            ->assertNotFound();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
+    public function test_a_price_decrease_waits_for_a_platform_secret(): void
+    {
+        Http::fake();
+        Mail::fake();
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        $booking = Booking::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => BookingStatus::Confirmed,
+            'payment_status' => PaymentStatus::Paid,
+            'operational_status' => OperationalStatus::NotArrived,
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'participants' => 2,
+            'payload_hash' => hash('sha256', 'unconfigured-decrease'),
+        ]);
+        PricingSnapshot::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $booking->id,
+            'currency' => 'usd',
+            'rules_version' => 'spec-1.0/7.4-7.5',
+            'payload' => [
+                'fee_payer' => 'customer_paid',
+                'channel' => 'direct',
+                'services_cents' => 20_000,
+                'discount_cents' => 0,
+                'basis_cents' => 20_000,
+                'tax_cents' => 0,
+                'tax_basis_points' => 0,
+                'fee_cents' => 600,
+                'application_fee_cents' => 600,
+                'customer_fee_line_cents' => 600,
+                'customer_total_cents' => 20_600,
+                'priced_participants' => 2,
+                'priced_duration_minutes' => 60,
+                'priced_on' => '2026-06-20',
+            ],
+        ]);
+        $payment = Payment::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $booking->id,
+            'method' => 'stripe',
+            'kind' => 'first_stripe_payment',
+            'status' => 'paid',
+            'amount_cents' => 20_600,
+            'fee_cents' => 600,
+            'stripe_payment_intent_id' => 'pi_unconfigured',
+        ]);
+        PlatformFee::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $booking->id,
+            'payment_id' => $payment->id,
+            'amount_cents' => 600,
+            'refunded_cents' => 0,
+            'stripe_fee_id' => 'fee_unconfigured',
+            'channel' => 'direct',
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekday',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+            'window' => 'weekday',
+        ])->assertCreated();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$booking->id.'/decrease-refund'))
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Stripe is not configured. Add the platform secret before taking online payments.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(0, Refund::query()->count());
+        $fresh = PricingSnapshot::query()->where('booking_id', $booking->id)->firstOrFail();
+        $this->assertSame(20_000, $fresh->payload['basis_cents']);
+        $this->assertArrayNotHasKey('charged_basis_cents', $fresh->payload);
         app(TenantManager::class)->forget();
 
         Mail::assertNothingSent();
