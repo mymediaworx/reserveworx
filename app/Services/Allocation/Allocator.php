@@ -795,10 +795,7 @@ class Allocator
             }
 
             $open = $this->hours->assess($plan['location'], $plan['starts_at'], $plan['ends_at'], ResourceType::Asset->value, $to->id);
-
-            if (! $open['open']) {
-                throw new AllocationUnavailableException('That resource is outside its hours or a blackout.');
-            }
+            $this->refuseClosed($open, true);
 
             $plan['demands'][$index]['id'] = $to->id;
             $plan['demands'][$index]['name'] = $to->name;
@@ -961,12 +958,7 @@ class Allocator
         $settings = TenantSetting::query()->where('tenant_id', $intent->tenantId)->first();
         $bucketMinutes = $settings instanceof TenantSetting ? $settings->ledger_bucket_minutes : 15;
         $open = $this->hours->assess($service->location, $intent->startsAt, $intent->endsAt);
-
-        if (! $open['open']) {
-            throw new AllocationUnavailableException($open['blackout']
-                ? 'That date is closed.'
-                : 'That time is outside opening hours.');
-        }
+        $this->refuseClosed($open, false);
 
         $guideUserId = $this->presentId($intent->guideUserId);
         $departureId = $this->presentId($intent->departureId);
@@ -1005,9 +997,7 @@ class Allocator
                 $resource->id,
             );
 
-            if (! $resourceOpen['open']) {
-                throw new AllocationUnavailableException('That resource is outside its hours or a blackout.');
-            }
+            $this->refuseClosed($resourceOpen, true);
 
             $key = $requirement->resourceType()->value.':'.$resource->id;
             $buckets = $requirement->resourceType() === ResourceType::Pool
@@ -1214,17 +1204,34 @@ class Allocator
     }
 
     /**
+     * @param  array{open: bool, blackout: bool, closed: bool}  $open
+     */
+    private function refuseClosed(array $open, bool $resource): void
+    {
+        if ($open['open']) {
+            return;
+        }
+
+        if ($resource) {
+            throw new AllocationUnavailableException($open['closed']
+                ? 'That time is closed.'
+                : 'That resource is outside its hours or a blackout.');
+        }
+
+        throw new AllocationUnavailableException(match (true) {
+            $open['blackout'] => 'That date is closed.',
+            $open['closed'] => 'That time is closed.',
+            default => 'That time is outside opening hours.',
+        });
+    }
+
+    /**
      * @param  Plan  $plan
      */
     private function recheck(array $plan, ?string $ignoreBookingId): void
     {
         $open = $this->hours->assess($plan['location'], $plan['starts_at'], $plan['ends_at']);
-
-        if (! $open['open']) {
-            throw new AllocationUnavailableException($open['blackout']
-                ? 'That date is closed.'
-                : 'That time is outside opening hours.');
-        }
+        $this->refuseClosed($open, false);
 
         foreach ($plan['demands'] as $demand) {
             if ($demand['type'] === ResourceType::Asset) {

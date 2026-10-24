@@ -34,7 +34,7 @@ final class SlotFinder
     ) {}
 
     /**
-     * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool}>
+     * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
      */
     public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null): array
     {
@@ -44,6 +44,7 @@ final class SlotFinder
             return [];
         }
 
+        $service->loadMissing('requirements');
         $zone = $location->timezone;
         $day = $this->parseDate($date, $zone);
 
@@ -64,7 +65,9 @@ final class SlotFinder
             }
 
             $endUtc = $startUtc->addMinutes($durationMinutes);
-            $available = $this->hours->assess($location, $startUtc, $endUtc)['open']
+            $closed = $this->intervalClosed($service, $startUtc, $endUtc);
+            $available = ! $closed
+                && $this->hours->assess($location, $startUtc, $endUtc)['open']
                 && $this->allocator->hint(new AllocationIntent(
                     $service->tenant_id,
                     $service->id,
@@ -81,6 +84,7 @@ final class SlotFinder
                 'ends_at' => $endUtc,
                 'label' => $start->format('g:i A'),
                 'available' => $available,
+                'closed' => $closed,
             ];
         }
 
@@ -90,7 +94,7 @@ final class SlotFinder
     /**
      * Scheduled departures for a tour on one local date, with seats left.
      *
-     * @return Collection<int, array{departure: Departure, seats_left: int|null}>
+     * @return Collection<int, array{departure: Departure, seats_left: int|null, closed: bool}>
      */
     public function departures(Service $service, string $date, ?CarbonImmutable $notBefore = null): Collection
     {
@@ -101,6 +105,7 @@ final class SlotFinder
             return collect();
         }
 
+        $service->loadMissing('requirements');
         $from = $day->startOfDay()->utc();
         $earliest = ($notBefore ?? CarbonImmutable::now())->utc();
 
@@ -114,7 +119,37 @@ final class SlotFinder
             ->map(fn (Departure $departure): array => [
                 'departure' => $departure,
                 'seats_left' => $departure->seats === null ? null : max(0, $departure->seats - $departure->headcount()),
+                'closed' => $this->intervalClosed(
+                    $service,
+                    CarbonImmutable::instance($departure->starts_at)->utc(),
+                    CarbonImmutable::instance($departure->ends_at)->utc(),
+                ),
             ]);
+    }
+
+    private function intervalClosed(Service $service, CarbonImmutable $start, CarbonImmutable $end): bool
+    {
+        $location = $service->location;
+
+        if (! $location instanceof Location) {
+            return false;
+        }
+
+        $place = $this->hours->assess($location, $start, $end);
+
+        if ($place['blackout'] || $place['closed']) {
+            return true;
+        }
+
+        foreach ($service->requirements as $requirement) {
+            $resource = $this->hours->assess($location, $start, $end, $requirement->resourceType()->value, $requirement->resourceId());
+
+            if ($resource['closed']) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

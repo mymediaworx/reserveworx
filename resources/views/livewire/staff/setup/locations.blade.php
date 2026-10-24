@@ -104,7 +104,8 @@
                     </form>
                 @endif
 
-                <h3>Closures</h3>
+                <h3>Closed dates</h3>
+                <p class="muted">These close the whole location for those dates. A few hours, one boat, or a holiday that repeats each year is on <a href="/staff/closures" wire:navigate>Closures</a>.</p>
                 @if ($closures->isEmpty())
                     <p class="muted">No closed dates.</p>
                 @else
