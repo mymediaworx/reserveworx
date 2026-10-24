@@ -1042,6 +1042,10 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   migrate="ran"
 fi
 echo "migrations=${migrate}"
+# System roles and permissions are defined in code (RoleAndPermissionSeeder, idempotent
+# updateOrCreate + sync). Sync them on every deploy so new permissions reach existing roles.
+(cd "$current" && "$php_bin" artisan db:seed --class=RoleAndPermissionSeeder --force --no-interaction)
+echo "roles_synced=yes"
 echo "composer_on_server=not run"
 
 (cd "$current" && "$php_bin" artisan config:cache --no-interaction)
