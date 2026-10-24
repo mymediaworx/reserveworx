@@ -36,4 +36,9 @@ final class UnconfiguredStripeGateway implements StripeGateway
     {
         throw new StripeNotConfiguredException;
     }
+
+    public function listApplicationFees(int $createdGte, int $createdLt): array
+    {
+        throw new StripeNotConfiguredException;
+    }
 }

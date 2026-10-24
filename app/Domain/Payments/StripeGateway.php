@@ -42,4 +42,11 @@ interface StripeGateway
      * @return array{id: string}
      */
     public function createApplicationFeeRefund(string $feeId, int $amount, string $idempotencyKey): array;
+
+    /**
+     * Application fees created in the half-open Unix interval [createdGte, createdLt).
+     *
+     * @return list<array{id: string, amount: int, amount_refunded: int, account: ?string, created: int}>
+     */
+    public function listApplicationFees(int $createdGte, int $createdLt): array;
 }

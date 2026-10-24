@@ -35,6 +35,8 @@ Connected-account events need a Connect webhook endpoint (`connect=true`). Those
 - `application_fee.refund.updated`
 - `charge.dispute.closed` (status becomes `lost`, `warning_closed`, or `won`)
 
+`GET /v1/application_fees` lists the fees the platform collected. `created[gte]` and `created[lt]` bound the window, `limit` is at most 100, and `starting_after` pages the rest. Each fee has `id`, `amount`, `amount_refunded`, and `account` (the connected account the fee was taken from). https://docs.stripe.com/api/application_fees/list retrieved October 24, 2026. The PHP SDK types `created` as `array{gt, gte, lt, lte}|int` on `ApplicationFee::all`.
+
 The API version is not pinned. On October 23, 2026 the Create-a-refund page chrome showed `2026-09-30.endive`. Other version names were visible in docs navigation (`2026-01-28.clover`, `2026-03-25.preview`). Pin the version in code when payments are implemented, not before.
 
 ### Refunds and the fee

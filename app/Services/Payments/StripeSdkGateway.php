@@ -89,6 +89,58 @@ final class StripeSdkGateway implements StripeGateway
         return ['id' => $refund->id];
     }
 
+    public function listApplicationFees(int $createdGte, int $createdLt): array
+    {
+        $collected = [];
+        $startingAfter = null;
+
+        for ($page = 0; $page < 20; $page++) {
+            $params = [
+                'limit' => 100,
+                'created' => [
+                    'gte' => $createdGte,
+                    'lt' => $createdLt,
+                ],
+            ];
+
+            if ($startingAfter !== null) {
+                $params['starting_after'] = $startingAfter;
+            }
+
+            $list = $this->client()->applicationFees->all($params);
+
+            foreach ($list->data as $fee) {
+                $collected[] = [
+                    'id' => $fee->id,
+                    'amount' => $fee->amount,
+                    'amount_refunded' => $fee->amount_refunded,
+                    'account' => $this->accountId($fee->account),
+                    'created' => $fee->created,
+                ];
+                $startingAfter = $fee->id;
+            }
+
+            if ($list->has_more !== true) {
+                return $collected;
+            }
+        }
+
+        throw new FeeListTruncatedException;
+    }
+
+    private function accountId(mixed $account): ?string
+    {
+        if (is_string($account) && $account !== '') {
+            return $account;
+        }
+
+        if (is_object($account) && isset($account->id) && is_string($account->id) && $account->id !== '') {
+            return $account->id;
+        }
+
+        return null;
+    }
+
     private function client(): StripeClient
     {
         return new StripeClient([
