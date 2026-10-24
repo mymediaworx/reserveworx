@@ -44,7 +44,7 @@ The customer widget at `/book/{token}` takes a widget token. Tokens are stored a
 
 ## Demo data
 
-`DemoShopSeeder` gives the two demo tenants a shop: Harbor Point Marina (kayaks, paddleboards, a guided sunset tour with departures, and promo code `WELCOME10`) and Mill Creek Landing (canoes). It runs only for demo tenants that have no locations yet.
+`DemoShopSeeder` gives the two demo tenants a shop: Harbor Point Marina (kayaks, paddleboards, a guided sunset tour with a departure each evening for the next 60 days, prices, opening hours, and promo code `WELCOME10`) and Mill Creek Landing (canoes). A deploy runs it for those two slugs only. A second run fills gaps and does not copy the shop onto any other workspace. The same deploy adds `michael@brandworx.ai` as an owner of Harbor Demo when that user already exists.
 
 ## Putting a demo workspace on a real address
 

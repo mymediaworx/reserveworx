@@ -25,13 +25,14 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 
 /**
- * Gives the two demo tenants something to look at: a marina with kayaks,
- * paddleboards, and a guided tour, and a small inland canoe livery. Runs only
- * for demo tenants that have no locations yet, so it never touches real data
- * and is safe to run again.
+ * Sample shops for the two demo workspaces only. A second run fills anything
+ * missing and extends the sunset tour through the next 60 days. It does not
+ * read or write any other workspace.
  */
 class DemoShopSeeder extends Seeder
 {
+    private const TOUR_DAYS = 60;
+
     public function run(): void
     {
         $manager = app(TenantManager::class);
@@ -40,20 +41,17 @@ class DemoShopSeeder extends Seeder
             $tenant = Tenant::query()->where('slug', $slug)->first();
 
             if (! $tenant instanceof Tenant) {
+                $this->command?->line("demo_shop={$slug} skipped=missing");
+
                 continue;
             }
 
             $manager->set($tenant);
 
             try {
-                if (Location::query()->exists()) {
-                    $this->command?->line("demo_shop={$slug} skipped=has_locations");
-
-                    continue;
-                }
-
                 $shop === 'marina' ? $this->marina($tenant) : $this->livery($tenant);
-                $this->command?->line("demo_shop={$slug} seeded=yes");
+                $added = $shop === 'marina' ? $this->ensureTourWindow($tenant) : 0;
+                $this->command?->line("demo_shop={$slug} ready=yes departures_added={$added}");
             } finally {
                 $manager->forget();
             }
@@ -67,61 +65,46 @@ class DemoShopSeeder extends Seeder
         $singles = $this->pool($tenant, $location, 'Single kayak', 10);
         $tandems = $this->pool($tenant, $location, 'Tandem kayak', 6);
         $boards = $this->pool($tenant, $location, 'Paddleboard', 8);
-        $guide = Asset::query()->create([
-            'tenant_id' => $tenant->id,
-            'location_id' => $location->id,
-            'name' => 'Sam (guide)',
-            'status' => ResourceStatus::Active,
-            'capacity' => 1,
-            'is_guide' => true,
-        ]);
+        $guide = $this->asset($tenant, $location, 'Sam (guide)', true);
 
         $kayak = $this->rental($tenant, $location, 'Single kayak rental', $singles, [[60, 2500], [120, 4000], [240, 6500]], 0);
         $this->rental($tenant, $location, 'Tandem kayak rental', $tandems, [[60, 3500], [120, 5500], [240, 8500]], 0, 2);
         $this->rental($tenant, $location, 'Paddleboard rental', $boards, [[60, 2200], [120, 3600]], 0);
 
-        $tour = Service::query()->create([
-            'tenant_id' => $tenant->id,
-            'location_id' => $location->id,
-            'name' => 'Sunset paddle tour',
-            'kind' => 'tour',
-            'min_participants' => 1,
-            'max_participants' => 10,
-            'waitlist_enabled' => true,
-        ]);
-        $this->requirement($tenant, $tour, 'pool', $singles->id, 1, 1);
-        $this->requirement($tenant, $tour, 'asset', $guide->id, 1, null);
-        $this->price($tenant, $tour, 'Per paddler', 'per_person', 5500);
+        $tour = Service::query()->where('name', 'Sunset paddle tour')->first();
 
-        $today = CarbonImmutable::now($zone)->startOfDay();
-
-        for ($day = 1; $day <= 14; $day++) {
-            $start = $today->addDays($day)->setTime(18, 0)->utc();
-            Departure::query()->create([
+        if (! $tour instanceof Service) {
+            $tour = Service::query()->create([
                 'tenant_id' => $tenant->id,
-                'service_id' => $tour->id,
                 'location_id' => $location->id,
-                'starts_at' => $start,
-                'ends_at' => $start->addHours(2),
-                'private' => false,
-                'seats' => 10,
-                'status' => DepartureStatus::Scheduled,
+                'name' => 'Sunset paddle tour',
+                'kind' => 'tour',
+                'min_participants' => 1,
+                'max_participants' => 10,
+                'waitlist_enabled' => true,
+            ]);
+            $this->requirement($tenant, $tour, 'pool', $singles->id, 1, 1);
+            $this->requirement($tenant, $tour, 'asset', $guide->id, 1, null);
+            $this->price($tenant, $tour, 'Per paddler', 'per_person', 5500);
+        }
+
+        if (! PromoCode::query()->where('code', 'WELCOME10')->exists()) {
+            PromoCode::query()->create([
+                'tenant_id' => $tenant->id,
+                'code' => 'WELCOME10',
+                'percent_off' => 10,
+                'active' => true,
             ]);
         }
 
-        PromoCode::query()->create([
-            'tenant_id' => $tenant->id,
-            'code' => 'WELCOME10',
-            'percent_off' => 10,
-            'active' => true,
-        ]);
-
-        $this->bookings($tenant, $kayak, $zone, [
-            [1, '09:00', 60, 2, 'Maya Chen', 'confirm'],
-            [1, '10:30', 120, 1, 'Luis Ortega', 'confirm'],
-            [2, '13:00', 240, 3, 'The Patel family', 'hold'],
-            [3, '09:00', 60, 1, 'Jordan Blake', 'confirm'],
-        ]);
+        if ($kayak->wasRecentlyCreated) {
+            $this->bookings($tenant, $kayak, $zone, [
+                [1, '09:00', 60, 2, 'Maya Chen', 'confirm'],
+                [1, '10:30', 120, 1, 'Luis Ortega', 'confirm'],
+                [2, '13:00', 240, 3, 'The Patel family', 'hold'],
+                [3, '09:00', 60, 1, 'Jordan Blake', 'confirm'],
+            ]);
+        }
     }
 
     private function livery(Tenant $tenant): void
@@ -130,21 +113,73 @@ class DemoShopSeeder extends Seeder
         $location = $this->location($tenant, 'Mill Creek Landing', $zone, '07:00', '18:00');
         $canoes = $this->pool($tenant, $location, 'Canoe', 8);
         $canoe = $this->rental($tenant, $location, 'Canoe float', $canoes, [[180, 4500], [360, 6500]], 0, 3);
-        $this->bookings($tenant, $canoe, $zone, [
-            [2, '09:00', 180, 2, 'Riley Adams', 'confirm'],
-        ]);
+
+        if ($canoe->wasRecentlyCreated) {
+            $this->bookings($tenant, $canoe, $zone, [
+                [2, '09:00', 180, 2, 'Riley Adams', 'confirm'],
+            ]);
+        }
+    }
+
+    private function ensureTourWindow(Tenant $tenant): int
+    {
+        $service = Service::query()->where('name', 'Sunset paddle tour')->first();
+        $location = Location::query()->where('name', 'Harbor Point Marina')->first();
+
+        if (! $service instanceof Service || ! $location instanceof Location) {
+            return 0;
+        }
+
+        $today = CarbonImmutable::now('America/New_York')->startOfDay();
+        $added = 0;
+
+        for ($day = 1; $day <= self::TOUR_DAYS; $day++) {
+            $start = $today->addDays($day)->setTime(18, 0)->utc();
+
+            if (Departure::query()->where('service_id', $service->id)->where('starts_at', $start)->exists()) {
+                continue;
+            }
+
+            Departure::query()->create([
+                'tenant_id' => $tenant->id,
+                'service_id' => $service->id,
+                'location_id' => $location->id,
+                'starts_at' => $start,
+                'ends_at' => $start->addHours(2),
+                'private' => false,
+                'seats' => 10,
+                'status' => DepartureStatus::Scheduled,
+            ]);
+            $added++;
+        }
+
+        return $added;
     }
 
     private function location(Tenant $tenant, string $name, string $zone, string $opens, string $closes): Location
     {
-        $location = Location::query()->create([
-            'tenant_id' => $tenant->id,
-            'name' => $name,
-            'timezone' => $zone,
-            'status' => LocationStatus::Active,
-        ]);
+        $location = Location::query()->where('name', $name)->first();
+
+        if (! $location instanceof Location) {
+            $location = Location::query()->create([
+                'tenant_id' => $tenant->id,
+                'name' => $name,
+                'timezone' => $zone,
+                'status' => LocationStatus::Active,
+            ]);
+        }
 
         foreach (range(0, 6) as $weekday) {
+            $exists = AvailabilitySchedule::query()
+                ->where('owner_type', ScheduleOwnerType::Location)
+                ->where('owner_id', $location->id)
+                ->where('weekday', $weekday)
+                ->exists();
+
+            if ($exists) {
+                continue;
+            }
+
             AvailabilitySchedule::query()->create([
                 'tenant_id' => $tenant->id,
                 'owner_type' => ScheduleOwnerType::Location,
@@ -160,6 +195,12 @@ class DemoShopSeeder extends Seeder
 
     private function pool(Tenant $tenant, Location $location, string $name, int $quantity): Pool
     {
+        $pool = Pool::query()->where('location_id', $location->id)->where('name', $name)->first();
+
+        if ($pool instanceof Pool) {
+            return $pool;
+        }
+
         return Pool::query()->create([
             'tenant_id' => $tenant->id,
             'location_id' => $location->id,
@@ -170,11 +211,35 @@ class DemoShopSeeder extends Seeder
         ]);
     }
 
+    private function asset(Tenant $tenant, Location $location, string $name, bool $guide): Asset
+    {
+        $asset = Asset::query()->where('location_id', $location->id)->where('name', $name)->first();
+
+        if ($asset instanceof Asset) {
+            return $asset;
+        }
+
+        return Asset::query()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'name' => $name,
+            'status' => ResourceStatus::Active,
+            'capacity' => 1,
+            'is_guide' => $guide,
+        ]);
+    }
+
     /**
      * @param  list<array{0: int, 1: int}>  $lengths  minutes and price in cents
      */
     private function rental(Tenant $tenant, Location $location, string $name, Pool $pool, array $lengths, int $perPersonCents, int $perUnit = 1): Service
     {
+        $existing = Service::query()->where('name', $name)->first();
+
+        if ($existing instanceof Service) {
+            return $existing;
+        }
+
         $service = Service::query()->create([
             'tenant_id' => $tenant->id,
             'location_id' => $location->id,

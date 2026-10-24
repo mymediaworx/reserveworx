@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A deploy loads the Harbor Demo and Inland Demo sample shops when those workspaces exist, including kayaks, paddleboards, a sunset tour with departures for the next 60 days, prices, and opening hours. It does not change any other workspace. The same deploy adds `michael@brandworx.ai` as an owner of Harbor Demo when that account already exists.
 - The SiteGround SSH wrapper retries a connection reset during key exchange. A remote command that already started is not run again.
 - A verified tenant domain's `/` renders that workspace's public booking page. Staff sign-in stays at `/staff/login`.
 - Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.

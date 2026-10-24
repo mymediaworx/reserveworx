@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Seeders;
 
+use App\Models\AvailabilitySchedule;
 use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Location;
+use App\Models\PriceRule;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Tenancy\TenantManager;
+use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoShopSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -39,12 +42,39 @@ class DemoShopSeederTest extends TestCase
 
         $this->assertSame(1, Location::query()->count(), 'Running twice does not duplicate the shop.');
         $this->assertSame(['Paddleboard rental', 'Single kayak rental', 'Sunset paddle tour', 'Tandem kayak rental'], Service::query()->orderBy('name')->pluck('name')->all());
-        $this->assertSame(14, Departure::query()->count());
-        $this->assertGreaterThan(0, Booking::query()->count());
+        $this->assertSame(7, AvailabilitySchedule::query()->count());
+        $this->assertGreaterThan(0, PriceRule::query()->count());
+        $this->assertSame(60, Departure::query()->count());
+        $latest = Departure::query()->orderByDesc('starts_at')->first();
+        $this->assertInstanceOf(Departure::class, $latest);
+        $expected = CarbonImmutable::now('America/New_York')->startOfDay()->addDays(60)->setTime(18, 0)->utc();
+        $this->assertTrue($latest->starts_at->equalTo($expected));
+        $bookings = Booking::query()->count();
+        $this->assertGreaterThan(0, $bookings);
+
+        $latest->delete();
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($harbor);
+        $this->assertSame(60, Departure::query()->count());
+        $this->assertSame($bookings, Booking::query()->count());
+        $this->assertSame(1, Location::query()->count());
+
+        $page = $this->get('http://harbor-demo.reserveworx.test/');
+        $page->assertOk()
+            ->assertSee('Single kayak rental')
+            ->assertSee('Paddleboard rental')
+            ->assertSee('Sunset paddle tour')
+            ->assertDontSee('No services are available to book.');
 
         $inland = Tenant::query()->where('slug', 'inland-demo')->firstOrFail();
         app(TenantManager::class)->set($inland);
         $this->assertSame(['Canoe float'], Service::query()->pluck('name')->all());
+
+        $real = Tenant::factory()->create(['slug' => 'real-marina', 'name' => 'Real Marina']);
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($real);
+        $this->assertSame(0, Location::query()->count());
+        $this->assertSame(0, Service::query()->count());
 
         @unlink($path);
     }
