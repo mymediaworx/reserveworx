@@ -10,9 +10,11 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\LocationClosure;
 use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Models\Service;
+use App\Services\Inventory\ClosureCalendar;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
@@ -25,6 +27,8 @@ use Illuminate\Support\Collection;
  */
 final class ResourceSchedule
 {
+    public function __construct(private readonly ClosureCalendar $closures) {}
+
     /**
      * @return array{locations: list<array<string, mixed>>}
      */
@@ -67,6 +71,7 @@ final class ResourceSchedule
 
         $entries = $this->entries($assets, $pools, $locations, $utcStart, $utcEnd, $categoryId);
         $categoryNames = ResourceCategory::query()->pluck('name', 'id');
+        $closures = LocationClosure::query()->whereIn('location_id', $locationIds)->get()->groupBy('location_id');
         $sections = [];
 
         foreach ($locations as $location) {
@@ -76,7 +81,15 @@ final class ResourceSchedule
                 fn (array $entry): bool => $entry['location_id'] === $location->id
                     && $this->overlaps($entry['occupied_start'], $entry['occupied_end'], $window['start'], $window['end']),
             ));
-            $sections[] = $this->section($location, $window, $localEntries, $assets, $pools, $categoryNames);
+            $sections[] = $this->section(
+                $location,
+                $window,
+                $localEntries,
+                $assets,
+                $pools,
+                $categoryNames,
+                $closures->get($location->id, collect()),
+            );
         }
 
         return ['locations' => $sections];
@@ -88,9 +101,10 @@ final class ResourceSchedule
      * @param  Collection<int, Asset>  $assets
      * @param  Collection<int, Pool>  $pools
      * @param  Collection<string, string>  $categoryNames
+     * @param  Collection<int, LocationClosure>  $closures
      * @return array<string, mixed>
      */
-    private function section(Location $location, array $window, array $entries, Collection $assets, Collection $pools, Collection $categoryNames): array
+    private function section(Location $location, array $window, array $entries, Collection $assets, Collection $pools, Collection $categoryNames, Collection $closures): array
     {
         $days = $window['days'];
         $summary = $this->row(
@@ -99,6 +113,7 @@ final class ResourceSchedule
             '',
             $this->fill($this->collapse($entries), $days, $location->timezone, 'location:'.$location->id, false),
         );
+        $summary['shades'] = $this->shades($closures, $location, $days, null, null, null);
 
         /** @var array<string, array{name: string, rows: list<array<string, mixed>>}> $groups */
         $groups = [];
@@ -128,7 +143,9 @@ final class ResourceSchedule
 
             $key = $asset->resource_category_id ?? '';
             $groups[$key]['name'] = $key === '' ? 'Uncategorized' : (string) ($categoryNames[$key] ?? 'Uncategorized');
-            $groups[$key]['rows'][] = $this->row('asset:'.$asset->id, $asset->name, implode(' · ', $detail), $filled);
+            $row = $this->row('asset:'.$asset->id, $asset->name, implode(' · ', $detail), $filled);
+            $row['shades'] = $this->shades($closures, $location, $days, $asset->resource_category_id, 'asset', $asset->id);
+            $groups[$key]['rows'][] = $row;
         }
 
         foreach ($pools->where('location_id', $location->id)->sortBy(fn (Pool $pool): string => mb_strtolower($pool->name).' '.$pool->id) as $pool) {
@@ -152,7 +169,9 @@ final class ResourceSchedule
 
             $key = $pool->resource_category_id ?? '';
             $groups[$key]['name'] = $key === '' ? 'Uncategorized' : (string) ($categoryNames[$key] ?? 'Uncategorized');
-            $groups[$key]['rows'][] = $this->row('pool:'.$pool->id, $pool->name, $detail, $filled);
+            $row = $this->row('pool:'.$pool->id, $pool->name, $detail, $filled);
+            $row['shades'] = $this->shades($closures, $location, $days, $pool->resource_category_id, 'pool', $pool->id);
+            $groups[$key]['rows'][] = $row;
         }
 
         $groupList = array_values($groups);
@@ -193,7 +212,93 @@ final class ResourceSchedule
             'lanes' => $filled['lanes'],
             'has_blocks' => $filled['has_blocks'],
             'cells' => $filled['cells'],
+            'shades' => [],
         ];
+    }
+
+    /**
+     * Closed time drawn behind the bookings. Location-wide closures shade every
+     * row. A category or one resource shades only the rows it covers.
+     *
+     * @param  Collection<int, LocationClosure>  $closures
+     * @param  list<array<string, mixed>>  $days
+     * @return array<string, list<array{id: string, reason: string, left: string, width: string}>>
+     */
+    private function shades(Collection $closures, Location $location, array $days, ?string $categoryId, ?string $type, ?string $id): array
+    {
+        $cells = [];
+
+        foreach ($days as $day) {
+            if (is_string($day['date'] ?? null)) {
+                $cells[$day['date']] = [];
+            }
+        }
+
+        if ($closures->isEmpty() || $days === []) {
+            return $cells;
+        }
+
+        $first = $days[0]['start'] ?? null;
+        $last = $days[count($days) - 1]['end'] ?? null;
+
+        if (! $first instanceof CarbonImmutable || ! $last instanceof CarbonImmutable) {
+            return $cells;
+        }
+
+        foreach ($closures as $closure) {
+            if (! $this->shadeApplies($closure, $categoryId, $type, $id)) {
+                continue;
+            }
+
+            foreach ($this->closures->windows($closure, $location->timezone, $first->utc(), $last->utc()) as $window) {
+                foreach ($days as $day) {
+                    $start = $day['start'] ?? null;
+                    $end = $day['end'] ?? null;
+                    $date = $day['date'] ?? null;
+
+                    if (! $start instanceof CarbonImmutable || ! $end instanceof CarbonImmutable || ! is_string($date)) {
+                        continue;
+                    }
+
+                    $visibleStart = $window[0]->greaterThan($start) ? $window[0] : $start;
+                    $visibleEnd = $window[1]->lessThan($end) ? $window[1] : $end;
+
+                    if ($visibleEnd->lessThanOrEqualTo($visibleStart)) {
+                        continue;
+                    }
+
+                    $dayMinutes = $this->minutes($start, $end);
+                    $cells[$date][] = [
+                        'id' => $closure->id,
+                        'reason' => $closure->reason,
+                        'left' => $this->percent($this->minutes($start, $visibleStart), $dayMinutes),
+                        'width' => $this->percent($this->minutes($visibleStart, $visibleEnd), $dayMinutes),
+                    ];
+                }
+            }
+        }
+
+        return $cells;
+    }
+
+    private function shadeApplies(LocationClosure $closure, ?string $categoryId, ?string $type, ?string $id): bool
+    {
+        $locationWide = ($closure->resource_category_id === null || $closure->resource_category_id === '')
+            && ($closure->resource_id === null || $closure->resource_id === '');
+
+        if ($type === null && $id === null) {
+            return $locationWide;
+        }
+
+        if ($locationWide) {
+            return true;
+        }
+
+        if ($closure->resource_id !== null && $closure->resource_id !== '') {
+            return $closure->resource_type === $type && $closure->resource_id === $id;
+        }
+
+        return $closure->resource_category_id !== null && $closure->resource_category_id === $categoryId;
     }
 
     /**

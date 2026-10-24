@@ -23,6 +23,7 @@ use App\Livewire\Staff\BookingShow;
 use App\Livewire\Staff\Branding;
 use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\CheckIn;
+use App\Livewire\Staff\Closures;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Manifest;
@@ -110,6 +111,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/bookings/new', NewBooking::class);
         Route::get('/bookings/{booking}', BookingShow::class);
         Route::get('/setup/locations', Locations::class);
+        Route::get('/closures', Closures::class);
         Route::get('/setup/resources', Resources::class);
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);

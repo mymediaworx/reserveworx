@@ -6,17 +6,21 @@ use App\Enums\ScheduleOwnerType;
 use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
 use App\Models\Location;
+use App\Models\LocationClosure;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
 class OpeningHours
 {
+    public function __construct(private readonly ClosureCalendar $closures) {}
+
     /**
      * Pickup and return must fall in an open window. A location with no rows is open all day.
      * A resource with no rows adds no extra limit. A blackout covers each local date the
-     * half-open interval touches.
+     * half-open interval touches. A closure covers the customer interval itself.
+     * A category or single-resource closure does not close the rest of the location.
      *
-     * @return array{open: bool, blackout: bool}
+     * @return array{open: bool, blackout: bool, closed: bool}
      */
     public function assess(Location $location, CarbonImmutable $startUtc, CarbonImmutable $endUtc, ?string $resourceType = null, ?string $resourceId = null): array
     {
@@ -26,6 +30,7 @@ class OpeningHours
         $return = $end->subSecond()->timezone($location->timezone);
 
         $blackout = $this->coversBlackout($location, $pickup, $return);
+        $closed = $this->coversClosure($location, $start, $end, $resourceType, $resourceId);
         $open = $this->instantOpen(ScheduleOwnerType::Location, $location->id, $pickup, true)
             && $this->instantOpen(ScheduleOwnerType::Location, $location->id, $return, true);
 
@@ -36,7 +41,7 @@ class OpeningHours
                 && $this->instantOpen($owner, $resourceId, $return, true);
         }
 
-        return ['open' => $open && ! $blackout, 'blackout' => $blackout];
+        return ['open' => $open && ! $blackout && ! $closed, 'blackout' => $blackout, 'closed' => $closed];
     }
 
     private function coversBlackout(Location $location, CarbonImmutable $pickup, CarbonImmutable $return): bool
@@ -65,6 +70,26 @@ class OpeningHours
                 if ($date >= $from && $date <= $until) {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    private function coversClosure(Location $location, CarbonImmutable $startUtc, CarbonImmutable $endUtc, ?string $resourceType, ?string $resourceId): bool
+    {
+        $categoryId = $this->closures->categoryId($resourceType, $resourceId);
+
+        /** @var Collection<int, LocationClosure> $rows */
+        $rows = LocationClosure::query()->where('location_id', $location->id)->get();
+
+        foreach ($rows as $row) {
+            if (! $this->closures->applies($row, $resourceType, $resourceId, $categoryId)) {
+                continue;
+            }
+
+            if ($this->closures->covers($row, $location->timezone, $startUtc, $endUtc)) {
+                return true;
             }
         }
 

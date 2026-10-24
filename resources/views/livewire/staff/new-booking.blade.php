@@ -60,11 +60,23 @@
                         @else
                             <div class="slot-grid" role="radiogroup" aria-label="Departure">
                                 @foreach ($departures as $row)
-                                    @php $d = $row['departure']; $full = $row['seats_left'] !== null && $row['seats_left'] < $participants; @endphp
+                                    @php
+                                        $d = $row['departure'];
+                                        $closed = (bool) ($row['closed'] ?? false);
+                                        $full = $closed || ($row['seats_left'] !== null && $row['seats_left'] < $participants);
+                                    @endphp
                                     <label @class(['slot', 'is-full' => $full, 'is-picked' => $departureId === $d->id])>
-                                        <input type="radio" wire:model.live="departureId" value="{{ $d->id }}" @disabled($full && ! $service->waitlist_enabled)>
+                                        <input type="radio" wire:model.live="departureId" value="{{ $d->id }}" @disabled($closed || ($full && ! $service->waitlist_enabled))>
                                         <span class="slot-time">{{ Display::time($d->starts_at, $zone) }}</span>
-                                        <span class="slot-note">{{ $row['seats_left'] === null ? 'Private' : $row['seats_left'].' seats left' }}</span>
+                                        <span class="slot-note">
+                                            @if ($closed)
+                                                Closed
+                                            @elseif ($row['seats_left'] === null)
+                                                Private
+                                            @else
+                                                {{ $row['seats_left'] }} seats left
+                                            @endif
+                                        </span>
                                     </label>
                                 @endforeach
                             </div>
@@ -77,9 +89,9 @@
                                 @foreach ($times as $slot)
                                     @php $value = $slot['starts_at']->toIso8601String(); @endphp
                                     <label @class(['slot', 'is-full' => ! $slot['available'], 'is-picked' => $startsAt === $value])>
-                                        <input type="radio" wire:model.live="startsAt" value="{{ $value }}" @disabled(! $slot['available'] && ! $service->waitlist_enabled)>
+                                        <input type="radio" wire:model.live="startsAt" value="{{ $value }}" @disabled($slot['closed'] || (! $slot['available'] && ! $service->waitlist_enabled))>
                                         <span class="slot-time">{{ $slot['label'] }}</span>
-                                        <span class="slot-note">{{ $slot['available'] ? 'Open' : 'Booked' }}</span>
+                                        <span class="slot-note">{{ $slot['closed'] ? 'Closed' : ($slot['available'] ? 'Open' : 'Booked') }}</span>
                                     </label>
                                 @endforeach
                             </div>

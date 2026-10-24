@@ -7,6 +7,20 @@
 <div class="schedule-lane" style="--days: {{ count($days) }}; --lanes: {{ $row['lanes'] }}">
     @foreach ($days as $day)
         <div @class(['schedule-daylane', 'is-today' => $day['today']]) data-date="{{ $day['date'] }}" data-minutes="{{ $day['minutes'] }}">
+            @foreach ($row['shades'][$day['date']] ?? [] as $shade)
+                <div
+                    class="schedule-closure"
+                    style="left: {{ $shade['left'] }}%; width: {{ $shade['width'] }}%"
+                    data-closure="{{ $shade['id'] }}"
+                    data-resource="{{ $row['key'] }}"
+                    data-reason="{{ $shade['reason'] }}"
+                    data-left="{{ $shade['left'] }}"
+                    data-width="{{ $shade['width'] }}"
+                    title="Closed: {{ $shade['reason'] }}"
+                    role="img"
+                    aria-label="Closed, {{ $shade['reason'] }}"
+                ></div>
+            @endforeach
             @if (($canBook ?? false) && ! str_starts_with($row['key'], 'location:'))
                 @if ($view === 'day')
                     @foreach ($day['hours'] as $hour)

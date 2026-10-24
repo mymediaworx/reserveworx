@@ -774,6 +774,16 @@ button.schedule-block:focus-visible,
 .choice-picks { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .hour-picks { display: flex; flex-wrap: nowrap; gap: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
 .choice-pick, .hour-pick { min-height: 2.75rem; }
+.closure-page { min-width: 0; }
+.closure-page .field { min-width: 0; }
+.closure-page .overlap-list { margin: 0.35rem 0 0; padding-left: 1.1rem; }
+.closure-page .overlap-list a { overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+    .closure-page .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .closure-page .form-row > .button,
+    .closure-page .actions .button,
+    .closure-page .row .button { width: 100%; justify-self: stretch; }
+}
 @media (max-width: 420px) {
     .move-panel .stack > .button,
     .move-suggestions .button { width: 100%; justify-self: stretch; white-space: normal; text-align: center; }
@@ -782,6 +792,14 @@ button.schedule-block:focus-visible,
     .schedule-booking .stack > .button,
     .schedule-booking .choice-pick,
     .schedule-booking .actions .button { width: 100%; justify-self: stretch; white-space: normal; text-align: center; }
+}
+.schedule-closure {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(-45deg, rgba(15, 23, 42, 0.07), rgba(15, 23, 42, 0.07) 4px, rgba(15, 23, 42, 0.18) 4px, rgba(15, 23, 42, 0.18) 8px);
 }
 .schedule-block.is-booking { background: var(--brand-soft); color: var(--brand-soft-ink); }
 .schedule-block.is-hold { background: var(--accent-soft); color: var(--accent-soft-ink); }
