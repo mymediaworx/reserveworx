@@ -25,4 +25,12 @@ return [
     */
     'queue_work_max_time' => (int) env('QUEUE_WORK_MAX_TIME', 20),
 
+    /*
+    | Authenticated API limits from spec Section 12. The public booking
+    | widget already uses the separate "widget" limiter.
+    */
+    'availability_rate_per_minute' => (int) env('AVAILABILITY_RATE_PER_MINUTE', 60),
+
+    'checkout_rate_per_minute' => (int) env('CHECKOUT_RATE_PER_MINUTE', 10),
+
 ];

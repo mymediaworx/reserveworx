@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.
 - `GET /admin` redirects to `/staff`. The older today page is no longer served.
 - An offline payment records the customer total without the booking-fee line. The payment row still stores a fee of zero.
 - Staff who can view bookings can list and open customers at `GET /api/v1/customers`. A search matches the stored name, email, or phone. The list is limited to 50.
