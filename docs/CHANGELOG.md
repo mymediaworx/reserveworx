@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Today's report counts confirmed, cancelled, and no-show bookings that start that day, and gives each rate in basis points. Holds and unpaid checkouts stay out of the rate.
 - `GET /api/v1/audit-logs` accepts optional `action` and `subject_id` filters. Omitting them still returns the workspace log.
 - A `booking.refunded` notification hook includes the booking-fee portion of the customer refund beside the application-fee refund.
 - A platform administrator can read stored booking-fee totals by workspace and stored channel at `GET /api/v1/platform/fee-revenue`. The report does not call Stripe.

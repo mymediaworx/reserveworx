@@ -149,7 +149,12 @@ class TodayDashboardTest extends TestCase
             ->assertJsonPath('data.totals.tax_cents', 800)
             ->assertJsonPath('data.totals.booking_fee_cents', 300)
             ->assertJsonPath('data.totals.refunds_cents', 1500)
-            ->assertJsonPath('data.fees.net_cents', 200);
+            ->assertJsonPath('data.fees.net_cents', 200)
+            ->assertJsonPath('data.outcomes.confirmed', 1)
+            ->assertJsonPath('data.outcomes.cancelled', 1)
+            ->assertJsonPath('data.outcomes.no_show', 0)
+            ->assertJsonPath('data.outcomes.cancellation_bps', 5000)
+            ->assertJsonPath('data.outcomes.no_show_bps', 0);
 
         $this->get($this->tenantUrl('dock.test', '/api/v1/reports/today/export'))
             ->assertOk()
