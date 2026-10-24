@@ -2,9 +2,14 @@
     use App\Enums\BookingStatus;
     use App\Models\Booking;
     use App\Models\Location;
+    use App\Models\User;
+    use App\Tenancy\Access;
 
     $tenantModel = app(\App\Tenancy\TenantManager::class)->get();
     $staffUser = auth()->user();
+    $canManageTeam = $staffUser instanceof User
+        && $tenantModel !== null
+        && app(Access::class)->allows($staffUser, $tenantModel->id, 'members.manage');
     $brandName = ($workspaceBranding->displayName ?? '') !== '' ? $workspaceBranding->displayName : ($tenantModel?->name ?? 'ReserveWorx');
     $logo = $workspaceBranding->logoUrl ?? null;
     $locationNames = $tenantModel ? Location::query()->orderBy('name')->pluck('name') : collect();
@@ -21,7 +26,7 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/closures', 'staff/settings', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/manifest')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/closures', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/manifest')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*')],
@@ -31,6 +36,9 @@
         ['href' => '/staff/branding', 'label' => 'Branding', 'icon' => 'palette', 'active' => request()->is('staff/branding')],
         ['href' => '/staff/settings', 'label' => 'Settings', 'icon' => 'settings', 'active' => request()->is('staff/settings')],
     ];
+    if ($canManageTeam) {
+        $setup[] = ['href' => '/staff/team', 'label' => 'Team', 'icon' => 'users', 'active' => request()->is('staff/team')];
+    }
 @endphp
 <!DOCTYPE html>
 <html lang="en">

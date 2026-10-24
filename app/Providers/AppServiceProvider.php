@@ -171,6 +171,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by('feedback|'.$request->ip());
         });
 
+        RateLimiter::for('invite-accept', function (Request $request): Limit {
+            return Limit::perMinute(10)->by('invite-accept|'.$request->ip());
+        });
+
         Auth::extend('customer-token', function ($app, string $name, array $config): CustomerTokenGuard {
             if (! $app instanceof Application) {
                 throw new \RuntimeException('The customer guard needs the application.');

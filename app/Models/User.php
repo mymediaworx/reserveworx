@@ -10,8 +10,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * @property Carbon|null $password_set_at
+ * @property Carbon|null $email_verified_at
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -33,11 +38,18 @@ class User extends Authenticatable
         static::saving(function (User $user): void {
             $user->email = strtolower($user->email);
         });
+
+        static::creating(function (User $user): void {
+            if (! array_key_exists('password_set_at', $user->getAttributes())) {
+                $user->password_set_at = now();
+            }
+        });
     }
 
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'password_set_at' => 'datetime',
     ];
 
     /**

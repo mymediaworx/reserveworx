@@ -47,6 +47,8 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/closures` | Full-day or time-range closures for one location, optionally one category or one boat or pool, with a reason. A closure can repeat every year. Confirmed bookings that overlap are listed and stay booked. `settings.view` opens the page. `settings.update` adds, edits, and removes |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures` |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
+| Tenant domain | `/staff/team` | Invite by email, resend or revoke a pending invitation, change a role, or remove a member. Owners, and anyone else with `members.manage`, can open it. The signed accept link expires in 7 days |
+| Tenant domain | `/staff/invites/{membership}` | Signed page for that invitation. A new person sets a password. An existing account joins this workspace and keeps its password |
 | Tenant domain | `/staff/share` | Share & embed: link, button, on-page embed, pop-up, and named links |
 | Tenant domain | `/staff/branding` | Name, logo, colors, support contacts |
 | Tenant domain | `/staff/portfolio`, `/staff/portfolio.csv` | Rollup for every business this owner holds, or one of them. Presets are 7, 30, and 90 days, plus a custom range, with a trend and a CSV download |

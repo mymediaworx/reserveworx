@@ -243,7 +243,7 @@ class TenantExporter
         $clean = [];
 
         foreach ($attributes as $key => $value) {
-            if (in_array($key, ['password', 'remember_token', 'private_integration_token'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
+            if (in_array($key, ['password', 'remember_token', 'private_integration_token', 'invite_token_hash'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
                 continue;
             }
 

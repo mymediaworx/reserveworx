@@ -32,6 +32,15 @@
 
     <section class="panel top-gap">
         <ul class="menu-list">
+            @if ($canManageTeam)
+                <li>
+                    <a href="/staff/team" wire:navigate>
+                        <span class="icon-circle tone-neutral"><x-icon name="users" size="20" /></span>
+                        <span class="menu-text">Team<small>Invite people and set roles</small></span>
+                        <x-icon name="chevron-right" size="20" />
+                    </a>
+                </li>
+            @endif
             <li>
                 <a href="/staff/settings" wire:navigate>
                     <span class="icon-circle tone-neutral"><x-icon name="settings" size="20" /></span>
