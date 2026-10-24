@@ -112,6 +112,17 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              close_ssh_master
+            fi
+            exit "$status"
+          }
+          trap on_exit EXIT
           remote_cmd="$(printf 'ACTION=%q bash -s' backup)"
           scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/backup-out.txt
           path="$(sed -n 's/^backup_path=//p' /tmp/backup-out.txt | tail -n 1)"
@@ -149,6 +160,17 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              close_ssh_master
+            fi
+            exit "$status"
+          }
+          trap on_exit EXIT
           scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "test -d www/app.reserveworx.com && mkdir -p www/app.reserveworx.com/laravel/incoming"
           scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat > www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
           rm -f "/tmp/reserveworx-${RELEASE}.tar.gz"
@@ -169,6 +191,21 @@ jobs:
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/accept-mail-header.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            log="${HOME}/.ssh/sg-handshakes.log"
+            opened=0
+            if [[ -f "$log" ]]; then
+              opened="$(grep -c '^ssh_handshake=1$' "$log" || true)"
+            fi
+            echo "- SSH handshakes opened: ${opened}" >> "$GITHUB_STEP_SUMMARY"
+            close_ssh_master
+            exit "$status"
+          }
+          trap on_exit EXIT
           bootstrap="$(cat scripts/accept-mail-header.sh)"
           remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -c %q' \
             "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "$bootstrap")"

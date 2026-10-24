@@ -91,33 +91,89 @@ fi
 
 unset SG_SSH_KEY SG_SSH_PASSPHRASE
 
-if ! ssh-keyscan -p "$SG_PORT" -T 20 -H "$SG_HOST" > "$known_hosts" 2>/dev/null; then
+# Do not open a second connection just to read the host key. SiteGround counts
+# that probe toward the same limit that resets a later handshake. accept-new
+# stores the host key on the one real connection.
+if [[ ! -s "$known_hosts" ]]; then
   : > "$known_hosts"
 fi
+chmod 600 "$known_hosts"
 
-if [[ -s "$known_hosts" ]]; then
-  fingerprint="$(ssh-keygen -lf "$known_hosts" 2>/dev/null | awk 'NR==1 { print $2 }')"
-  if [[ -n "$fingerprint" ]]; then
-    echo "Host key fingerprint: ${fingerprint}" >&2
+# One socket for the whole job. Later ssh processes attach to it and do not
+# repeat key exchange. The path stays short so it fits the unix socket limit.
+control_path="${ssh_dir}/sg-cm.sock"
+handshake_log="${ssh_dir}/sg-handshakes.log"
+
+# identity_opt is -i and a path under ~/.ssh. It is expanded into the wrapper
+# once, as two words, with no remote command mixed in.
+cat > "$wrapper" << EOF
+#!/bin/sh
+# Reuse one SiteGround TCP connection. A new handshake is what the host
+# rate-limits; this script does not open a second one to retry the first.
+set -eu
+control="\${SG_CONTROL_PATH}"
+log="\${SG_HANDSHAKE_LOG}"
+port="\${SG_PORT}"
+known="\${SG_KNOWN_HOSTS}"
+
+if [ "\${1:-}" = "-O" ]; then
+  if [ ! -S "\${control}" ]; then
+    exit 0
+  fi
+  # Control the existing master only. ControlMaster is intentionally absent
+  # so a missing socket cannot turn -O exit into a new handshake.
+  export RUNNER_TRACKING_ID=""
+  exec ssh -p "\${port}" -o BatchMode=yes -o ControlPath="\${control}" "\$@"
+fi
+
+if [ -S "\${control}" ]; then
+  if ! ssh -p "\${port}" -o BatchMode=yes -o ControlPath="\${control}" -O check -- "\$1" >/dev/null 2>&1; then
+    rm -f "\${control}"
   fi
 fi
 
-cat > "$wrapper" << EOF
-#!/bin/sh
-set -eu
-exec ssh \\
-  -p "\${SG_PORT}" \\
+fresh=0
+if [ -S "\${control}" ]; then
+  echo "ssh_handshake=0" >&2
+  printf '%s\n' "ssh_handshake=0" >> "\${log}"
+else
+  fresh=1
+  echo "ssh_handshake=1" >&2
+  printf '%s\n' "ssh_handshake=1" >> "\${log}"
+fi
+
+# The persisted master inherits this. An empty id is what keeps Actions from
+# killing that master when the step that opened it has finished.
+export RUNNER_TRACKING_ID=""
+set +e
+ssh \\
+  -p "\${port}" \\
   -o IdentitiesOnly=yes \\
   -o StrictHostKeyChecking=accept-new \\
-  -o UserKnownHostsFile="\${SG_KNOWN_HOSTS}" \\
+  -o UserKnownHostsFile="\${known}" \\
   -o ConnectTimeout=20 \\
   -o BatchMode=yes \\
+  -o ControlMaster=auto \\
+  -o ControlPersist=600 \\
+  -o ControlPath="\${control}" \\
   ${identity_opt} \\
   "\$@"
+status=\$?
+set -e
+
+if [ "\${fresh}" -eq 1 ] && [ -s "\${known}" ]; then
+  fingerprint="\$(ssh-keygen -lf "\${known}" 2>/dev/null | awk 'NR==1 { print \$2 }' || true)"
+  if [ -n "\${fingerprint}" ]; then
+    echo "Host key fingerprint: \${fingerprint}" >&2
+  fi
+fi
+exit "\${status}"
 EOF
 chmod 700 "$wrapper"
 
 export SG_PORT
 export SG_KNOWN_HOSTS="$known_hosts"
+export SG_CONTROL_PATH="$control_path"
+export SG_HANDSHAKE_LOG="$handshake_log"
 export SG_SSH_BIN="$wrapper"
 export SG_SSH_READY=1

@@ -93,14 +93,23 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringNotContainsString('echo "$mail_header"', $mailHeader);
 
         $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
-        $this->assertStringContainsString('ssh_connect_retry', $ssh);
-        $this->assertStringContainsString('kex_exchange_identification', $ssh);
-        $this->assertStringContainsString('Connection closed by', $ssh);
+        $this->assertStringNotContainsString('ssh_connect_retry', $ssh);
+        $this->assertStringNotContainsString('kex_exchange_identification', $ssh);
         $this->assertStringNotContainsString('www/reserveworx.com', $ssh);
 
         $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
         $this->assertStringContainsString('sg_key.pub', $prepare);
         $this->assertStringContainsString('IdentitiesOnly=yes', $prepare);
+        $this->assertStringContainsString('ControlMaster=auto', $prepare);
+        $this->assertStringContainsString('ControlPersist=600', $prepare);
+        $this->assertStringContainsString('ssh_handshake=1', $prepare);
+        $this->assertStringContainsString('Host key fingerprint:', $prepare);
+        $this->assertStringNotContainsString('ssh-keyscan', $prepare);
+        $this->assertStringNotContainsString('ssh_connect_retry', $prepare);
+
+        $this->assertStringContainsString('Upload release archive', $deploy);
+        $this->assertStringContainsString('Activate release', $deploy);
+        $this->assertStringContainsString('SSH handshakes opened:', $deploy);
     }
 
     public function test_backup_action_writes_a_private_gzip_and_rejects_an_empty_stream(): void
@@ -196,84 +205,124 @@ BASH);
         return ['exit' => proc_close($process), 'output' => $output];
     }
 
-    public function test_a_dropped_ssh_handshake_is_retried_and_a_started_command_is_not(): void
+    public function test_siteground_ssh_reuses_one_connection_across_commands(): void
     {
         $dir = sys_get_temp_dir().'/rw-ssh-'.bin2hex(random_bytes(4));
-        mkdir($dir, 0777, true);
-        $fake = $dir.'/fake-ssh';
-        $count = $dir.'/count';
-        file_put_contents($fake, <<<'BASH'
-#!/bin/bash
-n=0
-if [[ -f "$RW_SSH_COUNT" ]]; then
-  n="$(cat "$RW_SSH_COUNT")"
-fi
-n=$((n + 1))
-printf '%s' "$n" > "$RW_SSH_COUNT"
-mode="${RW_SSH_FAKE_MODE:-reset-then-ok}"
-if [[ "$mode" == "reset-then-ok" && "$n" -eq 1 ]]; then
-  echo "kex_exchange_identification: read: Connection reset by peer" >&2
-  exit 255
-fi
-if [[ "$mode" == "closed-then-ok" && "$n" -eq 1 ]]; then
-  echo "Connection closed by 203.0.113.5 port 22" >&2
-  exit 255
-fi
-if [[ "$mode" == "reset-four-then-ok" && "$n" -le 4 ]]; then
-  echo "kex_exchange_identification: read: Connection reset by peer" >&2
-  exit 255
-fi
-if [[ "$mode" == "started" ]]; then
-  echo "started"
-  echo "kex_exchange_identification: read: Connection reset by peer" >&2
-  exit 255
-fi
-if [[ "$mode" == "remote-failed" ]]; then
-  echo "started"
-  exit 1
-fi
-cat
-echo "session-open"
-exit 0
-BASH);
-        chmod($fake, 0755);
+        $home = $dir.'/home';
+        $bin = $dir.'/bin';
+        mkdir($home, 0777, true);
+        mkdir($bin, 0777, true);
+        $key = $dir.'/id_ed25519';
+        $connects = $dir.'/connects';
+        $argvLog = $dir.'/argv.log';
+        exec('ssh-keygen -q -t ed25519 -f '.escapeshellarg($key).' -N ""', $keyOut, $keyExit);
+        $this->assertSame(0, $keyExit, implode("\n", $keyOut));
+
+        file_put_contents($bin.'/ssh', <<<'PY'
+#!/usr/bin/env python3
+import os, sys, socket
+args = sys.argv[1:]
+control = None
+mode = None
+i = 0
+while i < len(args):
+    arg = args[i]
+    if arg == "--":
+        i += 1
+        continue
+    if arg == "-o" and i + 1 < len(args):
+        opt = args[i + 1]
+        if opt.startswith("ControlPath="):
+            control = opt.split("=", 1)[1]
+        i += 2
+        continue
+    if arg == "-O" and i + 1 < len(args):
+        mode = args[i + 1]
+        i += 2
+        continue
+    if arg in ("-p", "-i", "-l") and i + 1 < len(args):
+        i += 2
+        continue
+    i += 1
+with open(os.environ["RW_SSH_ARGV_LOG"], "a") as handle:
+    handle.write(" ".join(args) + "\n")
+if mode == "check":
+    if os.environ.get("RW_SSH_STALE") == "1" or not control or not os.path.exists(control):
+        sys.exit(1)
+    sys.exit(0)
+if mode == "exit":
+    if control and os.path.exists(control):
+        os.remove(control)
+    sys.exit(0)
+if mode is not None:
+    sys.exit(1)
+text = " ".join(args)
+for needle in ("ControlMaster=auto", "ControlPersist=600"):
+    if needle not in text:
+        sys.stderr.write("missing %s\n" % needle)
+        sys.exit(3)
+if not control:
+    sys.stderr.write("missing control\n")
+    sys.exit(2)
+if not os.path.exists(control):
+    sock = socket.socket(socket.AF_UNIX)
+    sock.bind(control)
+    sock.close()
+path = os.environ["RW_SSH_CONNECTS"]
+previous = "0"
+if os.path.exists(path):
+    previous = open(path).read().strip() or "0"
+open(path, "w").write(str(int(previous) + 1))
+sys.stdout.buffer.write(sys.stdin.buffer.read())
+sys.stdout.write("session-open\n")
+PY);
+        chmod($bin.'/ssh', 0755);
+        file_put_contents($bin.'/ssh-keyscan', "#!/bin/sh\necho ssh-keyscan-called >&2\nexit 99\n");
+        chmod($bin.'/ssh-keyscan', 0755);
+
         $script = base_path('scripts/ssh-siteground.sh');
-        $base = 'export SG_SSH_BIN='.escapeshellarg($fake)
-            .' RW_SSH_COUNT='.escapeshellarg($count)
-            .' RW_SSH_RETRY_SLEEP=0 RW_SSH_LIBRARY=1; source '.escapeshellarg($script).'; ';
+        $private = (string) file_get_contents($key);
+        $base = 'export HOME='.escapeshellarg($home)
+            .' PATH='.escapeshellarg($bin.':/usr/bin:/bin:/exec-daemon')
+            .' RW_SSH_CONNECTS='.escapeshellarg($connects)
+            .' RW_SSH_ARGV_LOG='.escapeshellarg($argvLog)
+            .' SG_HOST=127.0.0.1 SG_USER=deploy SG_PORT=2222'
+            .' SG_SSH_KEY='.escapeshellarg($private)
+            .'; ';
 
-        $retried = $this->runShell($base.'printf payload | ssh_with_retry');
-        $this->assertSame(0, $retried['exit'], $retried['output']);
-        $this->assertStringContainsString('ssh_connect_retry attempt=1', $retried['output']);
-        $this->assertStringContainsString('payloadsession-open', $retried['output']);
-        $this->assertSame('2', (string) file_get_contents($count));
+        $first = $this->runShell($base.'printf alpha | '.escapeshellarg($script).' deploy@127.0.0.1 true');
+        $this->assertSame(0, $first['exit'], $first['output']);
+        $this->assertStringContainsString('alphasession-open', $first['output']);
+        $this->assertStringContainsString('ssh_handshake=1', $first['output']);
+        $this->assertStringNotContainsString('ssh_connect_retry', $first['output']);
+        $this->assertStringNotContainsString('ssh-keyscan-called', $first['output']);
+        $this->assertStringNotContainsString($private, $first['output']);
 
-        file_put_contents($count, '0');
-        $closed = $this->runShell($base.'export RW_SSH_FAKE_MODE=closed-then-ok; printf payload | ssh_with_retry');
+        $second = $this->runShell($base.'printf beta | '.escapeshellarg($script).' deploy@127.0.0.1 true');
+        $this->assertSame(0, $second['exit'], $second['output']);
+        $this->assertStringContainsString('betasession-open', $second['output']);
+        $this->assertStringContainsString('ssh_handshake=0', $second['output']);
+        $this->assertStringNotContainsString('ssh_handshake=1', $second['output']);
+        $this->assertSame('2', trim((string) file_get_contents($connects)));
+        $this->assertSame(
+            "ssh_handshake=1\nssh_handshake=0\n",
+            (string) file_get_contents($home.'/.ssh/sg-handshakes.log'),
+        );
+
+        $stale = $this->runShell($base.'export RW_SSH_STALE=1; printf gamma | '.escapeshellarg($script).' deploy@127.0.0.1 true');
+        $this->assertSame(0, $stale['exit'], $stale['output']);
+        $this->assertStringContainsString('gammasession-open', $stale['output']);
+        $this->assertStringContainsString('ssh_handshake=1', $stale['output']);
+        $this->assertSame('3', trim((string) file_get_contents($connects)));
+        $this->assertStringNotContainsString('ssh-keyscan', (string) file_get_contents($argvLog));
+
+        $closed = $this->runShell($base.escapeshellarg($script).' -O exit deploy@127.0.0.1');
         $this->assertSame(0, $closed['exit'], $closed['output']);
-        $this->assertStringContainsString('ssh_connect_retry attempt=1', $closed['output']);
-        $this->assertStringContainsString('payloadsession-open', $closed['output']);
-        $this->assertSame('2', (string) file_get_contents($count));
-
-        file_put_contents($count, '0');
-        $repeated = $this->runShell($base.'export RW_SSH_FAKE_MODE=reset-four-then-ok; printf payload | ssh_with_retry');
-        $this->assertSame(0, $repeated['exit'], $repeated['output']);
-        $this->assertStringContainsString('ssh_connect_retry attempt=4', $repeated['output']);
-        $this->assertStringContainsString('payloadsession-open', $repeated['output']);
-        $this->assertSame('5', (string) file_get_contents($count));
-
-        file_put_contents($count, '0');
-        $started = $this->runShell($base.'RW_SSH_FAKE_MODE=started ssh_with_retry');
-        $this->assertSame(255, $started['exit'], $started['output']);
-        $this->assertStringContainsString('started', $started['output']);
-        $this->assertStringNotContainsString('ssh_connect_retry', $started['output']);
-        $this->assertSame('1', (string) file_get_contents($count));
-
-        file_put_contents($count, '0');
-        $failed = $this->runShell($base.'RW_SSH_FAKE_MODE=remote-failed ssh_with_retry');
-        $this->assertSame(1, $failed['exit'], $failed['output']);
-        $this->assertStringNotContainsString('ssh_connect_retry', $failed['output']);
-        $this->assertSame('1', (string) file_get_contents($count));
+        $this->assertFileDoesNotExist($home.'/.ssh/sg-cm.sock');
+        $this->assertSame(
+            "ssh_handshake=1\nssh_handshake=0\nssh_handshake=1\n",
+            (string) file_get_contents($home.'/.ssh/sg-handshakes.log'),
+        );
     }
 
     public function test_harbor_front_controller_uses_the_live_app_and_leaves_the_main_site_alone(): void
