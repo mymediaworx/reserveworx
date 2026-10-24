@@ -69,6 +69,41 @@ class MembershipAuditTest extends TestCase
         $this->assertFalse($ids->contains($alphaLog->id));
     }
 
+    public function test_the_audit_log_can_be_filtered_by_action_and_subject(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        $this->actingAsWorkspace($workspace);
+
+        $this->patchJson($this->tenantUrl('alpha.test', '/api/v1/settings'), [
+            'hold_minutes' => 25,
+        ])->assertOk();
+        $created = $this->postJson($this->tenantUrl('alpha.test', '/api/v1/members'), [
+            'name' => 'Sam Staff',
+            'email' => 'sam-filter@example.com',
+            'password' => 'correct-horse-battery',
+            'role' => 'staff',
+        ])->assertCreated();
+
+        $memberId = $created->json('data.id');
+        $this->assertIsString($memberId);
+
+        $byAction = $this->getJson($this->tenantUrl('alpha.test', '/api/v1/audit-logs?action=membership.created'))
+            ->assertOk();
+        $actions = collect($byAction->json('data'))->pluck('action')->unique()->values()->all();
+        $this->assertSame(['membership.created'], $actions);
+        $this->assertTrue(collect($byAction->json('data'))->pluck('subject_id')->contains($memberId));
+
+        $bySubject = $this->getJson($this->tenantUrl('alpha.test', '/api/v1/audit-logs?subject_id='.$memberId))
+            ->assertOk();
+        $subjects = collect($bySubject->json('data'))->pluck('subject_id')->unique()->values()->all();
+        $this->assertSame([$memberId], $subjects);
+
+        $this->getJson($this->tenantUrl('alpha.test', '/api/v1/audit-logs?action='.str_repeat('a', 256)))
+            ->assertStatus(422);
+        $this->getJson($this->tenantUrl('alpha.test', '/api/v1/audit-logs?subject_id=short'))
+            ->assertStatus(422);
+    }
+
     public function test_the_last_owner_cannot_be_revoked(): void
     {
         $workspace = $this->workspace('alpha.test');
