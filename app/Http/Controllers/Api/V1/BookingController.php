@@ -4,15 +4,20 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\MembershipStatus;
 use App\Enums\OperationalStatus;
+use App\Enums\ResourceStatus;
+use App\Enums\ReturnCondition;
 use App\Http\Controllers\Controller;
+use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Membership;
 use App\Models\RentalCheckout;
+use App\Models\RentalReturn;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Models\User;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
@@ -283,7 +288,7 @@ class BookingController extends Controller
         $this->authorize('update', $booking);
 
         try {
-            $result = $this->allocator->returnRental($booking);
+            $result = $this->allocator->returnRental($booking, $this->conditions($request));
         } catch (AllocationUnavailableException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
@@ -294,9 +299,31 @@ class BookingController extends Controller
 
         $this->recordLateFee($result['booking']);
 
-        $this->audit->log('booking.returned', $result['booking'], [], request: $request);
+        $this->audit->log('booking.returned', $result['booking'], [
+            'conditions' => $result['conditions'],
+        ], request: $request);
 
-        return response()->json(['data' => $this->payload($result['booking'])]);
+        foreach ($result['maintained_asset_ids'] as $assetId) {
+            $asset = Asset::query()->find($assetId);
+
+            if ($asset instanceof Asset) {
+                $this->audit->log('asset.updated', $asset, [
+                    'status' => ResourceStatus::Maintenance->value,
+                ], request: $request);
+            }
+        }
+
+        $data = $this->payload($result['booking']);
+        $data['returns'] = $this->returnRecords($result['booking']);
+
+        return response()->json(['data' => $data]);
+    }
+
+    public function indexReturns(Booking $booking): JsonResponse
+    {
+        $this->authorize('view', $booking);
+
+        return response()->json(['data' => $this->returnRecords($booking)]);
     }
 
     public function update(Request $request, Booking $booking): JsonResponse
@@ -524,6 +551,90 @@ class BookingController extends Controller
             'email' => $customer->email,
             'phone' => $customer->phone,
         ];
+    }
+
+    /**
+     * @return list<array{asset_id: string, condition: string, notes: ?string, recorded_by: string}>|null
+     */
+    private function conditions(Request $request): ?array
+    {
+        if (! $request->exists('conditions')) {
+            return null;
+        }
+
+        $validated = $request->validate([
+            'conditions' => ['present', 'array'],
+            'conditions.*.asset_id' => ['required', 'string'],
+            'conditions.*.condition' => ['required', 'string', Rule::in(array_column(ReturnCondition::cases(), 'value'))],
+            'conditions.*.notes' => ['nullable', 'string', 'max:500'],
+        ], [
+            'conditions.*.condition.in' => 'Condition must be ok, damaged, or missing.',
+        ]);
+        $user = $request->user();
+
+        if (! $user instanceof User) {
+            abort(403);
+        }
+
+        $rows = [];
+        $seen = [];
+
+        foreach ($validated['conditions'] as $row) {
+            if (! is_array($row)) {
+                throw ValidationException::withMessages([
+                    'conditions' => 'Record a condition for every asset on this rental.',
+                ]);
+            }
+
+            $assetId = $row['asset_id'] ?? null;
+            $condition = $row['condition'] ?? null;
+
+            if (! is_string($assetId) || $assetId === '' || ! is_string($condition)) {
+                throw ValidationException::withMessages([
+                    'conditions' => 'Record a condition for every asset on this rental.',
+                ]);
+            }
+
+            if (isset($seen[$assetId])) {
+                throw ValidationException::withMessages([
+                    'conditions' => 'Each asset can be recorded once.',
+                ]);
+            }
+
+            $seen[$assetId] = true;
+            $notes = $row['notes'] ?? null;
+            $rows[] = [
+                'asset_id' => $assetId,
+                'condition' => $condition,
+                'notes' => is_string($notes) && trim($notes) !== '' ? trim($notes) : null,
+                'recorded_by' => $user->id,
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return list<array{id: string, booking_id: string, rental_checkout_id: string, asset_id: string, condition: string, notes: ?string, recorded_by: ?string, created_at: ?string}>
+     */
+    private function returnRecords(Booking $booking): array
+    {
+        $rows = [];
+
+        foreach (RentalReturn::query()->where('booking_id', $booking->id)->orderBy('id')->get() as $row) {
+            $rows[] = [
+                'id' => $row->id,
+                'booking_id' => $row->booking_id,
+                'rental_checkout_id' => $row->rental_checkout_id,
+                'asset_id' => $row->asset_id,
+                'condition' => $row->condition->value,
+                'notes' => $row->notes,
+                'recorded_by' => $row->recorded_by,
+                'created_at' => $row->created_at?->toIso8601String(),
+            ];
+        }
+
+        return $rows;
     }
 
     private function recordLateFee(Booking $booking): void

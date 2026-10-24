@@ -2,7 +2,9 @@
 
 namespace App\Services\Operations;
 
+use App\Enums\ResourceStatus;
 use App\Models\Allocation;
+use App\Models\Asset;
 use App\Models\Booking;
 use Carbon\CarbonImmutable;
 
@@ -48,5 +50,24 @@ final class AffectedBookings
         }
 
         return $flagged;
+    }
+
+    /**
+     * Same flag a direct status change writes when an asset becomes
+     * maintenance or blocked. It does not cancel those bookings.
+     */
+    public function flagAssetStatus(Asset $asset, ResourceStatus $previous): void
+    {
+        if ($asset->status === $previous || ! in_array($asset->status, [ResourceStatus::Maintenance, ResourceStatus::Blocked], true)) {
+            return;
+        }
+
+        $this->flag(
+            $asset->id,
+            null,
+            CarbonImmutable::now()->utc(),
+            CarbonImmutable::now()->utc()->addYear(),
+            'Asset is '.$asset->status->value.'.',
+        );
     }
 }
