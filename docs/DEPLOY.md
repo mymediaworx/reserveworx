@@ -89,7 +89,7 @@ Do not raise `QUEUE_WORK_MAX_TIME` without recounting that table. Hold expiry, w
 
 ## Secrets
 
-Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`. The workflow masks host, user, port, and passphrase. It does not echo the private key. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
+Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`. The workflow masks host, user, port, and passphrase. It does not echo the private key. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`. If the server resets the connection during key exchange, before the remote command prints anything, the wrapper tries that connection twice more. A command that already started is not repeated.
 
 Application secrets belong only in `laravel/shared/.env`.
 

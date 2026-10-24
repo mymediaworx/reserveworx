@@ -48,6 +48,11 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('Harbor Demo bookings', $remote);
         $this->assertStringContainsString('<h1>Harbor Demo</h1>', $remote);
 
+        $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
+        $this->assertStringContainsString('ssh_connect_retry', $ssh);
+        $this->assertStringContainsString('kex_exchange_identification', $ssh);
+        $this->assertStringNotContainsString('www/reserveworx.com', $ssh);
+
         $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
         $this->assertStringContainsString('sg_key.pub', $prepare);
         $this->assertStringContainsString('IdentitiesOnly=yes', $prepare);
@@ -144,6 +149,64 @@ BASH);
         fclose($pipes[2]);
 
         return ['exit' => proc_close($process), 'output' => $output];
+    }
+
+    public function test_a_dropped_ssh_handshake_is_retried_and_a_started_command_is_not(): void
+    {
+        $dir = sys_get_temp_dir().'/rw-ssh-'.bin2hex(random_bytes(4));
+        mkdir($dir, 0777, true);
+        $fake = $dir.'/fake-ssh';
+        $count = $dir.'/count';
+        file_put_contents($fake, <<<'BASH'
+#!/bin/bash
+n=0
+if [[ -f "$RW_SSH_COUNT" ]]; then
+  n="$(cat "$RW_SSH_COUNT")"
+fi
+n=$((n + 1))
+printf '%s' "$n" > "$RW_SSH_COUNT"
+mode="${RW_SSH_FAKE_MODE:-reset-then-ok}"
+if [[ "$mode" == "reset-then-ok" && "$n" -eq 1 ]]; then
+  echo "kex_exchange_identification: read: Connection reset by peer" >&2
+  exit 255
+fi
+if [[ "$mode" == "started" ]]; then
+  echo "started"
+  echo "kex_exchange_identification: read: Connection reset by peer" >&2
+  exit 255
+fi
+if [[ "$mode" == "remote-failed" ]]; then
+  echo "started"
+  exit 1
+fi
+cat
+echo "session-open"
+exit 0
+BASH);
+        chmod($fake, 0755);
+        $script = base_path('scripts/ssh-siteground.sh');
+        $base = 'export SG_SSH_BIN='.escapeshellarg($fake)
+            .' RW_SSH_COUNT='.escapeshellarg($count)
+            .' RW_SSH_RETRY_SLEEP=0 RW_SSH_LIBRARY=1; source '.escapeshellarg($script).'; ';
+
+        $retried = $this->runShell($base.'printf payload | ssh_with_retry');
+        $this->assertSame(0, $retried['exit'], $retried['output']);
+        $this->assertStringContainsString('ssh_connect_retry attempt=1', $retried['output']);
+        $this->assertStringContainsString('payloadsession-open', $retried['output']);
+        $this->assertSame('2', (string) file_get_contents($count));
+
+        file_put_contents($count, '0');
+        $started = $this->runShell($base.'RW_SSH_FAKE_MODE=started ssh_with_retry');
+        $this->assertSame(255, $started['exit'], $started['output']);
+        $this->assertStringContainsString('started', $started['output']);
+        $this->assertStringNotContainsString('ssh_connect_retry', $started['output']);
+        $this->assertSame('1', (string) file_get_contents($count));
+
+        file_put_contents($count, '0');
+        $failed = $this->runShell($base.'RW_SSH_FAKE_MODE=remote-failed ssh_with_retry');
+        $this->assertSame(1, $failed['exit'], $failed['output']);
+        $this->assertStringNotContainsString('ssh_connect_retry', $failed['output']);
+        $this->assertSame('1', (string) file_get_contents($count));
     }
 
     public function test_harbor_front_controller_uses_the_live_app_and_leaves_the_main_site_alone(): void
