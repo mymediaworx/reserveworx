@@ -35,6 +35,7 @@ use App\Services\Customers\CustomerAccountLinker;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
+use App\Services\Pricing\PromoCodes;
 use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
@@ -59,6 +60,7 @@ class Allocator
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly WebhookPublisher $webhooks,
         private readonly CustomerAccountLinker $customerAccounts,
+        private readonly PromoCodes $promoCodes,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -142,8 +144,7 @@ class Allocator
 
             if ($unexpired && $seatOnly) {
                 Hold::query()->where('booking_id', $booking->id)->delete();
-                $booking->status = BookingStatus::Confirmed;
-                $booking->save();
+                $this->saveConfirmed($booking);
                 $this->webhooks->bookingChanged($booking);
 
                 return $booking->load(['allocations', 'lineItems']);
@@ -156,8 +157,7 @@ class Allocator
                 Hold::query()->where('booking_id', $booking->id)->delete();
                 BookingLineItem::query()->where('booking_id', $booking->id)->delete();
                 $this->writeRows($booking, $plan, hold: false);
-                $booking->status = BookingStatus::Confirmed;
-                $booking->save();
+                $this->saveConfirmed($booking);
                 $this->refreshCounters($plan);
                 $this->webhooks->bookingChanged($booking);
 
@@ -180,8 +180,7 @@ class Allocator
 
             BookingLineItem::query()->where('booking_id', $booking->id)->delete();
             $this->writeRows($booking, $plan, hold: false);
-            $booking->status = BookingStatus::Confirmed;
-            $booking->save();
+            $this->saveConfirmed($booking);
             $this->refreshCounters($plan);
             $this->webhooks->bookingChanged($booking);
 
@@ -191,6 +190,13 @@ class Allocator
         $this->events->confirmed($confirmed);
 
         return $confirmed;
+    }
+
+    private function saveConfirmed(Booking $booking): void
+    {
+        $booking->status = BookingStatus::Confirmed;
+        $booking->save();
+        $this->promoCodes->record($booking);
     }
 
     /**

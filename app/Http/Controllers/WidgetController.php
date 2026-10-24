@@ -158,8 +158,68 @@ class WidgetController extends Controller
             ]) : null,
             'pickupUrl' => $pickup['url'],
             'pickupLabel' => $pickup['label'],
+            'promoUrl' => $this->promoUrl($token, $booking, $hold),
+            'promoValue' => $this->promoValue($snapshot),
             'error' => null,
         ]);
+    }
+
+    public function applyPromo(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $this->activeToken($token);
+        $this->assertBookingService($booking);
+        $fresh = $booking->fresh() ?? $booking;
+        $snapshot = $this->snapshot($fresh);
+        $hold = $this->openHold($fresh);
+        $submitted = trim((string) $request->input('promo_code', ''));
+
+        if (! $hold instanceof Hold) {
+            return $this->checkoutResponse($token, $fresh, $snapshot, null, null, null, null, 'This hold has expired.', 409, $submitted);
+        }
+
+        $expires = CarbonImmutable::instance($hold->expires_at);
+        $payUrl = URL::temporarySignedRoute('widget.pay', $expires, [
+            'token' => $token,
+            'booking' => $fresh->id,
+        ]);
+        $pickup = $this->pickupOffer($this->tenant($request), $token, $fresh, $snapshot, $hold);
+
+        if ($submitted === '') {
+            return $this->checkoutResponse(
+                $token,
+                $fresh,
+                $snapshot,
+                $hold,
+                $payUrl,
+                $pickup['url'],
+                $pickup['label'],
+                'Enter a promo code.',
+                422,
+                $submitted,
+            );
+        }
+
+        try {
+            $this->pricer->applyPromo($fresh->load('location'), $this->tenant($request), $submitted);
+        } catch (InvalidArgumentException $exception) {
+            return $this->checkoutResponse(
+                $token,
+                $fresh,
+                $snapshot,
+                $hold,
+                $payUrl,
+                $pickup['url'],
+                $pickup['label'],
+                $exception->getMessage(),
+                422,
+                $submitted,
+            );
+        }
+
+        return redirect()->to(URL::temporarySignedRoute('widget.checkout', $expires, [
+            'token' => $token,
+            'booking' => $fresh->id,
+        ]));
     }
 
     public function pickup(Request $request, string $token, Booking $booking): Response|RedirectResponse
@@ -552,6 +612,7 @@ class WidgetController extends Controller
         ?string $pickupLabel,
         ?string $error,
         int $status,
+        string $promoValue = '',
     ): Response {
         return response()->view('widget.checkout', [
             'token' => $token,
@@ -562,8 +623,29 @@ class WidgetController extends Controller
             'payUrl' => $payUrl,
             'pickupUrl' => $pickupUrl,
             'pickupLabel' => $pickupLabel,
+            'promoUrl' => $this->promoUrl($token, $booking, $hold),
+            'promoValue' => $promoValue,
             'error' => $error,
         ], $status);
+    }
+
+    private function promoUrl(string $token, Booking $booking, ?Hold $hold): ?string
+    {
+        if (! $hold instanceof Hold) {
+            return null;
+        }
+
+        return URL::temporarySignedRoute('widget.promo', CarbonImmutable::instance($hold->expires_at), [
+            'token' => $token,
+            'booking' => $booking->id,
+        ]);
+    }
+
+    private function promoValue(PricingSnapshot $snapshot): string
+    {
+        $code = $snapshot->payload['promo_code'] ?? null;
+
+        return is_string($code) ? $code : '';
     }
 
     private function assertBookingService(Booking $booking): void

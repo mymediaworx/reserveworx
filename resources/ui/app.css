@@ -591,11 +591,16 @@ fieldset.days { grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr)); 
 
 /* ---------- Fee disclosure partials ---------- */
 
+.promo-page { min-width: 0; }
+.promo-page .row { align-items: flex-start; }
+.promo-page .field, .promo-page .stack, .promo-page .split { min-width: 0; }
+.promo-page code, .promo-page h2 { overflow-wrap: anywhere; }
+.promo-page .field input, .promo-page .field select { width: 100%; min-width: 0; max-width: 100%; }
 .checkout-summary dl, .receipt-summary dl { margin: 0; display: grid; }
-.checkout-summary .line, .receipt-summary .line { display: flex; justify-content: space-between; padding: 0.5rem 0; border-top: 1px solid var(--line); }
+.checkout-summary .line, .receipt-summary .line { display: flex; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; border-top: 1px solid var(--line); }
 .checkout-summary .line:first-child, .receipt-summary .line:first-child { border-top: 0; }
-.checkout-summary dt, .receipt-summary dt { color: var(--ink-soft); }
-.checkout-summary dd, .receipt-summary dd { margin: 0; font-weight: 600; }
+.checkout-summary dt, .receipt-summary dt { color: var(--ink-soft); min-width: 0; overflow-wrap: anywhere; }
+.checkout-summary dd, .receipt-summary dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; text-align: right; }
 .checkout-summary .total, .receipt-summary .total { border-top: 2px solid var(--ink); font-size: 1.15rem; }
 .booking-fee-refund-terms { margin-top: 1rem; padding: 0.9rem 1rem; background: var(--page); border-radius: var(--radius); font-size: 0.875rem; }
 .booking-fee-refund-terms h3 { margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--ink); }

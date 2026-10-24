@@ -16,9 +16,12 @@
         $addOnCents = is_numeric($priced['add_ons_cents'] ?? null) ? (int) $priced['add_ons_cents'] : 0;
         $serviceCents = is_numeric($priced['services_cents'] ?? null) ? (int) $priced['services_cents'] : 0;
         $discountCents = is_numeric($priced['discount_cents'] ?? null) ? (int) $priced['discount_cents'] : 0;
+        $promoCode = is_string($priced['promo_code'] ?? null) ? $priced['promo_code'] : '';
     @endphp
     @include('disclosures.checkout-summary', [
-        'subtotalCents' => max(0, $serviceCents - $discountCents + $addOnCents),
+        'subtotalCents' => max(0, $serviceCents + $addOnCents),
+        'discountCents' => $discountCents,
+        'promoCode' => $promoCode,
         'operatorFees' => $operatorFees,
         'bookingFeeCents' => $snapshot->payload['customer_fee_line_cents'],
         'taxCents' => (int) $snapshot->payload['tax_cents'],
@@ -26,6 +29,15 @@
         'currency' => $snapshot->currency,
         'refundTerms' => $terms,
     ])
+    @if ($promoUrl)
+        <form method="post" action="{{ $promoUrl }}" class="promo-form">
+            <label>
+                Promo code <span class="muted">(optional)</span>
+                <input type="text" name="promo_code" maxlength="40" autocomplete="off" value="{{ $promoValue }}">
+            </label>
+            <button type="submit">Apply code</button>
+        </form>
+    @endif
     @if ($payUrl)
         {{-- target=_top: Stripe's payment page cannot load inside an embedded frame. --}}
         <form method="post" action="{{ $payUrl }}" target="_top">
