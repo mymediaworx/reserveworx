@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Validation\ValidationException;
 
 class Pool extends Model
 {
@@ -26,6 +27,19 @@ class Pool extends Model
         'return_buffer_minutes',
         'turnaround_minutes',
     ];
+
+    protected static function booted(): void
+    {
+        static::saving(function (Pool $pool): void {
+            if ($pool->status !== ResourceStatus::Retired) {
+                return;
+            }
+
+            throw ValidationException::withMessages([
+                'status' => 'A pool cannot be retired.',
+            ]);
+        });
+    }
 
     protected $casts = [
         'status' => ResourceStatus::class,

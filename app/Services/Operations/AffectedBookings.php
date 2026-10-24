@@ -54,15 +54,15 @@ final class AffectedBookings
 
     /**
      * Same flag a direct status change writes when an asset becomes
-     * maintenance or blocked. It does not cancel those bookings.
+     * maintenance, blocked, or retired. It does not cancel those bookings.
      */
-    public function flagAssetStatus(Asset $asset, ResourceStatus $previous): void
+    public function flagAssetStatus(Asset $asset, ResourceStatus $previous): int
     {
-        if ($asset->status === $previous || ! in_array($asset->status, [ResourceStatus::Maintenance, ResourceStatus::Blocked], true)) {
-            return;
+        if ($asset->status === $previous || ! in_array($asset->status, [ResourceStatus::Maintenance, ResourceStatus::Blocked, ResourceStatus::Retired], true)) {
+            return 0;
         }
 
-        $this->flag(
+        return $this->flag(
             $asset->id,
             null,
             CarbonImmutable::now()->utc(),

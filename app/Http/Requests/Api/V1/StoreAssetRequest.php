@@ -30,7 +30,7 @@ class StoreAssetRequest extends FormRequest
             'location_id' => ['required', 'string', $this->owned('locations', $tenantId)],
             'resource_category_id' => ['nullable', 'string', $this->owned('resource_categories', $tenantId)],
             'name' => ['required', 'string', 'max:120'],
-            'status' => ['sometimes', Rule::enum(ResourceStatus::class)],
+            'status' => ['sometimes', Rule::in(ResourceStatus::writable())],
             'capacity' => ['sometimes', 'integer', 'between:1,10000'],
             'is_guide' => ['sometimes', 'boolean'],
             'prep_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],

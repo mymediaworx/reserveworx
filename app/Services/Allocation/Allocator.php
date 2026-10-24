@@ -376,7 +376,7 @@ class Allocator
             }
 
             $intent = $this->intentFromBooking($booking);
-            $plan = $this->plan($intent);
+            $plan = $this->plan($intent, $fromAssetId);
             $plan = $this->swapAsset($plan, $booking, $fromAssetId, $toAssetId);
             $this->lock($plan);
 
@@ -820,9 +820,12 @@ class Allocator
     }
 
     /**
+     * A retired asset can be planned only as the source of a reassignment,
+     * so an existing booking can move off it. A new hold still refuses it.
+     *
      * @return Plan
      */
-    private function plan(AllocationIntent $intent): array
+    private function plan(AllocationIntent $intent, ?string $reassignFromAssetId = null): array
     {
         $service = Service::query()->with(['location', 'requirements', 'durations'])->find($intent->serviceId);
 
@@ -861,8 +864,12 @@ class Allocator
         foreach ($service->requirements as $requirement) {
             $units = $requirement->unitsFor($intent->participants);
             $resource = $this->resource($requirement);
+            $movingOffRetired = $resource instanceof Asset
+                && $reassignFromAssetId !== null
+                && $resource->id === $reassignFromAssetId
+                && $resource->status === ResourceStatus::Retired;
 
-            if ($resource === null || $resource->location_id !== $service->location_id || $resource->status !== ResourceStatus::Active) {
+            if ($resource === null || $resource->location_id !== $service->location_id || ($resource->status !== ResourceStatus::Active && ! $movingOffRetired)) {
                 throw new AllocationUnavailableException('A required resource is not available.');
             }
 

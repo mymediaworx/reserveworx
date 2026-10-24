@@ -32,7 +32,7 @@ class UpdatePoolRequest extends FormRequest
             'resource_category_id' => ['sometimes', 'nullable', 'string', Rule::exists('resource_categories', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'name' => ['sometimes', 'string', 'max:120'],
             'quantity' => ['sometimes', 'integer', 'between:0,100000'],
-            'status' => ['sometimes', Rule::enum(ResourceStatus::class)],
+            'status' => ['sometimes', Rule::in(ResourceStatus::writable())],
             'prep_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
             'return_buffer_minutes' => ['sometimes', 'integer', 'between:0,1440'],
             'turnaround_minutes' => ['sometimes', 'integer', 'between:0,1440'],

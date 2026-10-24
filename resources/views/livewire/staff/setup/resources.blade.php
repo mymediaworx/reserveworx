@@ -37,7 +37,7 @@
                                                 <input type="number" min="0" max="100000" value="{{ $pool->quantity }}" wire:change="setQuantity('{{ $pool->id }}', $event.target.value)" class="count">
                                             </label>
                                             <select aria-label="Status of {{ $pool->name }}" wire:change="setStatus('pool', '{{ $pool->id }}', $event.target.value)">
-                                                @foreach ($statuses as $s)<option value="{{ $s->value }}" @selected($pool->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
+                                                @foreach ($statuses as $s)@continue($s->value === 'retired')<option value="{{ $s->value }}" @selected($pool->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
                                         @else
                                             <span>{{ $pool->quantity }}</span>
@@ -56,7 +56,7 @@
                                         <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span></span>
                                         @if ($canManage)
                                             <select aria-label="Status of {{ $asset->name }}" wire:change="setStatus('asset', '{{ $asset->id }}', $event.target.value)">
-                                                @foreach ($statuses as $s)<option value="{{ $s->value }}" @selected($asset->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
+                                                @foreach ($statuses as $s)@continue($s->value === 'retired' && $asset->status !== $s)<option value="{{ $s->value }}" @selected($asset->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
                                         @else
                                             <span class="muted">{{ Display::status($asset->status->value) }}</span>

@@ -81,6 +81,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/assets', [AssetController::class, 'store']);
             Route::get('/assets/{asset}', [AssetController::class, 'show']);
             Route::patch('/assets/{asset}', [AssetController::class, 'update']);
+            Route::post('/assets/{asset}/retire', [AssetController::class, 'retire']);
             Route::get('/pools', [PoolController::class, 'index']);
             Route::post('/pools', [PoolController::class, 'store']);
             Route::get('/pools/{pool}', [PoolController::class, 'show']);
