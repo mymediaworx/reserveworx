@@ -63,6 +63,7 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/reports/today/export'],
             ['GET', '/api/v1/reports/summaries'],
             ['GET', '/api/v1/reports/revenue'],
+            ['GET', '/api/v1/reports/customers'],
             ['GET', '/api/v1/integrations/outbox'],
             ['GET', '/api/v1/widget-tokens'],
             ['POST', '/api/v1/widget-tokens'],
