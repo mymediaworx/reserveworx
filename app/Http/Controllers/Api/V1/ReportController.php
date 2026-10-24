@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\ReportSummary;
+use App\Services\Reports\ServiceRevenue;
 use App\Services\Reports\TodayReport;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +16,10 @@ use InvalidArgumentException;
 
 class ReportController extends Controller
 {
-    public function __construct(private readonly TodayReport $reports) {}
+    public function __construct(
+        private readonly TodayReport $reports,
+        private readonly ServiceRevenue $serviceRevenue,
+    ) {}
 
     public function today(Request $request): JsonResponse
     {
@@ -33,27 +37,7 @@ class ReportController extends Controller
     public function summaries(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
-        $validated = $request->validate([
-            'from' => ['required', 'date_format:Y-m-d'],
-            'to' => ['required', 'date_format:Y-m-d'],
-        ]);
-        $from = $validated['from'];
-        $to = $validated['to'];
-
-        if (! is_string($from) || ! is_string($to)) {
-            throw ValidationException::withMessages(['from' => 'Date must be YYYY-MM-DD.']);
-        }
-
-        if ($from > $to) {
-            throw ValidationException::withMessages(['to' => 'The end date must be on or after the start date.']);
-        }
-
-        $start = CarbonImmutable::parse($from.' 00:00:00', 'UTC');
-        $end = CarbonImmutable::parse($to.' 00:00:00', 'UTC');
-
-        if (intdiv($end->getTimestamp() - $start->getTimestamp(), 86400) > 365) {
-            throw ValidationException::withMessages(['to' => 'The summary window cannot be longer than 366 days.']);
-        }
+        [$from, $to] = $this->dateWindow($request, 'The summary window cannot be longer than 366 days.');
 
         $rows = ReportSummary::query()
             ->with('location')
@@ -86,6 +70,16 @@ class ReportController extends Controller
         ]);
     }
 
+    public function revenue(Request $request): JsonResponse
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The revenue window cannot be longer than 366 days.');
+
+        return response()->json([
+            'data' => $this->serviceRevenue->build($from, $to),
+        ]);
+    }
+
     public function export(Request $request): Response|JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
@@ -100,6 +94,36 @@ class ReportController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="today.csv"',
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function dateWindow(Request $request, string $tooLong): array
+    {
+        $validated = $request->validate([
+            'from' => ['required', 'date_format:Y-m-d'],
+            'to' => ['required', 'date_format:Y-m-d'],
+        ]);
+        $from = $validated['from'];
+        $to = $validated['to'];
+
+        if (! is_string($from) || ! is_string($to)) {
+            throw ValidationException::withMessages(['from' => 'Date must be YYYY-MM-DD.']);
+        }
+
+        if ($from > $to) {
+            throw ValidationException::withMessages(['to' => 'The end date must be on or after the start date.']);
+        }
+
+        $start = CarbonImmutable::parse($from.' 00:00:00', 'UTC');
+        $end = CarbonImmutable::parse($to.' 00:00:00', 'UTC');
+
+        if (intdiv($end->getTimestamp() - $start->getTimestamp(), 86400) > 365) {
+            throw ValidationException::withMessages(['to' => $tooLong]);
+        }
+
+        return [$from, $to];
     }
 
     private function dateQuery(Request $request): ?string
