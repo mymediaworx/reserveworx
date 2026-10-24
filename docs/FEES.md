@@ -120,9 +120,25 @@ Proportional fee refunds are computed from the **cumulative** subtotal refunded 
 
 `stripeMethod` is `refund_application_fee_flag` only for a full refund with nothing refunded before. Every other fee refund is `application_fee_refund` for the exact amount. The calculator works at booking level. Splitting a refund across a deposit charge and a balance charge is the Stripe layer's job. The fee sits on the first charge.
 
+## Peak hours
+
+Spec Section 7.1 names peak rates and does not say what happens when a booking crosses the peak window. The rule below is that choice.
+
+`POST /api/v1/services/{service}/prices` accepts an optional local clock window. `local_start` and `local_end` are `HH:MM` in the booking location's timezone. Both are required together, and they must differ. The window is half-open: the start minute counts and the end minute does not. An end earlier than the start crosses midnight. `weekdays` is optional and only allowed with a clock window. The values are Carbon weekdays, `0` Sunday through `6` Saturday. A weekday or weekend `window` still applies, and every listed day must fit that window.
+
+Each rate is a price for the whole booking, not a price per minute. `base`, `per_person`, and `duration` stay separate and still add together. For one kind, each elapsed minute uses one rate:
+
+- A minute inside one or more clock windows uses the winning window of that kind. A date-bounded window beats one with no dates. A window with a weekday list beats one without. A weekday or weekend window beats `always`. If those are still equal, the earlier rule for that service wins. Rules are read in id order.
+- Any other minute uses the rates of that kind that have no clock window. Those rates still follow the booking's start for weekday, weekend, and date bounds. They are summed, as they were before clock windows existed.
+- A minute that matches no rate of that kind contributes nothing. A booking that matches no rate at all is refused. A booking that is only partly inside a peak, and has no rate for the rest of that kind, is charged for the covered share only.
+
+The kind's charge is the minute-weighted average of those rates, rounded half-up once. A per-person rate is multiplied by the party size before that rounding. Elapsed minutes come from the UTC interval. The location timezone converts each minute. A local hour that daylight saving skips is not priced. A local hour that repeats can match the window twice. A price increase or decrease uses the booking's local start, not midnight, and writes the new `time_windows` onto the snapshot.
+
+`time_windows` lists each clock window that won at least one minute: the kind, the amount, the weekday or weekend window, `local_start`, `local_end`, `weekdays`, the date bounds, the duration, and `minutes`.
+
 ## Checkout
 
-`BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the add-on total, each add-on line, the discount, the promo code, the tax rate, the priced date, duration, and party size, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis. Add-ons and equipment fees are part of the fee basis and the customer subtotal. They are not taxed, and a percent or amount promo does not reduce them. The line totals are fixed when the add-ons are chosen, except a per-person line, which is the stored unit price times the party size. A later catalog or service price change does not rewrite those lines. A party-size change rewrites only the per-person totals. Service revenue and the live gross total still read `services_cents`, so they do not include add-ons.
+`BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the add-on total, each add-on line, the discount, the promo code, the tax rate, the priced date, the local start, the duration, and party size, `time_windows`, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis. Add-ons and equipment fees are part of the fee basis and the customer subtotal. They are not taxed, and a percent or amount promo does not reduce them. The line totals are fixed when the add-ons are chosen, except a per-person line, which is the stored unit price times the party size. A later catalog or service price change does not rewrite those lines. A party-size change rewrites only the per-person totals. Service revenue and the live gross total still read `services_cents`, so they do not include add-ons.
 
 `POST /api/v1/bookings/{booking}/pricing` writes that snapshot and the current booking-fee disclosure version for a customer-paid tenant. `POST /api/v1/bookings/{booking}/offline-payment` records method `offline`, fee 0, and confirms a held booking as `offline_paid`. The recorded amount is the customer total minus the customer booking-fee line, so a customer-paid quote of $23.98 with a $0.66 booking fee is stored as $23.32. An operator-absorbed quote has no customer fee line, and the offline amount stays the customer total.
 

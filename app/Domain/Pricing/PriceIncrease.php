@@ -11,6 +11,9 @@ use App\Domain\Fees\PaymentFee;
  */
 final readonly class PriceIncrease
 {
+    /**
+     * @param  list<array<string, mixed>>  $timeWindows
+     */
     public function __construct(
         public int $servicesDeltaCents,
         public int $discountDeltaCents,
@@ -19,5 +22,6 @@ final readonly class PriceIncrease
         public BookingFeeQuote $quote,
         public PaymentFee $payment,
         public int $addOnsDeltaCents = 0,
+        public array $timeWindows = [],
     ) {}
 }

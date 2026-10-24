@@ -296,6 +296,8 @@ final class CheckoutService
             'priced_participants' => $booking->participants,
             'priced_duration_minutes' => $this->durationMinutes($booking),
             'priced_on' => $this->pricedOn($booking),
+            'priced_local_start' => $this->pricedLocalStart($booking),
+            'time_windows' => $increase->timeWindows,
         ];
         $snapshot->payload = $payload;
         $snapshot->save();
@@ -467,19 +469,22 @@ final class CheckoutService
         $storedOn = $payload['priced_on'] ?? null;
         $storedDuration = $payload['priced_duration_minutes'] ?? null;
         $storedParticipants = $payload['priced_participants'] ?? null;
+        $storedLocalStart = $payload['priced_local_start'] ?? null;
         $scheduleKnown = is_string($storedOn) && $storedOn !== ''
+            && is_string($storedLocalStart)
             && is_numeric($storedDuration)
             && is_numeric($storedParticipants);
 
         if ($scheduleKnown
             && $storedOn === $onDate
+            && $storedLocalStart === $this->pricedLocalStart($booking)
             && (int) $storedDuration === $duration
             && (int) $storedParticipants === $booking->participants
             && $this->cents($payload, 'add_ons_cents') === $addOnsCents) {
             throw new AllocationUnavailableException('This booking has no price increase.');
         }
 
-        [$channel, $rate, $payer, $rules, $on] = $this->quoteInputs($booking, $payload, $onDate);
+        [$channel, $rate, $payer, $rules, $on] = $this->quoteInputs($booking, $payload);
 
         try {
             return $this->pricing->increaseFromQuote(
@@ -514,19 +519,22 @@ final class CheckoutService
         $storedOn = $payload['priced_on'] ?? null;
         $storedDuration = $payload['priced_duration_minutes'] ?? null;
         $storedParticipants = $payload['priced_participants'] ?? null;
+        $storedLocalStart = $payload['priced_local_start'] ?? null;
         $scheduleKnown = is_string($storedOn) && $storedOn !== ''
+            && is_string($storedLocalStart)
             && is_numeric($storedDuration)
             && is_numeric($storedParticipants);
 
         if ($scheduleKnown
             && $storedOn === $onDate
+            && $storedLocalStart === $this->pricedLocalStart($booking)
             && (int) $storedDuration === $duration
             && (int) $storedParticipants === $booking->participants
             && $this->cents($payload, 'add_ons_cents') === $addOnsCents) {
             throw new AllocationUnavailableException('This booking has no price decrease.');
         }
 
-        [, , , $rules, $on] = $this->quoteInputs($booking, $payload, $onDate);
+        [, , , $rules, $on] = $this->quoteInputs($booking, $payload);
 
         try {
             return $this->pricing->decreaseFromQuote(
@@ -595,6 +603,8 @@ final class CheckoutService
         $payload['priced_participants'] = $booking->participants;
         $payload['priced_duration_minutes'] = $this->durationMinutes($booking);
         $payload['priced_on'] = $this->pricedOn($booking);
+        $payload['priced_local_start'] = $this->pricedLocalStart($booking);
+        $payload['time_windows'] = $decrease->timeWindows;
         $snapshot->payload = $payload;
         $snapshot->save();
     }
@@ -603,7 +613,7 @@ final class CheckoutService
      * @param  array<string, mixed>  $payload
      * @return array{0: FeeChannel, 1: FeeRate, 2: FeePayer, 3: list<PriceRuleInput>, 4: CarbonImmutable}
      */
-    private function quoteInputs(Booking $booking, array $payload, string $onDate): array
+    private function quoteInputs(Booking $booking, array $payload): array
     {
         $channelValue = $payload['channel'] ?? FeeChannel::Direct->value;
         $channel = is_string($channelValue) ? (FeeChannel::tryFrom($channelValue) ?? FeeChannel::Direct) : FeeChannel::Direct;
@@ -613,19 +623,10 @@ final class CheckoutService
         $rate = $setting instanceof TenantSetting
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
-        $rules = PriceRule::query()->where('service_id', $booking->service_id)->get()->map(function (PriceRule $rule): PriceRuleInput {
-            return new PriceRuleInput(
-                $rule->kind,
-                $rule->amount_cents,
-                $rule->window,
-                $rule->duration_minutes,
-                $rule->starts_on?->toDateString(),
-                $rule->ends_on?->toDateString(),
-            );
-        })->all();
+        $rules = PriceRule::inputsFor($booking->service_id);
         $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
 
-        return [$channel, $rate, $payer, $rules, CarbonImmutable::parse($onDate, $zone)];
+        return [$channel, $rate, $payer, $rules, CarbonImmutable::instance($booking->starts_at)->timezone($zone)];
     }
 
     /**
@@ -661,6 +662,13 @@ final class CheckoutService
         $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
 
         return CarbonImmutable::instance($booking->starts_at)->timezone($zone)->toDateString();
+    }
+
+    private function pricedLocalStart(Booking $booking): string
+    {
+        $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
+
+        return CarbonImmutable::instance($booking->starts_at)->timezone($zone)->format('H:i');
     }
 
     /**

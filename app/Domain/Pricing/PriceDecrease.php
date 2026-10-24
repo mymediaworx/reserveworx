@@ -10,11 +10,15 @@ namespace App\Domain\Pricing;
  */
 final readonly class PriceDecrease
 {
+    /**
+     * @param  list<array<string, mixed>>  $timeWindows
+     */
     public function __construct(
         public int $servicesCents,
         public int $discountCents,
         public int $basisReductionCents,
         public int $taxReductionCents,
         public int $addOnsCents,
+        public array $timeWindows = [],
     ) {}
 }

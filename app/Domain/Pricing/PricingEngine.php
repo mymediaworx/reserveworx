@@ -51,7 +51,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax] = $this->components(
+        [$services, $discount, $tax, $timeWindows] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -63,7 +63,7 @@ final class PricingEngine
         $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, addOnsCents: $addOnsCents, discountsCents: $discount), $tax);
         $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
-        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode, $addOnsCents, $addOnLines);
+        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode, $addOnsCents, $addOnLines, $timeWindows);
     }
 
     /**
@@ -96,7 +96,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax] = $this->components(
+        [$services, $discount, $tax, $timeWindows] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -129,6 +129,7 @@ final class PricingEngine
             $increase,
             $this->fees->priceIncreaseStripePayment($increase),
             $addOnsDelta,
+            $timeWindows,
         );
     }
 
@@ -158,7 +159,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax] = $this->components(
+        [$services, $discount, $tax, $timeWindows] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -175,12 +176,12 @@ final class PricingEngine
 
         $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
 
-        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents);
+        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows);
     }
 
     /**
      * @param  list<PriceRuleInput>  $rules
-     * @return array{0: int, 1: int, 2: int}
+     * @return array{0: int, 1: int, 2: int, 3: list<array<string, mixed>>}
      */
     private function components(
         array $rules,
@@ -201,14 +202,27 @@ final class PricingEngine
 
         $services = 0;
         $matched = false;
+        $timeWindows = [];
+        $peakPresent = false;
 
         foreach ($rules as $rule) {
-            if (! $rule->applies($on, $durationMinutes)) {
-                continue;
+            if ($rule->hasTimeWindow()) {
+                $peakPresent = true;
+                break;
             }
+        }
 
-            $matched = true;
-            $services += $rule->kind === 'per_person' ? $rule->amountCents * $participants : $rule->amountCents;
+        if ($peakPresent) {
+            [$services, $matched, $timeWindows] = $this->pricedWithPeaks($rules, $participants, $durationMinutes, $on);
+        } else {
+            foreach ($rules as $rule) {
+                if (! $rule->applies($on, $durationMinutes)) {
+                    continue;
+                }
+
+                $matched = true;
+                $services += $rule->kind === 'per_person' ? $rule->amountCents * $participants : $rule->amountCents;
+            }
         }
 
         if (! $matched) {
@@ -227,6 +241,145 @@ final class PricingEngine
 
         $discount = min($discount, $services);
 
-        return [$services, $discount, Rounding::basisPointsOf($services - $discount, $taxBasisPoints)];
+        return [$services, $discount, Rounding::basisPointsOf($services - $discount, $taxBasisPoints), $timeWindows];
+    }
+
+    /**
+     * Spec Section 7.1 names peak rates and does not say how a booking that
+     * crosses the window is priced. Each rate is still a price for the whole
+     * booking. Minutes inside the winning clock window use that rate. The other
+     * minutes use the rates with no clock. One half-up average is the charge.
+     * A per-person rate is multiplied by the party size before that rounding.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>}
+     */
+    private function pricedWithPeaks(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): array
+    {
+        if ($durationMinutes < 1) {
+            throw new InvalidArgumentException('Choose a valid interval.');
+        }
+
+        /** @var array<string, list<array{index: int, rule: PriceRuleInput}>> $kinds */
+        $kinds = ['base' => [], 'per_person' => [], 'duration' => []];
+
+        foreach ($rules as $index => $rule) {
+            $kinds[$rule->kind][] = ['index' => $index, 'rule' => $rule];
+        }
+
+        $services = 0;
+        $matched = false;
+        $windows = [];
+        $startUtc = $on->utc();
+        $timezone = $on->getTimezone();
+
+        foreach ($kinds as $kind => $indexed) {
+            $openAmount = 0;
+            $openMatched = false;
+            $peaks = [];
+
+            foreach ($indexed as $row) {
+                $rule = $row['rule'];
+
+                if ($rule->hasTimeWindow()) {
+                    if ($rule->kind === 'duration' && $rule->durationMinutes !== $durationMinutes) {
+                        continue;
+                    }
+
+                    $peaks[] = $row;
+
+                    continue;
+                }
+
+                if ($rule->applies($on, $durationMinutes)) {
+                    $openMatched = true;
+                    $openAmount += $rule->amountCents;
+                }
+            }
+
+            if ($peaks === []) {
+                if (! $openMatched) {
+                    continue;
+                }
+
+                $matched = true;
+                $services += $kind === 'per_person' ? $openAmount * $participants : $openAmount;
+
+                continue;
+            }
+
+            $numerator = 0;
+            $peakMinutes = [];
+
+            foreach ($peaks as $position => $row) {
+                $peakMinutes[$position] = 0;
+            }
+
+            $pricedMinutes = 0;
+
+            for ($minute = 0; $minute < $durationMinutes; $minute++) {
+                $local = $startUtc->addMinutes($minute)->timezone($timezone);
+                $winner = $this->winningPeak($peaks, $local);
+
+                if ($winner !== null) {
+                    $numerator += $peaks[$winner]['rule']->amountCents;
+                    $peakMinutes[$winner]++;
+                    $pricedMinutes++;
+
+                    continue;
+                }
+
+                if ($openMatched) {
+                    $numerator += $openAmount;
+                    $pricedMinutes++;
+                }
+            }
+
+            if ($pricedMinutes === 0) {
+                continue;
+            }
+
+            $matched = true;
+            $services += $kind === 'per_person'
+                ? Rounding::halfUp($numerator * $participants, $durationMinutes)
+                : Rounding::halfUp($numerator, $durationMinutes);
+
+            foreach ($peaks as $position => $row) {
+                if ($peakMinutes[$position] < 1) {
+                    continue;
+                }
+
+                $windows[] = $row['rule']->timeWindowSnapshot($peakMinutes[$position]);
+            }
+        }
+
+        return [$services, $matched, $windows];
+    }
+
+    /**
+     * @param  list<array{index: int, rule: PriceRuleInput}>  $peaks
+     */
+    private function winningPeak(array $peaks, CarbonImmutable $local): ?int
+    {
+        $winner = null;
+        $bestSpecificity = -1;
+        $bestIndex = PHP_INT_MAX;
+
+        foreach ($peaks as $position => $row) {
+            if (! $row['rule']->covers($local)) {
+                continue;
+            }
+
+            $specificity = $row['rule']->specificity();
+            $index = $row['index'];
+
+            if ($winner === null || $specificity > $bestSpecificity || ($specificity === $bestSpecificity && $index < $bestIndex)) {
+                $winner = $position;
+                $bestSpecificity = $specificity;
+                $bestIndex = $index;
+            }
+        }
+
+        return $winner;
     }
 }

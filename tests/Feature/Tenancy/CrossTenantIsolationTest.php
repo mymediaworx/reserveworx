@@ -57,6 +57,7 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/waitlist'],
             ['POST', '/api/v1/waitlist'],
             ['POST', '/api/v1/promo-codes'],
+            ['POST', '/api/v1/services/'.$beta['membership']->id.'/prices'],
             ['GET', '/api/v1/add-ons'],
             ['POST', '/api/v1/add-ons'],
             ['GET', '/api/v1/add-ons/'.$beta['membership']->id],
