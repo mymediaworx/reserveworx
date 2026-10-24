@@ -29,6 +29,7 @@ class TenantSettingResource extends JsonResource
             'direct_fee_minimum_cents' => $this->direct_fee_minimum_cents,
             'third_party_fee_minimum_cents' => $this->third_party_fee_minimum_cents,
             'currency' => $this->currency,
+            'pay_at_pickup' => $this->pay_at_pickup,
         ];
     }
 }

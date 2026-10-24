@@ -29,6 +29,7 @@ class TenantSettingFactory extends Factory
             'direct_fee_minimum_cents' => null,
             'third_party_fee_minimum_cents' => null,
             'currency' => 'USD',
+            'pay_at_pickup' => false,
         ];
     }
 }

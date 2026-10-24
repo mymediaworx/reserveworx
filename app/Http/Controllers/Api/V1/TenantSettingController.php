@@ -31,6 +31,7 @@ class TenantSettingController extends Controller
             'late_fee_per_minute_cents',
             'ledger_bucket_minutes',
             'fee_payer',
+            'pay_at_pickup',
         ]);
 
         $setting->fill($request->safe()->only([
@@ -39,6 +40,7 @@ class TenantSettingController extends Controller
             'late_fee_per_minute_cents',
             'ledger_bucket_minutes',
             'fee_payer',
+            'pay_at_pickup',
         ]));
         $setting->save();
 
@@ -52,11 +54,13 @@ class TenantSettingController extends Controller
                     'hold_minutes' => $before['hold_minutes'],
                     'ledger_bucket_minutes' => $before['ledger_bucket_minutes'],
                     'fee_payer' => $before['fee_payer']->value,
+                    'pay_at_pickup' => (bool) $before['pay_at_pickup'],
                 ],
                 'after' => [
                     'hold_minutes' => $setting->hold_minutes,
                     'ledger_bucket_minutes' => $setting->ledger_bucket_minutes,
                     'fee_payer' => $setting->fee_payer->value,
+                    'pay_at_pickup' => $setting->pay_at_pickup,
                 ],
             ],
             actor: $actor instanceof User ? $actor : null,

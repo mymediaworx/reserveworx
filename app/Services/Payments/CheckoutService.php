@@ -149,6 +149,11 @@ final class CheckoutService
         return max(0, $amount);
     }
 
+    public function amountDueAtPickup(PricingSnapshot $snapshot): int
+    {
+        return $this->offlineAmountCents($snapshot->payload);
+    }
+
     private function payloadHash(string $action, string $bookingId, ?string $successUrl = null, ?string $cancelUrl = null): string
     {
         $fields = [

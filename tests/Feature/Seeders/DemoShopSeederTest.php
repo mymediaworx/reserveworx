@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\PriceRule;
 use App\Models\Service;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
@@ -41,6 +42,7 @@ class DemoShopSeederTest extends TestCase
         app(TenantManager::class)->set($harbor);
 
         $this->assertSame(1, Location::query()->count(), 'Running twice does not duplicate the shop.');
+        $this->assertTrue(TenantSetting::query()->firstOrFail()->pay_at_pickup);
         $this->assertSame(['Paddleboard rental', 'Single kayak rental', 'Sunset paddle tour', 'Tandem kayak rental'], Service::query()->orderBy('name')->pluck('name')->all());
         $this->assertSame(7, AvailabilitySchedule::query()->count());
         $this->assertGreaterThan(0, PriceRule::query()->count());
@@ -69,12 +71,14 @@ class DemoShopSeederTest extends TestCase
         $inland = Tenant::query()->where('slug', 'inland-demo')->firstOrFail();
         app(TenantManager::class)->set($inland);
         $this->assertSame(['Canoe float'], Service::query()->pluck('name')->all());
+        $this->assertTrue(TenantSetting::query()->firstOrFail()->pay_at_pickup);
 
         $real = Tenant::factory()->create(['slug' => 'real-marina', 'name' => 'Real Marina']);
         $this->seed(DemoShopSeeder::class);
         app(TenantManager::class)->set($real);
         $this->assertSame(0, Location::query()->count());
         $this->assertSame(0, Service::query()->count());
+        $this->assertFalse(TenantSetting::query()->firstOrFail()->pay_at_pickup);
 
         @unlink($path);
     }

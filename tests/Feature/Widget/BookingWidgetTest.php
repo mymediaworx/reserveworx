@@ -8,15 +8,20 @@ use App\Models\Booking;
 use App\Models\Domain;
 use App\Models\Location;
 use App\Models\Membership;
+use App\Models\Payment;
+use App\Models\PlatformFee;
+use App\Models\PricingSnapshot;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\URL;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
@@ -33,6 +38,7 @@ class BookingWidgetTest extends TestCase
     protected function tearDown(): void
     {
         Carbon::setTestNow();
+        URL::forceRootUrl(null);
         parent::tearDown();
     }
 
@@ -123,6 +129,105 @@ class BookingWidgetTest extends TestCase
         $this->assertArrayNotHasKey('payment_method_types', $fake->sessions[0]['params']);
     }
 
+    public function test_pay_at_pickup_stays_hidden_until_the_workspace_allows_it(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        $token = $this->token($workspace);
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-pickup-off'));
+        $held->assertRedirect();
+        $bookingId = $this->bookingId((string) $held->headers->get('Location'));
+
+        $this->get((string) $held->headers->get('Location'))
+            ->assertOk()
+            ->assertSee('Pay with card')
+            ->assertDontSee('Pay at pickup');
+
+        URL::forceRootUrl('http://dock.test');
+        $url = URL::temporarySignedRoute('widget.pickup', now()->addMinutes(30), [
+            'token' => $token,
+            'booking' => $bookingId,
+        ]);
+        URL::forceRootUrl(null);
+
+        $this->post($url)->assertNotFound();
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('held', Booking::query()->findOrFail($bookingId)->status->value);
+        $this->assertSame(0, Payment::query()->count());
+        app(TenantManager::class)->forget();
+    }
+
+    public function test_pay_at_pickup_confirms_without_a_card_or_the_online_booking_fee(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        $this->patchJson($this->tenantUrl('dock.test', '/api/v1/settings'), [
+            'pay_at_pickup' => true,
+        ])->assertOk()->assertJsonPath('data.pay_at_pickup', true);
+
+        $token = $this->token($workspace);
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-pickup'));
+        $held->assertRedirect();
+        $bookingId = $this->bookingId((string) $held->headers->get('Location'));
+        $checkout = $this->get((string) $held->headers->get('Location'))->assertOk();
+        $checkout->assertSee('Pay with card')
+            ->assertSee('Pay at pickup')
+            ->assertSee('Pay $100.00 when you arrive')
+            ->assertSee('$103.00')
+            ->assertSee('Booking fee');
+
+        preg_match_all('/action="([^"]+)"/', (string) $checkout->getContent(), $actions);
+        $this->assertCount(2, $actions[1]);
+        $pickup = html_entity_decode($actions[1][1]);
+
+        $confirmed = $this->post($pickup)->assertRedirect();
+        $this->get((string) $confirmed->headers->get('Location'))
+            ->assertOk()
+            ->assertSee('Your booking is confirmed.')
+            ->assertSee('offline_paid');
+
+        $this->post($pickup)->assertRedirect();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $booking = Booking::query()->findOrFail($bookingId);
+        $this->assertSame('confirmed', $booking->status->value);
+        $this->assertSame('offline_paid', $booking->payment_status->value);
+        $this->assertSame(1, Payment::query()->where('booking_id', $booking->id)->count());
+        $payment = Payment::query()->where('booking_id', $booking->id)->firstOrFail();
+        $this->assertSame('offline', $payment->method);
+        $this->assertSame(10_000, $payment->amount_cents);
+        $this->assertSame(0, $payment->fee_cents);
+        $this->assertSame(0, PlatformFee::query()->count());
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->firstOrFail();
+        $this->assertSame(10_300, $snapshot->payload['customer_total_cents']);
+        $this->assertSame(300, $snapshot->payload['customer_fee_line_cents']);
+        app(TenantManager::class)->forget();
+    }
+
+    public function test_an_expired_hold_cannot_be_paid_at_pickup(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        app(TenantManager::class)->set($workspace['tenant']);
+        TenantSetting::query()->update(['pay_at_pickup' => true]);
+        app(TenantManager::class)->forget();
+        $token = $this->token($workspace);
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-pickup-late'));
+        $bookingId = $this->bookingId((string) $held->headers->get('Location'));
+
+        URL::forceRootUrl('http://dock.test');
+        $url = URL::temporarySignedRoute('widget.pickup', now()->addHour(), [
+            'token' => $token,
+            'booking' => $bookingId,
+        ]);
+        URL::forceRootUrl(null);
+
+        $this->travel(20)->minutes();
+
+        $this->post($url)->assertStatus(409)->assertSee('This hold has expired.');
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('held', Booking::query()->findOrFail($bookingId)->status->value);
+        $this->assertSame(0, Payment::query()->count());
+        app(TenantManager::class)->forget();
+    }
+
     public function test_a_token_works_only_on_its_own_host_and_stops_when_revoked(): void
     {
         [$workspace, $service] = $this->rental('dock.test');
@@ -139,6 +244,42 @@ class BookingWidgetTest extends TestCase
         $this->get($this->tenantUrl('dock.test', '/book/'.$issued['token']))->assertNotFound();
 
         $this->get($this->tenantUrl('dock.test', '/book/'.$issued['token'].'/services/'.$service->id))->assertNotFound();
+    }
+
+    /**
+     * @param  array{tenant: Tenant, domain: Domain, user: User, membership: Membership}  $workspace
+     */
+    private function token(array $workspace): string
+    {
+        $this->actingAsWorkspace($workspace);
+
+        return (string) $this->postJson($this->tenantUrl('dock.test', '/api/v1/widget-tokens'), [
+            'name' => 'Website',
+        ])->assertCreated()->json('data.token');
+    }
+
+    /**
+     * @return array{0: array{tenant: Tenant, domain: Domain, user: User, membership: Membership}, 1: Service}
+     */
+    private function pricedRental(string $host): array
+    {
+        [$workspace, $service] = $this->rental($host);
+        $this->actingAsWorkspace($workspace);
+        $this->postJson($this->tenantUrl($host, '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekday',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+            'window' => 'weekday',
+        ])->assertCreated();
+
+        return [$workspace, $service];
+    }
+
+    private function bookingId(string $location): string
+    {
+        preg_match('#/checkout/([^?]+)#', $location, $matches);
+
+        return $matches[1];
     }
 
     /**
