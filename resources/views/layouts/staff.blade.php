@@ -19,6 +19,7 @@
         ['href' => '/staff', 'label' => 'Home', 'icon' => 'home', 'active' => request()->is('staff')],
         ['href' => '/staff/bookings', 'label' => 'Bookings', 'icon' => 'bookings', 'active' => request()->is('staff/bookings', 'staff/bookings/*') && ! request()->is('staff/bookings/new')],
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
+        ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
         ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/settings', 'staff/branding')],
     ];
@@ -107,6 +108,7 @@
 
         <nav class="tab-bar" aria-label="Main">
             @foreach ($tabs as $tab)
+                @continue(($tab['mobile'] ?? true) === false)
                 <a href="{{ $tab['href'] }}" wire:navigate @class(['is-active' => $tab['active']]) @if($tab['active']) aria-current="page" @endif>
                     <span class="tab-icon"><x-icon :name="$tab['icon']" size="24" /></span>
                     <span class="tab-label">{{ $tab['label'] }}</span>

@@ -654,6 +654,110 @@ body.auth { display: grid; place-items: center; min-height: 100vh; padding: 1rem
 .auth-panel.wide { width: min(36rem, 100%); }
 .hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
+/* Resource schedule. The grid is wider than a 390px screen and scrolls sideways. */
+
+.schedule-page { min-width: 0; }
+.schedule-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+}
+.schedule-location { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; padding: 0.75rem 0.9rem 0.35rem; }
+.schedule-location h2 { margin: 0; font-size: 1rem; }
+.schedule-grid {
+    display: grid;
+    grid-template-columns: 8.75rem minmax(48rem, 1fr);
+    min-width: 56.75rem;
+}
+.schedule-grid.is-week {
+    grid-template-columns: 8.75rem minmax(56rem, 1fr);
+    min-width: 64.75rem;
+}
+.schedule-corner, .schedule-label {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface);
+}
+.schedule-corner { border-bottom: 1px solid var(--line); }
+.schedule-label {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.1rem;
+    padding: 0.35rem 0.65rem;
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    min-height: calc(var(--lanes, 1) * 2.75rem);
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+.schedule-label small { font-weight: 500; color: var(--muted); }
+.schedule-head, .schedule-lane { display: grid; grid-template-columns: repeat(var(--days), minmax(0, 1fr)); min-width: 0; }
+.schedule-lane { border-bottom: 1px solid var(--line); }
+.schedule-dayhead {
+    position: relative;
+    min-height: 2.6rem;
+    padding: 0.35rem 0.4rem 1.1rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+}
+.schedule-dayhead + .schedule-dayhead, .schedule-daylane + .schedule-daylane { border-left: 1px solid var(--line); }
+.schedule-dayhead.is-today, .schedule-daylane.is-today { background: color-mix(in srgb, var(--brand-soft) 55%, var(--surface)); }
+.schedule-daytitle, .schedule-dayhead .weekday { color: var(--muted); font-size: 0.75rem; font-weight: 600; }
+.schedule-dayhead .daynum { display: block; font-size: 1.1rem; font-weight: 700; }
+.schedule-hours { position: absolute; left: 0; right: 0; bottom: 0; height: 1rem; }
+.schedule-hour { position: absolute; top: 0; font-size: 0.65rem; color: var(--muted); transform: translateX(-50%); white-space: nowrap; }
+.schedule-category {
+    grid-column: 1 / -1;
+    margin: 0;
+    padding: 0.35rem 0.75rem;
+    background: var(--strip);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.schedule-daylane { position: relative; min-height: calc(var(--lanes, 1) * 2.75rem); }
+.schedule-block {
+    position: absolute;
+    top: calc(var(--lane) * 2.75rem + 0.2rem);
+    height: 2.35rem;
+    display: flex;
+    overflow: hidden;
+    border-radius: 6px;
+    text-decoration: none;
+    color: inherit;
+    z-index: 1;
+}
+.schedule-block.is-booking { background: var(--brand-soft); color: var(--brand-soft-ink); }
+.schedule-block.is-hold { background: var(--accent-soft); color: var(--accent-soft-ink); }
+.schedule-block.is-quiet { opacity: 0.55; }
+.schedule-buffer {
+    flex: none;
+    height: 100%;
+    background: repeating-linear-gradient(-45deg, rgba(15, 23, 42, 0.05), rgba(15, 23, 42, 0.05) 3px, rgba(15, 23, 42, 0.18) 3px, rgba(15, 23, 42, 0.18) 6px);
+}
+.schedule-core {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0.1rem 0.35rem;
+    line-height: 1.15;
+}
+.schedule-who, .schedule-when { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
+.schedule-who { font-weight: 600; }
+
 @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

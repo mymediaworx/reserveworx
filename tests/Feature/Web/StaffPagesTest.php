@@ -45,6 +45,7 @@ class StaffPagesTest extends TestCase
         foreach ([
             '/staff' => 'Today’s schedule',
             '/staff/calendar' => 'Calendar',
+            '/staff/schedule' => 'Schedule',
             '/staff/bookings' => 'Ada Lovelace',
             '/staff/bookings/new' => 'Kayak rental',
             '/staff/bookings/'.$booking->id => 'Calculate price',
