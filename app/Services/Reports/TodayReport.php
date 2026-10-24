@@ -22,7 +22,7 @@ use RuntimeException;
 
 /**
  * A live read of one calendar day. Utilization, conversion, and revenue per
- * resource-hour stay off this path until a scheduled summary table exists.
+ * resource-hour are stored by reports:build-summaries and are not computed here.
  */
 final class TodayReport
 {
