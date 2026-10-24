@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Enums\BookingStatus;
 use App\Enums\MembershipStatus;
 use App\Enums\OperationalStatus;
 use App\Http\Controllers\Controller;
