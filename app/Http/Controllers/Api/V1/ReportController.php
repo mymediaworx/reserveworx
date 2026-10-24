@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
-use App\Models\ReportSummary;
 use App\Services\Reports\CustomerReport;
 use App\Services\Reports\ServiceRevenue;
+use App\Services\Reports\SummaryReport;
 use App\Services\Reports\TodayReport;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +21,7 @@ class ReportController extends Controller
         private readonly TodayReport $reports,
         private readonly ServiceRevenue $serviceRevenue,
         private readonly CustomerReport $customerReport,
+        private readonly SummaryReport $summaryReport,
     ) {}
 
     public function today(Request $request): JsonResponse
@@ -41,34 +42,8 @@ class ReportController extends Controller
         $this->authorize('viewAny', Booking::class);
         [$from, $to] = $this->dateWindow($request, 'The summary window cannot be longer than 366 days.');
 
-        $rows = ReportSummary::query()
-            ->with('location')
-            ->whereDate('summary_date', '>=', $from)
-            ->whereDate('summary_date', '<=', $to)
-            ->orderBy('summary_date')
-            ->orderBy('location_id')
-            ->get();
-
         return response()->json([
-            'data' => $rows->map(function (ReportSummary $row): array {
-                $updated = $row->updated_at;
-
-                return [
-                    'location_id' => $row->location_id,
-                    'date' => $row->summary_date->format('Y-m-d'),
-                    'timezone' => $row->location !== null ? $row->location->timezone : null,
-                    'available_resource_minutes' => $row->available_resource_minutes,
-                    'allocated_resource_minutes' => $row->allocated_resource_minutes,
-                    'utilization_bps' => $row->utilization_bps,
-                    'bookings_created' => $row->bookings_created,
-                    'bookings_converted' => $row->bookings_converted,
-                    'conversion_bps' => $row->conversion_bps,
-                    'average_order_cents' => $row->average_order_cents,
-                    'gross_cents' => $row->gross_cents,
-                    'revenue_per_resource_hour_cents' => $row->revenue_per_resource_hour_cents,
-                    'updated_at' => $updated !== null ? $updated->utc()->toIso8601String() : null,
-                ];
-            })->all(),
+            'data' => $this->summaryReport->build($from, $to),
         ]);
     }
 
@@ -102,9 +77,38 @@ class ReportController extends Controller
             return response()->json(['message' => $exception->getMessage()], 422);
         }
 
+        return $this->csv($csv, 'today.csv');
+    }
+
+    public function exportSummaries(Request $request): Response
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The summary window cannot be longer than 366 days.');
+
+        return $this->csv($this->summaryReport->toCsv($from, $to), 'summaries.csv');
+    }
+
+    public function exportRevenue(Request $request): Response
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The revenue window cannot be longer than 366 days.');
+
+        return $this->csv($this->serviceRevenue->toCsv($from, $to), 'revenue.csv');
+    }
+
+    public function exportCustomers(Request $request): Response
+    {
+        $this->authorize('viewAny', Booking::class);
+        [$from, $to] = $this->dateWindow($request, 'The customer window cannot be longer than 366 days.');
+
+        return $this->csv($this->customerReport->toCsv($from, $to), 'customers.csv');
+    }
+
+    private function csv(string $csv, string $filename): Response
+    {
         return response($csv, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="today.csv"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 

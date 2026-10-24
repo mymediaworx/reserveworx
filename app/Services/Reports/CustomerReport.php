@@ -27,6 +27,8 @@ use Illuminate\Support\Collection;
  */
 final class CustomerReport
 {
+    public function __construct(private readonly CsvTable $csv) {}
+
     /**
      * @return array{
      *     customers: list<array{location_id: string, date: string, customers: int, new_customers: int, repeat_customers: int, bookings: int, new_bookings: int, repeat_bookings: int, anonymous_bookings: int}>,
@@ -150,6 +152,58 @@ final class CustomerReport
             'customers' => $customers,
             'attribution' => $attributionRows,
         ];
+    }
+
+    public function toCsv(string $from, string $to): string
+    {
+        $report = $this->build($from, $to);
+        $rows = [];
+
+        foreach ($report['customers'] as $row) {
+            $rows[] = [
+                'customer',
+                $row['location_id'],
+                $row['date'],
+                $row['customers'],
+                $row['new_customers'],
+                $row['repeat_customers'],
+                $row['bookings'],
+                $row['new_bookings'],
+                $row['repeat_bookings'],
+                $row['anonymous_bookings'],
+                null,
+            ];
+        }
+
+        foreach ($report['attribution'] as $row) {
+            $rows[] = [
+                'attribution',
+                $row['location_id'],
+                $row['date'],
+                null,
+                null,
+                null,
+                $row['bookings'],
+                null,
+                null,
+                null,
+                $row['channel'],
+            ];
+        }
+
+        return $this->csv->render([
+            'record',
+            'location_id',
+            'date',
+            'customers',
+            'new_customers',
+            'repeat_customers',
+            'bookings',
+            'new_bookings',
+            'repeat_bookings',
+            'anonymous_bookings',
+            'channel',
+        ], $rows);
     }
 
     /**

@@ -21,6 +21,8 @@ use Illuminate\Support\Collection;
  */
 final class ServiceRevenue
 {
+    public function __construct(private readonly CsvTable $csv) {}
+
     /**
      * @return list<array{service_id: string, service: string, location_id: string, date: string, bookings: int, gross_cents: int}>
      */
@@ -83,6 +85,31 @@ final class ServiceRevenue
         });
 
         return $rows;
+    }
+
+    public function toCsv(string $from, string $to): string
+    {
+        $rows = [];
+
+        foreach ($this->build($from, $to) as $row) {
+            $rows[] = [
+                $row['service_id'],
+                $row['service'],
+                $row['location_id'],
+                $row['date'],
+                $row['bookings'],
+                $row['gross_cents'],
+            ];
+        }
+
+        return $this->csv->render([
+            'service_id',
+            'service',
+            'location_id',
+            'date',
+            'bookings',
+            'gross_cents',
+        ], $rows);
     }
 
     /**

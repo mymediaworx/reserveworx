@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- `GET /api/v1/reports/summaries/export`, `GET /api/v1/reports/revenue/export`, and `GET /api/v1/reports/customers/export` download the same rows as those JSON reports. A blank rate is an empty stored figure. The customer file includes attribution lines. The download does not rebuild a summary.
 - `GET /api/v1/reports/customers` counts new and repeat customers for a date window, and counts bookings by the channel stored on the pricing snapshot. A customer is new on the day and location of their first confirmed or no-show booking. Held and cancelled bookings stay out. A booking with no customer is not a customer. The live today report still does not include this.
 - `GET /api/v1/reports/revenue` lists gross service cents by service and by the location-local date a booking starts. Confirmed and no-show bookings count. The total for one location on one date matches that day's stored summary gross. The live today report still does not include this breakdown.
 - `reports:build-summaries` stores utilization, conversion, average order value, and revenue per resource-hour for each location. `GET /api/v1/reports/summaries` reads those rows for a date window and does not recompute them. The live today report still does not.
