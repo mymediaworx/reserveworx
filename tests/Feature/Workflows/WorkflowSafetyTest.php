@@ -77,11 +77,20 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('secrets.MAIL_PASSWORD', $deploy);
         $this->assertStringContainsString('::add-mask::${MAIL_PASSWORD}', $deploy);
         $this->assertStringContainsString('::add-mask::${RW_MAIL_PASSWORD}', $deploy);
-        $this->assertStringContainsString('www/app.reserveworx.com/laravel/shared', $deploy);
-        $this->assertStringContainsString('.mail-password', $deploy);
+        $this->assertStringContainsString('scripts/accept-mail-header.sh', $deploy);
+        $this->assertStringContainsString('base64 -w0', $deploy);
+        $this->assertStringContainsString("printf 'MAIL -\\n'", $deploy);
         $this->assertStringNotContainsString('RW_MAIL_PASSWORD=%q', $deploy);
         $this->assertStringNotContainsString('echo "$RW_MAIL_PASSWORD"', $deploy);
         $this->assertStringNotContainsString('echo "${RW_MAIL_PASSWORD}"', $deploy);
+        $this->assertStringNotContainsString('cat > ${mail_file}', $deploy);
+
+        $mailHeader = (string) file_get_contents(base_path('scripts/accept-mail-header.sh'));
+        $this->assertStringContainsString('www/app.reserveworx.com/laravel/shared/.mail-password', $mailHeader);
+        $this->assertStringContainsString('www/reserveworx.com', $mailHeader);
+        $this->assertStringContainsString('exec bash -s', $mailHeader);
+        $this->assertStringNotContainsString('echo "$payload"', $mailHeader);
+        $this->assertStringNotContainsString('echo "$mail_header"', $mailHeader);
 
         $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
         $this->assertStringContainsString('ssh_connect_retry', $ssh);
@@ -362,6 +371,53 @@ BASH);
         $this->assertSame('log', $values['MAIL_MAILER']);
         $this->assertSame('keep-db', $values['DB_PASSWORD']);
         $this->assertSame('main-site', (string) file_get_contents($ran['main']));
+    }
+
+    public function test_the_mail_header_is_stored_on_the_same_session_without_printing_it(): void
+    {
+        $password = 'p@ss\'w\\ord$foo"x';
+        $ran = $this->acceptMailHeader('MAIL '.base64_encode($password), "echo deploy-started\n");
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('deploy-started', $ran['output']);
+        $this->assertStringNotContainsString($password, $ran['output']);
+        $this->assertStringNotContainsString(base64_encode($password), $ran['output']);
+        $this->assertSame($password, (string) file_get_contents($ran['password_file']));
+        $this->assertSame('600', substr(sprintf('%o', fileperms($ran['password_file'])), -3));
+        $this->assertSame('main-site', (string) file_get_contents($ran['main']));
+        $this->assertFileDoesNotExist(dirname($ran['main']).'/.env');
+
+        $cleared = $this->acceptMailHeader('MAIL -', "echo cleared\n");
+        $this->assertSame(0, $cleared['exit'], $cleared['output']);
+        $this->assertStringContainsString('cleared', $cleared['output']);
+        $this->assertFileDoesNotExist($cleared['password_file']);
+        $this->assertSame('main-site', (string) file_get_contents($cleared['main']));
+    }
+
+    /**
+     * @return array{exit: int, output: string, password_file: string, main: string}
+     */
+    private function acceptMailHeader(string $header, string $script): array
+    {
+        $home = sys_get_temp_dir().'/rw-mailhdr-'.bin2hex(random_bytes(4));
+        $shared = $home.'/www/app.reserveworx.com/laravel/shared';
+        $main = $home.'/www/reserveworx.com/public_html';
+        mkdir($shared, 0777, true);
+        mkdir($main, 0777, true);
+        file_put_contents($main.'/index.html', 'main-site');
+        file_put_contents($shared.'/.mail-password', 'stale');
+
+        $command = 'export HOME='.escapeshellarg($home)
+            .'; printf %s '.escapeshellarg($header."\n".$script)
+            .' | bash '.escapeshellarg(base_path('scripts/accept-mail-header.sh'));
+        $ran = $this->runShell($command);
+
+        return [
+            'exit' => $ran['exit'],
+            'output' => $ran['output'],
+            'password_file' => $shared.'/.mail-password',
+            'main' => $main.'/index.html',
+        ];
     }
 
     /**
