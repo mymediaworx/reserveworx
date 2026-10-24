@@ -8,8 +8,9 @@ use App\Livewire\Staff\Concerns\LoadsBookingRows;
 use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Location;
-use App\Models\PlatformFee;
+use App\Models\Payment;
 use App\Models\Service;
+use App\Models\TenantSetting;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -17,7 +18,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 #[Layout('layouts.staff')]
-#[Title('Today')]
+#[Title('Home')]
 class Dashboard extends Component
 {
     use LoadsBookingRows, WithinTenant;
@@ -33,6 +34,7 @@ class Dashboard extends Component
         $now = CarbonImmutable::now($zone);
         $start = $now->startOfDay()->utc();
         $end = $now->endOfDay()->utc();
+        $active = [BookingStatus::Confirmed->value, BookingStatus::Held->value, BookingStatus::PendingPayment->value];
 
         $today = Booking::query()
             ->with('service')
@@ -42,19 +44,6 @@ class Dashboard extends Component
             ->orderBy('starts_at')
             ->get();
 
-        $held = Booking::query()
-            ->with('service')
-            ->where('status', BookingStatus::Held->value)
-            ->orderBy('starts_at')
-            ->limit(10)
-            ->get();
-
-        $week = Booking::query()
-            ->where('starts_at', '>=', $start)
-            ->where('starts_at', '<', $now->addDays(7)->endOfDay()->utc())
-            ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::Held->value, BookingStatus::PendingPayment->value])
-            ->count();
-
         $departures = Departure::query()
             ->with('service')
             ->where('starts_at', '<', $end)
@@ -62,19 +51,33 @@ class Dashboard extends Component
             ->orderBy('starts_at')
             ->get();
 
-        $fees = PlatformFee::query()->get();
+        $setting = TenantSetting::query()->first();
+        $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
+        $user = auth()->user();
+        $firstName = trim((string) strtok((string) ($user->name ?? ''), ' '));
 
         return view('livewire.staff.dashboard', [
             'zone' => $zone,
             'now' => $now,
+            'firstName' => $firstName,
             'today' => $today,
-            'held' => $held,
             'departures' => $departures,
-            'weekCount' => $week,
-            'customers' => $this->customersFor($today->concat($held)),
+            'todayCount' => $today->count(),
+            'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
+            'upcomingCount' => Booking::query()
+                ->where('starts_at', '>', $end)
+                ->where('starts_at', '<', $now->addDays(7)->endOfDay()->utc())
+                ->whereIn('status', $active)
+                ->count(),
+            'paidCents' => (int) Payment::query()
+                ->where('status', 'paid')
+                ->where('created_at', '>=', $now->subDays(30)->utc())
+                ->sum('amount_cents'),
+            'currency' => $currency,
+            'customers' => $this->customersFor($today),
             'zones' => $this->zones(),
-            'feesNet' => (int) $fees->sum('amount_cents') - (int) $fees->sum('refunded_cents'),
             'isEmptyWorkspace' => ! Location::query()->exists() || ! Service::query()->exists(),
+            'canManageSetup' => $this->allows('inventory.manage'),
         ]);
     }
 }

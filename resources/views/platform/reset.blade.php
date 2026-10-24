@@ -6,7 +6,10 @@
 </head>
 <body class="auth">
     <main class="auth-panel">
-        <p class="auth-tenant">ReserveWorx</p>
+        <div class="auth-brand">
+            <x-avatar name="Brand Worx" />
+            <p class="auth-tenant">ReserveWorx</p>
+        </div>
         <h1>Choose a new password</h1>
         <form method="POST" action="/platform/reset-password" class="stack">
             @csrf

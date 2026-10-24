@@ -4,18 +4,21 @@
     @include('layouts.partials.head')
     <title>{{ isset($title) ? $title.' – ' : '' }}ReserveWorx platform</title>
 </head>
-<body class="staff platform">
+<body class="app platform">
     <a class="skip-link" href="#main">Skip to content</a>
-    <div class="staff-shell">
-        <aside class="rail" aria-label="Platform">
-            <div class="rail-brand">
-                <span class="rail-tenant">ReserveWorx</span>
-                <span class="rail-product">Platform administration</span>
-            </div>
-            <nav class="rail-nav" aria-label="Main">
-                <a href="/platform" wire:navigate @class(['is-active' => request()->is('platform', 'platform/tenants*')])>Workspaces</a>
+    <div class="app-shell">
+        <aside class="app-side" aria-label="Platform">
+            <a class="side-identity" href="/platform" wire:navigate>
+                <x-avatar name="Reserve Worx" />
+                <span class="identity-text">
+                    <span class="identity-name">ReserveWorx</span>
+                    <span class="identity-sub">Platform</span>
+                </span>
+            </a>
+            <nav class="side-nav" aria-label="Main">
+                <a href="/platform" wire:navigate @class(['is-active' => request()->is('platform', 'platform/tenants*')])><x-icon name="building" size="20" /> Workspaces</a>
             </nav>
-            <div class="rail-user">
+            <div class="side-user">
                 <span>{{ auth()->user()?->name }}</span>
                 <form method="POST" action="/platform/logout">
                     @csrf
@@ -23,9 +26,24 @@
                 </form>
             </div>
         </aside>
-        <main id="main" class="staff-main" tabindex="-1">
-            {{ $slot }}
-        </main>
+        <div class="app-main">
+            <header class="app-bar">
+                <a class="app-identity" href="/platform" wire:navigate>
+                    <x-avatar name="Reserve Worx" />
+                    <span class="identity-text">
+                        <span class="identity-name">ReserveWorx</span>
+                        <span class="identity-sub">Platform</span>
+                    </span>
+                </a>
+                <form method="POST" action="/platform/logout" class="app-bar-actions">
+                    @csrf
+                    <button type="submit" class="icon-button" aria-label="Sign out"><x-icon name="logout" size="24" /></button>
+                </form>
+            </header>
+            <main id="main" class="app-content platform-content" tabindex="-1">
+                {{ $slot }}
+            </main>
+        </div>
     </div>
     @livewireScripts
 </body>

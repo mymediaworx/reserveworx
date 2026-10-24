@@ -12,9 +12,9 @@ class TenantBranding extends Model
 {
     use BelongsToTenant, HasUlids;
 
-    public const DEFAULT_PRIMARY = '#0E7C86';
+    public const DEFAULT_PRIMARY = '#0F5C4D';
 
-    public const DEFAULT_ACCENT = '#F26B3A';
+    public const DEFAULT_ACCENT = '#F59E0B';
 
     protected $table = 'tenant_brandings';
 

@@ -24,4 +24,20 @@ class UiAssetController extends Controller
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
+
+    /**
+     * The embed helper operators paste on their own sites. Its URL never changes,
+     * so it is cached for an hour rather than forever.
+     */
+    public function embed(): Response
+    {
+        $path = resource_path('ui/embed.js');
+        abort_unless(is_file($path), 404);
+
+        return response((string) file_get_contents($path), 200, [
+            'Content-Type' => 'text/javascript; charset=UTF-8',
+            'Cache-Control' => 'public, max-age=3600',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
 }

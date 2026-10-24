@@ -39,7 +39,21 @@
     @if ($bookings->isEmpty())
         <p class="empty">No bookings match these filters.</p>
     @else
-        <div class="table-wrap">
+        <ul class="booking-cards">
+            @foreach ($bookings as $booking)
+                @php $z = $zones->get($booking->location_id, $zone); $c = $customers->get($booking->customer_id); @endphp
+                <li>
+                    <a class="booking-card" href="/staff/bookings/{{ $booking->id }}" wire:navigate>
+                        <span class="when">{{ Display::dateTime($booking->starts_at, $z) }}</span>
+                        <strong>{{ $booking->service?->name }}</strong>
+                        <span class="badge badge-{{ $booking->status->value }}">{{ Display::status($booking->status->value) }}</span>
+                        <span class="muted small">{{ $c?->name ?: ($c?->email ?: 'Walk-in') }}, {{ $booking->participants }} {{ $booking->participants === 1 ? 'person' : 'people' }}</span>
+                        <span class="muted small">{{ Display::status($booking->payment_status->value) }}</span>
+                    </a>
+                </li>
+            @endforeach
+        </ul>
+        <div class="table-wrap responsive">
             <table class="table">
                 <thead>
                     <tr>

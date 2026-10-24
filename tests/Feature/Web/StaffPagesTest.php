@@ -53,6 +53,9 @@ class StaffPagesTest extends TestCase
             '/staff/setup/services' => 'Kayak rental',
             '/staff/setup/services/'.$shop['service']->id => 'Per paddler',
             '/staff/settings' => 'Who pays the booking fee',
+            '/staff/menu' => 'Set up your business',
+            '/staff/branding' => 'Customer support',
+            '/staff/share' => 'How do you want to share it?',
         ] as $path => $text) {
             $this->get($this->tenantUrl('alpha.test', $path))
                 ->assertOk()
@@ -67,7 +70,7 @@ class StaffPagesTest extends TestCase
         $this->actingAs($alpha['user'])
             ->get($this->tenantUrl('alpha.test', '/staff'))
             ->assertOk()
-            ->assertSee('Set up your workspace');
+            ->assertSee('get you taking bookings');
     }
 
     public function test_staff_can_see_setup_but_not_change_it(): void

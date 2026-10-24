@@ -6,7 +6,10 @@
 </head>
 <body class="auth">
     <main class="auth-panel">
-        <p class="auth-tenant">{{ $tenant->name }}</p>
+        <div class="auth-brand">
+            <x-avatar :name="$workspaceBranding->displayName !== '' ? $workspaceBranding->displayName : $tenant->name" :logo="$workspaceBranding->logoUrl" />
+            <p class="auth-tenant">{{ $workspaceBranding->displayName !== '' ? $workspaceBranding->displayName : $tenant->name }}</p>
+        </div>
         <h1>Team sign in</h1>
         <form method="POST" action="/staff/login" class="stack">
             @csrf

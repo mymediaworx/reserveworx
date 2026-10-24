@@ -1,0 +1,46 @@
+<div class="page narrow">
+    <header class="page-head">
+        <h1>Menu</h1>
+    </header>
+
+    <section class="panel">
+        <div class="panel-head"><h2>Daily work</h2></div>
+        <div class="app-grid">
+            <a href="/staff/bookings/new" wire:navigate><span class="app-circle"><x-icon name="plus" size="26" /></span>New booking</a>
+            <a href="/staff/bookings" wire:navigate><span class="app-circle"><x-icon name="bookings" size="26" /></span>Bookings</a>
+            <a href="/staff/calendar" wire:navigate><span class="app-circle"><x-icon name="calendar" size="26" /></span>Calendar</a>
+            <a href="/staff/share" wire:navigate><span class="app-circle"><x-icon name="share" size="26" /></span>Share & embed</a>
+        </div>
+    </section>
+
+    <section class="panel top-gap">
+        <div class="panel-head"><h2>Set up your business</h2></div>
+        <div class="app-grid">
+            <a href="/staff/setup/locations" wire:navigate><span class="app-circle"><x-icon name="pin" size="26" /></span>Locations</a>
+            <a href="/staff/setup/resources" wire:navigate><span class="app-circle"><x-icon name="boat" size="26" /></span>Boats & gear</a>
+            <a href="/staff/setup/services" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Services & prices</a>
+            <a href="/staff/branding" wire:navigate><span class="app-circle"><x-icon name="palette" size="26" /></span>Branding</a>
+        </div>
+    </section>
+
+    <section class="panel top-gap">
+        <ul class="menu-list">
+            <li>
+                <a href="/staff/settings" wire:navigate>
+                    <span class="icon-circle tone-neutral"><x-icon name="settings" size="20" /></span>
+                    <span class="menu-text">Settings<small>Booking fee, holds, card payments</small></span>
+                    <x-icon name="chevron-right" size="20" />
+                </a>
+            </li>
+            <li>
+                <form method="POST" action="/staff/logout">
+                    @csrf
+                    <button type="submit">
+                        <span class="icon-circle tone-neutral"><x-icon name="logout" size="20" /></span>
+                        <span class="menu-text">Sign out<small>{{ $user->email }}</small></span>
+                    </button>
+                </form>
+            </li>
+        </ul>
+    </section>
+</div>
