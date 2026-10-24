@@ -1,6 +1,9 @@
 name: Deploy
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       action:
@@ -56,24 +59,24 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ inputs.action }}"
+            echo "- Action: ${{ github.event_name == 'push' && 'deploy' || inputs.action }}"
             echo "- Commit: ${sha}"
-            echo "- Migrations requested: ${{ inputs.run_migrations }}"
+            echo "- Migrations requested: ${{ github.event_name == 'push' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: shivammathur/setup-php@v2
-        if: inputs.action == 'deploy'
+        if: github.event_name == 'push' || inputs.action == 'deploy'
         with:
           php-version: "8.2"
           coverage: none
           tools: composer:v2
 
       - name: Install production dependencies
-        if: inputs.action == 'deploy'
+        if: github.event_name == 'push' || inputs.action == 'deploy'
         run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
       - name: Pack one release archive
-        if: inputs.action == 'deploy'
+        if: github.event_name == 'push' || inputs.action == 'deploy'
         env:
           RELEASE: ${{ steps.release.outputs.sha }}
         run: |
@@ -97,7 +100,7 @@ jobs:
 
       - name: Back up the application database
         id: dbbackup
-        if: inputs.action == 'deploy' && inputs.run_migrations == true
+        if: (github.event_name == 'push' || inputs.action == 'deploy') && (github.event_name == 'push' || inputs.run_migrations == true)
         env:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}
@@ -133,7 +136,7 @@ jobs:
           echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release archive
-        if: inputs.action == 'deploy'
+        if: github.event_name == 'push' || inputs.action == 'deploy'
         env:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}
@@ -155,9 +158,9 @@ jobs:
           SG_PORT: ${{ secrets.SG_PORT }}
           SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
           SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
-          ACTION: ${{ inputs.action }}
+          ACTION: ${{ github.event_name == 'push' && 'deploy' || inputs.action }}
           RELEASE: ${{ steps.release.outputs.sha }}
-          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
+          RUN_MIGRATIONS: ${{ github.event_name == 'push' && 'true' || inputs.run_migrations }}
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
         run: |
           set -euo pipefail

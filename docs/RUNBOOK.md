@@ -54,7 +54,7 @@ Platform administrators are not created by registration.
 php artisan reserveworx:grant-platform-admin person@example.com
 ```
 
-The command does not create a user. The user must already exist. Removal is a row delete from `platform_administrators` by someone who already has production database access. That delete is not an API yet.
+Without `--password-file`, the command does not create a user. The production deploy passes that option for `michael@brandworx.ai` and, when the account is new, appends the password to `laravel/shared/platform-admin.txt`. The password is not printed. Removal is a row delete from `platform_administrators` by someone who already has production database access. That delete is not an API yet.
 
 ## Queue looks stuck
 
