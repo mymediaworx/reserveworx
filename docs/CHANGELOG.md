@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A platform administrator can refund part of one booking fee with a mandatory reason. The customer is not refunded. The reason is not a Section 7.7 code. The fee report lists that amount separately, and a later customer refund does not return the fee again.
 - A confirmed booking that moves onto a higher price can be charged the difference. `POST /api/v1/bookings/{booking}/increase-checkout` adds a booking fee only on that increase. The original fee stays on the first payment.
 - A deposit leaves the booking `deposit_paid`. `POST /api/v1/bookings/{booking}/balance-checkout` charges the remaining customer total with no booking fee. The paid webhook marks the booking paid once the captured payments cover that total, and it does not record a second platform fee.
 - The public booking confirmation heading wraps a long booking reference so a 390px-wide page does not scroll sideways.

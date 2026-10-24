@@ -45,6 +45,7 @@ class FeeRevenueTest extends TestCase
             ->assertJsonPath('data.to', '2026-06-02')
             ->assertJsonPath('data.gross_cents', 950)
             ->assertJsonPath('data.refunded_cents', 100)
+            ->assertJsonPath('data.manual_refunded_cents', 0)
             ->assertJsonPath('data.net_cents', 850);
 
         $tenants = $report->json('data.tenants');

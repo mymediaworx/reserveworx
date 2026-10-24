@@ -14,6 +14,7 @@ use App\Enums\PaymentStatus;
 use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\StripeAccount;
@@ -120,13 +121,20 @@ final class RefundService
             ->where('status', '!=', 'pending')
             ->sum('amount_cents');
         $refundedSubtotal = (int) Refund::query()->where('booking_id', $booking->id)->sum('refund_subtotal_cents');
+        $feeCharged = (int) ($payload['application_fee_cents'] ?? $payload['fee_cents'] ?? 0);
         $refundedFee = (int) Refund::query()->where('booking_id', $booking->id)->sum('application_fee_refund_cents');
+        $refundedFee += $this->manualFeeOnFirstCharge($booking);
+
+        if ($refundedFee > $feeCharged) {
+            $refundedFee = $feeCharged;
+        }
+
         $refundedCustomer = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_refund_cents');
 
         return new FeeRefundState(
             feePayer: $payer ?? FeePayer::CustomerPaid,
             subtotalCents: (int) ($payload['basis_cents'] ?? 0),
-            feeChargedCents: (int) ($payload['application_fee_cents'] ?? $payload['fee_cents'] ?? 0),
+            feeChargedCents: $feeCharged,
             paidCents: $paid,
             refundedSubtotalCents: $refundedSubtotal,
             refundedFeeCents: $refundedFee,
@@ -196,6 +204,21 @@ final class RefundService
             'refund_id' => $refundId,
             'fee_refund_id' => $feeRefundId,
         ];
+    }
+
+    private function manualFeeOnFirstCharge(Booking $booking): int
+    {
+        $feeId = PlatformFee::query()
+            ->where('booking_id', $booking->id)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->value('id');
+
+        if (! is_string($feeId) || $feeId === '') {
+            return 0;
+        }
+
+        return (int) PlatformFeeRefund::query()->where('platform_fee_id', $feeId)->sum('amount_cents');
     }
 
     private function stripePayment(Booking $booking): Payment

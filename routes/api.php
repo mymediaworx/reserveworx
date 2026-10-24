@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeRevenueController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
+use App\Http\Controllers\Api\V1\Platform\ManualFeeRefundController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\PoolController;
@@ -52,6 +53,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/tenants/{tenant}/domains/{domain}/verify', [DomainController::class, 'verify']);
             Route::patch('/tenants/{tenant}/fees', [FeeSettingsController::class, 'update']);
             Route::get('/fee-revenue', [FeeRevenueController::class, 'show']);
+            Route::post('/fees/{fee}/refunds', [ManualFeeRefundController::class, 'store']);
         });
     });
 

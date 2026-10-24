@@ -24,6 +24,7 @@ use App\Models\Membership;
 use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\Pool;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
@@ -268,6 +269,7 @@ class TenantExporter
             PricingSnapshot::class,
             Payment::class,
             PlatformFee::class,
+            PlatformFeeRefund::class,
             Refund::class,
             StripeAccount::class,
             DisclosureVersion::class,
