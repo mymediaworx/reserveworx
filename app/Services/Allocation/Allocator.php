@@ -2,6 +2,8 @@
 
 namespace App\Services\Allocation;
 
+use App\Domain\Catalog\AddOnCharge;
+use App\Enums\AddOnPricing;
 use App\Enums\BookingStatus;
 use App\Enums\DepartureStatus;
 use App\Enums\OperationalStatus;
@@ -35,6 +37,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * @phpstan-type Demand array{type: ResourceType, id: string, quantity: int, buffer_start: CarbonImmutable, buffer_end: CarbonImmutable, name: string, buckets: list<int>}
@@ -375,6 +378,94 @@ class Allocator
             $this->refreshCounters($plan);
 
             return $booking->load(['allocations', 'lineItems', 'service']);
+        }));
+    }
+
+    public function changePartySize(Booking $booking, int $participants): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $participants): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if (! in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true)) {
+                throw new AllocationUnavailableException('Only a held or confirmed booking can change party size.');
+            }
+
+            if ($participants < 1) {
+                throw new AllocationUnavailableException('Choose a valid interval and party size.');
+            }
+
+            if ($participants === $booking->participants) {
+                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
+            }
+
+            $named = $booking->namedParticipants()->count();
+
+            if ($participants < $named) {
+                throw new AllocationUnavailableException('Party size cannot drop below the named participants already added.');
+            }
+
+            $service = Service::query()->find($booking->service_id);
+
+            if ($service instanceof Service && $service->max_participants !== null && $participants > $service->max_participants) {
+                throw new AllocationUnavailableException('That party is larger than this service allows.');
+            }
+
+            try {
+                $this->assertDepartureParty($booking, $participants);
+            } catch (AllocationUnavailableException $exception) {
+                if ($exception->getMessage() !== 'That departure is full.') {
+                    throw $exception;
+                }
+
+                throw new AllocationUnavailableException($exception->getMessage(), $this->partySizeOffers($booking, $participants, false));
+            }
+
+            if ($this->seatOnly($booking)) {
+                $booking->participants = $participants;
+                $booking->save();
+                $this->repricePerPersonAddOns($booking, $participants);
+                Hold::query()
+                    ->where('booking_id', $booking->id)
+                    ->whereNull('asset_id')
+                    ->whereNull('pool_id')
+                    ->update(['quantity' => $participants]);
+
+                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
+            }
+
+            $intent = $this->intentFor($booking, $participants);
+            $this->assertDuration($intent);
+            $lockedResources = false;
+
+            try {
+                $plan = $this->plan($intent);
+                $this->lock($plan);
+                $lockedResources = true;
+                $this->recheck($plan, $booking->id);
+            } catch (AllocationUnavailableException $unavailable) {
+                throw new AllocationUnavailableException(
+                    $unavailable->getMessage(),
+                    $this->partySizeOffers($booking, $participants, $lockedResources),
+                );
+            }
+
+            $booking->participants = $participants;
+            $booking->save();
+            $this->repricePerPersonAddOns($booking, $participants);
+            $held = $booking->status === BookingStatus::Held;
+
+            if ($held) {
+                Hold::query()->where('booking_id', $booking->id)->delete();
+            } else {
+                Allocation::query()->where('booking_id', $booking->id)->delete();
+            }
+
+            BookingLineItem::query()->where('booking_id', $booking->id)->delete();
+            $this->writeRows($booking, $plan, $held);
+            $this->refreshCounters($plan);
+
+            return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
         }));
     }
 
@@ -1093,6 +1184,32 @@ class Allocator
         return $booking;
     }
 
+    private function repricePerPersonAddOns(Booking $booking, int $participants): void
+    {
+        $lines = BookingAddOn::query()->where('booking_id', $booking->id)->lockForUpdate()->get();
+
+        foreach ($lines as $line) {
+            if ($line->pricing !== AddOnPricing::PerPerson) {
+                continue;
+            }
+
+            try {
+                $total = AddOnCharge::total($line->pricing, $line->unit_amount_cents, $line->quantity, $participants);
+            } catch (InvalidArgumentException $exception) {
+                throw new AllocationUnavailableException($exception->getMessage());
+            }
+
+            if ($total > 2_000_000_000) {
+                throw new AllocationUnavailableException('That add-on total is too large.');
+            }
+
+            if ($line->total_cents !== $total) {
+                $line->total_cents = $total;
+                $line->save();
+            }
+        }
+    }
+
     private function writeAddOns(Booking $booking, AllocationIntent $intent): void
     {
         foreach ($intent->addOns as $line) {
@@ -1237,18 +1354,144 @@ class Allocator
 
     private function intentFromBooking(Booking $booking): AllocationIntent
     {
+        return $this->intentFor($booking, $booking->participants);
+    }
+
+    private function intentFor(Booking $booking, int $participants): AllocationIntent
+    {
         return new AllocationIntent(
             $booking->tenant_id,
             $booking->service_id,
             CarbonImmutable::instance($booking->starts_at)->utc(),
             CarbonImmutable::instance($booking->ends_at)->utc(),
-            $booking->participants,
+            $participants,
             null,
             null,
             null,
             $booking->departure_id,
             $booking->guide_user_id,
         );
+    }
+
+    private function assertDepartureParty(Booking $booking, int $participants): void
+    {
+        if ($booking->departure_id === null || $booking->departure_id === '') {
+            return;
+        }
+
+        $locked = DB::select('select id from departures where id = ? for update', [$booking->departure_id]);
+
+        if ($locked === []) {
+            throw new AllocationUnavailableException('That departure is not available.');
+        }
+
+        $departure = Departure::query()->with('service')->find($booking->departure_id);
+
+        if (! $departure instanceof Departure || $departure->service === null) {
+            throw new AllocationUnavailableException('That departure is not available.');
+        }
+
+        if ($departure->status !== DepartureStatus::Scheduled) {
+            throw new AllocationUnavailableException('That departure is cancelled.');
+        }
+
+        $others = (int) $departure->bookings()
+            ->where('id', '!=', $booking->id)
+            ->whereIn('status', [
+                BookingStatus::Held->value,
+                BookingStatus::Confirmed->value,
+                BookingStatus::PendingPayment->value,
+            ])
+            ->where(function ($query): void {
+                $query->whereHas('allocations')
+                    ->orWhereHas('holds', fn ($holds) => $holds->where('expires_at', '>', now()));
+            })
+            ->sum('participants');
+
+        if ($departure->private && $others > 0) {
+            throw new AllocationUnavailableException('That private departure already has a booking.');
+        }
+
+        $cap = $departure->seats ?? $departure->service->max_participants;
+
+        if ($cap !== null && $others + $participants > $cap && $participants >= $booking->participants) {
+            throw new AllocationUnavailableException('That departure is full.');
+        }
+    }
+
+    private function seatOnly(Booking $booking): bool
+    {
+        if ($booking->departure_id === null || $booking->departure_id === '') {
+            return false;
+        }
+
+        $allocated = Allocation::query()
+            ->where('booking_id', $booking->id)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->exists();
+
+        if ($allocated) {
+            return false;
+        }
+
+        return ! Hold::query()
+            ->where('booking_id', $booking->id)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->exists();
+    }
+
+    /**
+     * @return array{authoritative: false, smaller_participants: int|null, other_asset_ids: list<string>}
+     */
+    private function partySizeOffers(Booking $booking, int $requested, bool $resourcesLocked): array
+    {
+        $smaller = null;
+
+        for ($size = $requested - 1; $size > $booking->participants; $size--) {
+            try {
+                if (! $resourcesLocked) {
+                    $this->assertDepartureParty($booking, $size);
+                }
+
+                if ($this->seatOnly($booking)) {
+                    $smaller = $size;
+                    break;
+                }
+
+                $plan = $this->plan($this->intentFor($booking, $size));
+
+                if (! $resourcesLocked) {
+                    $this->lock($plan);
+                    $resourcesLocked = true;
+                }
+
+                $this->recheck($plan, $booking->id);
+                $smaller = $size;
+                break;
+            } catch (AllocationUnavailableException) {
+                continue;
+            }
+        }
+
+        $other = [];
+
+        if (! $this->seatOnly($booking)) {
+            try {
+                $other = $this->otherAssets($booking, $this->plan($this->intentFor($booking, $requested)));
+            } catch (AllocationUnavailableException) {
+                $other = [];
+            }
+        }
+
+        return [
+            'authoritative' => false,
+            'smaller_participants' => $smaller,
+            'other_asset_ids' => $other,
+        ];
     }
 
     /**

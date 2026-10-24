@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\BookingStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\Participant;
 use App\Models\Tenant;
 use App\Models\WaiverSignature;
+use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use Illuminate\Database\QueryException;
@@ -60,6 +62,8 @@ class ParticipantController extends Controller
 
         try {
             $participant = $this->insert($booking, $tenant, $name, $minor, $guardianName, $key, $hash);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
         } catch (IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         } catch (QueryException $exception) {
@@ -183,6 +187,10 @@ class ParticipantController extends Controller
 
                     return $existing;
                 }
+            }
+
+            if (! in_array($locked->status, [BookingStatus::Held, BookingStatus::Confirmed], true)) {
+                throw new AllocationUnavailableException('Only a held or confirmed booking can name a participant.');
             }
 
             $named = Participant::query()->where('booking_id', $locked->id)->lockForUpdate()->count();

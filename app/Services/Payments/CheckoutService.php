@@ -28,6 +28,7 @@ use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Notifications\BookingEvents;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
@@ -43,6 +44,7 @@ final class CheckoutService
         private readonly BookingEvents $events,
         private readonly PricingEngine $pricing,
         private readonly RefundService $refunds,
+        private readonly BookingAddOnLines $addOnLines,
     ) {}
 
     /**
@@ -224,7 +226,8 @@ final class CheckoutService
         }
 
         $payload = $snapshot->payload;
-        $increase = $this->priceIncrease($booking, $payload);
+        [$addOnsCents, $addOnLines] = $this->currentAddOns($booking);
+        $increase = $this->priceIncrease($booking, $payload, $addOnsCents);
         $open = Payment::query()
             ->where('booking_id', $booking->id)
             ->where('kind', PaymentKind::PriceIncreaseStripePayment->value)
@@ -287,6 +290,9 @@ final class CheckoutService
             'fee_cents' => $fee,
             'customer_fee_line_cents' => $increase->quote->customerFeeLineCents(),
             'charge_cents' => $charge,
+            'add_ons_delta_cents' => $increase->addOnsDeltaCents,
+            'add_ons_cents' => $addOnsCents,
+            'add_ons' => $addOnLines,
             'priced_participants' => $booking->participants,
             'priced_duration_minutes' => $this->durationMinutes($booking),
             'priced_on' => $this->pricedOn($booking),
@@ -338,7 +344,8 @@ final class CheckoutService
                 throw new AllocationUnavailableException('A price increase checkout is already open.');
             }
 
-            $decrease = $this->priceDecrease($locked, $payload);
+            [$addOnsCents, $addOnLines] = $this->currentAddOns($locked);
+            $decrease = $this->priceDecrease($locked, $payload, $addOnsCents);
 
             try {
                 $refund = $this->refunds->issue(
@@ -367,7 +374,7 @@ final class CheckoutService
                 return $refund;
             }
 
-            $this->applyPriceDecrease($snapshot, $payload, $locked, $decrease, $refund);
+            $this->applyPriceDecrease($snapshot, $payload, $locked, $decrease, $refund, $addOnLines);
 
             return $refund;
         });
@@ -453,7 +460,7 @@ final class CheckoutService
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function priceIncrease(Booking $booking, array $payload): PriceIncrease
+    private function priceIncrease(Booking $booking, array $payload, int $addOnsCents): PriceIncrease
     {
         $duration = $this->durationMinutes($booking);
         $onDate = $this->pricedOn($booking);
@@ -467,7 +474,8 @@ final class CheckoutService
         if ($scheduleKnown
             && $storedOn === $onDate
             && (int) $storedDuration === $duration
-            && (int) $storedParticipants === $booking->participants) {
+            && (int) $storedParticipants === $booking->participants
+            && $this->cents($payload, 'add_ons_cents') === $addOnsCents) {
             throw new AllocationUnavailableException('This booking has no price increase.');
         }
 
@@ -488,6 +496,8 @@ final class CheckoutService
                 $this->cents($payload, 'services_cents'),
                 $this->cents($payload, 'discount_cents'),
                 $this->cents($payload, 'tax_cents'),
+                $this->cents($payload, 'add_ons_cents'),
+                $addOnsCents,
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -497,7 +507,7 @@ final class CheckoutService
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function priceDecrease(Booking $booking, array $payload): PriceDecrease
+    private function priceDecrease(Booking $booking, array $payload, int $addOnsCents): PriceDecrease
     {
         $duration = $this->durationMinutes($booking);
         $onDate = $this->pricedOn($booking);
@@ -511,7 +521,8 @@ final class CheckoutService
         if ($scheduleKnown
             && $storedOn === $onDate
             && (int) $storedDuration === $duration
-            && (int) $storedParticipants === $booking->participants) {
+            && (int) $storedParticipants === $booking->participants
+            && $this->cents($payload, 'add_ons_cents') === $addOnsCents) {
             throw new AllocationUnavailableException('This booking has no price decrease.');
         }
 
@@ -529,6 +540,8 @@ final class CheckoutService
                 $this->cents($payload, 'services_cents'),
                 $this->cents($payload, 'discount_cents'),
                 $this->cents($payload, 'tax_cents'),
+                $this->cents($payload, 'add_ons_cents'),
+                $addOnsCents,
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -556,14 +569,17 @@ final class CheckoutService
 
     /**
      * @param  array<string, mixed>  $payload
+     * @param  list<array{id: string, add_on_id: string, name: string, kind: string, pricing: string, unit_amount_cents: int, quantity: int, total_cents: int}>  $addOnLines
      */
-    private function applyPriceDecrease(PricingSnapshot $snapshot, array $payload, Booking $booking, PriceDecrease $decrease, Refund $refund): void
+    private function applyPriceDecrease(PricingSnapshot $snapshot, array $payload, Booking $booking, PriceDecrease $decrease, Refund $refund, array $addOnLines): void
     {
         if (! is_numeric($payload['charged_basis_cents'] ?? null)) {
             $payload['charged_basis_cents'] = $this->cents($payload, 'basis_cents');
         }
 
         $payload['services_cents'] = $decrease->servicesCents;
+        $payload['add_ons_cents'] = $decrease->addOnsCents;
+        $payload['add_ons'] = $addOnLines;
         $payload['discount_cents'] = $decrease->discountCents;
         $payload['basis_cents'] = max(0, $this->cents($payload, 'basis_cents') - $decrease->basisReductionCents);
         $payload['tax_cents'] = max(0, $this->cents($payload, 'tax_cents') - $decrease->taxReductionCents);
@@ -610,6 +626,21 @@ final class CheckoutService
         $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
 
         return [$channel, $rate, $payer, $rules, CarbonImmutable::parse($onDate, $zone)];
+    }
+
+    /**
+     * @return array{0: int, 1: list<array{id: string, add_on_id: string, name: string, kind: string, pricing: string, unit_amount_cents: int, quantity: int, total_cents: int}>}
+     */
+    private function currentAddOns(Booking $booking): array
+    {
+        $lines = $this->addOnLines->snapshot($booking);
+        $total = 0;
+
+        foreach ($lines as $line) {
+            $total += $line['total_cents'];
+        }
+
+        return [$total, $lines];
     }
 
     private function durationMinutes(Booking $booking): int

@@ -12,6 +12,7 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Membership;
+use App\Models\Participant;
 use App\Models\RentalCheckout;
 use App\Models\RentalReturn;
 use App\Models\Service;
@@ -46,7 +47,7 @@ class BookingController extends Controller
     {
         $this->authorize('viewAny', Booking::class);
 
-        $bookings = Booking::query()->with(['service', 'customer', 'addOns'])->orderBy('starts_at')->limit(100)->get();
+        $bookings = Booking::query()->with(['service', 'customer', 'addOns'])->withCount('namedParticipants')->orderBy('starts_at')->limit(100)->get();
 
         return response()->json(['data' => $bookings->map(fn (Booking $booking): array => $this->payload($booking))]);
     }
@@ -55,7 +56,7 @@ class BookingController extends Controller
     {
         $this->authorize('view', $booking);
 
-        return response()->json(['data' => $this->payload($booking->load(['holds', 'allocations', 'lineItems', 'service']))]);
+        return response()->json(['data' => $this->payload($booking->load(['holds', 'allocations', 'lineItems', 'service', 'namedParticipants']))]);
     }
 
     public function store(Request $request): JsonResponse
@@ -398,6 +399,31 @@ class BookingController extends Controller
         return response()->json(['data' => $this->payload($saved)]);
     }
 
+    public function partySize(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'participants' => ['required', 'integer', 'min:1'],
+        ]);
+        $previous = $booking->participants;
+
+        try {
+            $saved = $this->allocator->changePartySize($booking, (int) $validated['participants']);
+        } catch (AllocationUnavailableException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'offers' => $exception->offers,
+            ], 409);
+        }
+
+        $this->audit->log('booking.party_size_changed', $saved, [
+            'from' => $previous,
+            'to' => $saved->participants,
+        ], request: $request);
+
+        return response()->json(['data' => $this->payload($saved)]);
+    }
+
     public function calendar(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
@@ -447,6 +473,7 @@ class BookingController extends Controller
                 });
             })
             ->with(['service', 'customer'])
+            ->withCount('namedParticipants')
             ->orderBy('starts_at')
             ->get();
 
@@ -504,6 +531,8 @@ class BookingController extends Controller
             'starts_at' => $booking->starts_at->utc()->format('Y-m-d\TH:i:s\Z'),
             'ends_at' => $booking->ends_at->utc()->format('Y-m-d\TH:i:s\Z'),
             'participants' => $booking->participants,
+            'named_participant_count' => $this->namedParticipantCount($booking),
+            'named_participants' => $this->namedParticipantPayload($booking),
             'created_by' => $booking->created_by,
             'guide_user_id' => $booking->guide_user_id,
             'attention_reason' => $booking->attention_reason,
@@ -664,6 +693,32 @@ class BookingController extends Controller
             $checkout->late_fee_cents = intdiv($seconds, 60) * $rate;
             $checkout->save();
         }
+    }
+
+    private function namedParticipantCount(Booking $booking): int
+    {
+        if ($booking->relationLoaded('namedParticipants')) {
+            return $booking->namedParticipants->count();
+        }
+
+        $stored = $booking->getAttribute('named_participants_count');
+
+        return is_numeric($stored) ? (int) $stored : $booking->namedParticipants()->count();
+    }
+
+    /**
+     * @return list<array{id: string, name: string}>|null
+     */
+    private function namedParticipantPayload(Booking $booking): ?array
+    {
+        if (! $booking->relationLoaded('namedParticipants')) {
+            return null;
+        }
+
+        return $booking->namedParticipants->map(fn (Participant $person): array => [
+            'id' => $person->id,
+            'name' => $person->name,
+        ])->values()->all();
     }
 
     private function belowMinimum(Booking $booking): bool

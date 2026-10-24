@@ -39,6 +39,107 @@ class ConcurrencyTest extends TestCase
         $this->contend($rental, '2026-06-15T15:00:00Z', '2026-06-15T17:00:00Z', asset: false, winnerService: $tour);
     }
 
+    public function test_a_party_size_increase_competes_with_another_allocation(): void
+    {
+        [$service, $pool] = $this->serviceOnPool(quantity: 2, units: 1);
+        ResourceRequirement::withoutGlobalScope(TenantScope::class)
+            ->where('service_id', $service->id)
+            ->update(['per_participants' => 1]);
+
+        $bookingId = (string) Str::ulid();
+        DB::table('bookings')->insert([
+            'id' => $bookingId,
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => 'confirmed',
+            'payment_status' => 'unpaid',
+            'operational_status' => 'not_arrived',
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'participants' => 1,
+            'payload_hash' => str_repeat('e', 64),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('allocations')->insert([
+            'id' => (string) Str::ulid(),
+            'tenant_id' => $service->tenant_id,
+            'booking_id' => $bookingId,
+            'pool_id' => $pool->id,
+            'quantity' => 1,
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        DB::beginTransaction();
+        DB::statement('set innodb_lock_wait_timeout = 15');
+        DB::select('select id from pools where id = ? for update', [$pool->id]);
+
+        $payload = tempnam(sys_get_temp_dir(), 'party-');
+        $this->assertNotFalse($payload);
+        file_put_contents($payload, json_encode([
+            'booking_id' => $bookingId,
+            'participants' => 2,
+        ], JSON_THROW_ON_ERROR));
+
+        $process = new Process(
+            [PHP_BINARY, base_path('tests/Support/concurrent_party_size.php'), $payload],
+            base_path(),
+            $this->childEnvironment(),
+        );
+        $process->setTimeout(30);
+        $started = microtime(true);
+        $process->start();
+        $waited = $this->waitForLock($process, $started);
+
+        $winnerId = (string) Str::ulid();
+        DB::table('bookings')->insert([
+            'id' => $winnerId,
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => 'confirmed',
+            'payment_status' => 'unpaid',
+            'operational_status' => 'not_arrived',
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'participants' => 1,
+            'idempotency_key' => 'winner-'.Str::lower(Str::random(8)),
+            'payload_hash' => str_repeat('f', 64),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('allocations')->insert([
+            'id' => (string) Str::ulid(),
+            'tenant_id' => $service->tenant_id,
+            'booking_id' => $winnerId,
+            'pool_id' => $pool->id,
+            'quantity' => 1,
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::commit();
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+
+        $process->wait();
+        @unlink($payload);
+
+        $this->assertTrue($waited, $process->getOutput().$process->getErrorOutput());
+        $this->assertSame(2, $process->getExitCode(), $process->getOutput().$process->getErrorOutput());
+        $this->assertStringNotContainsString('Allocator.php:'.$this->lockWaitGiveUpLine(), $process->getErrorOutput());
+        $this->assertSame(1, (int) DB::table('bookings')->where('id', $bookingId)->value('participants'));
+        $this->assertSame(1, (int) DB::table('allocations')->where('booking_id', $bookingId)->value('quantity'));
+        $this->assertSame(2, (int) DB::table('allocations')->where('pool_id', $pool->id)->sum('quantity'));
+        $this->assertSame(0, DB::table('holds')->count());
+        $this->assertSame(0, DB::table('capacity_ledger')->where('allocated_units', '<', 0)->orWhere('held_units', '<', 0)->count());
+    }
+
     public function test_an_extension_competes_with_a_new_booking(): void
     {
         [$service, $asset] = $this->serviceOnAsset();

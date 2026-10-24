@@ -188,6 +188,15 @@ final class WebhookProcessor
         /** @var array<string, mixed> $pending */
         $payload['services_cents'] = max(0, $this->cents($payload, 'services_cents') + $this->cents($pending, 'services_delta_cents'));
         $payload['discount_cents'] = max(0, $this->cents($payload, 'discount_cents') + $this->cents($pending, 'discount_delta_cents'));
+
+        if (array_key_exists('add_ons_delta_cents', $pending)) {
+            $payload['add_ons_cents'] = $this->cents($payload, 'add_ons_cents') + $this->cents($pending, 'add_ons_delta_cents');
+        }
+
+        if (is_array($pending['add_ons'] ?? null)) {
+            $payload['add_ons'] = $pending['add_ons'];
+        }
+
         $addedBasis = $this->cents($pending, 'basis_cents');
         $payload['basis_cents'] = $this->cents($payload, 'basis_cents') + $addedBasis;
 

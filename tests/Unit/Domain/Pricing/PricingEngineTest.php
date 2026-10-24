@@ -173,11 +173,85 @@ class PricingEngineTest extends TestCase
         $this->assertSame(1_000, $increase->discountDeltaCents);
         $this->assertSame(9_000, $increase->basisCents);
         $this->assertSame(0, $increase->taxCents);
+        $this->assertSame(0, $increase->addOnsDeltaCents);
         $this->assertSame(270, $increase->payment->applicationFeeCents);
         $this->assertSame(9_270, $increase->payment->chargeCents);
         $this->assertSame(PaymentKind::PriceIncreaseStripePayment, $increase->payment->kind);
         $this->assertSame(0, $increase->quote->rate->fixedCents);
         $this->assertNull($increase->quote->rate->minimumCents);
+    }
+
+    public function test_an_add_on_change_is_part_of_the_fee_basis(): void
+    {
+        $rules = [new PriceRuleInput('base', 10_000)];
+        $on = CarbonImmutable::parse('2026-06-15');
+        $increase = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300),
+            FeePayer::CustomerPaid,
+            $rules,
+            2,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            0,
+            2_000,
+            4_000,
+        );
+
+        $this->assertSame(0, $increase->servicesDeltaCents);
+        $this->assertSame(2_000, $increase->addOnsDeltaCents);
+        $this->assertSame(2_000, $increase->basisCents);
+        $this->assertSame(0, $increase->taxCents);
+        $this->assertSame(60, $increase->payment->applicationFeeCents);
+        $this->assertSame(2_060, $increase->payment->chargeCents);
+
+        $withService = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('per_person', 10_000)],
+            2,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            0,
+            2_500,
+            4_500,
+        );
+
+        $this->assertSame(10_000, $withService->servicesDeltaCents);
+        $this->assertSame(2_000, $withService->addOnsDeltaCents);
+        $this->assertSame(12_000, $withService->basisCents);
+        $this->assertSame(360, $withService->payment->applicationFeeCents);
+
+        $decrease = $this->engine->decreaseFromQuote(
+            [new PriceRuleInput('per_person', 10_000)],
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            20_000,
+            0,
+            0,
+            4_500,
+            2_500,
+        );
+
+        $this->assertSame(10_000, $decrease->servicesCents);
+        $this->assertSame(2_500, $decrease->addOnsCents);
+        $this->assertSame(12_000, $decrease->basisReductionCents);
+        $this->assertSame(0, $decrease->taxReductionCents);
     }
 
     public function test_a_lower_price_returns_the_subtotal_and_tax_reduction(): void
