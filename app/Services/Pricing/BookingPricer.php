@@ -9,9 +9,11 @@ use App\Domain\Fees\FeeRate;
 use App\Domain\Pricing\PricedBooking;
 use App\Domain\Pricing\PricingEngine;
 use App\Domain\Pricing\VariantPrice;
+use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Models\Booking;
 use App\Models\DisclosureVersion;
+use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
@@ -30,6 +32,7 @@ final class BookingPricer
         private readonly DisclosurePublisher $disclosures,
         private readonly BookingAddOnLines $addOnLines,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly PromoCodes $promoCodes,
     ) {}
 
     public function quote(Booking $booking, Tenant $tenant, FeeChannel $channel, int $taxBasisPoints, ?string $promoCode, int $depositPercent): PricingSnapshot
@@ -70,6 +73,57 @@ final class BookingPricer
     }
 
     /**
+     * Replace the held snapshot with a promo applied through the pricing engine.
+     *
+     * A second API quote still returns the snapshot already stored. This path
+     * is the public checkout, which has not taken a payment yet. The deposit
+     * stays at 100 percent, which is what that checkout quoted.
+     */
+    public function applyPromo(Booking $booking, Tenant $tenant, string $promoCode): PricingSnapshot
+    {
+        if ($booking->status !== BookingStatus::Held) {
+            throw new InvalidArgumentException('This booking can no longer take a promo code.');
+        }
+
+        if (Payment::query()->where('booking_id', $booking->id)->exists()) {
+            throw new InvalidArgumentException('This booking can no longer take a promo code.');
+        }
+
+        $existing = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
+
+        if (! $existing instanceof PricingSnapshot) {
+            return $this->quote($booking, $tenant, FeeChannel::Direct, 0, $promoCode, 100);
+        }
+
+        $location = $booking->location;
+        $tax = $existing->payload['tax_basis_points'] ?? 0;
+        $selection = $this->priceSelection(
+            $tenant,
+            $booking->service_id,
+            $booking->location_id,
+            $location !== null ? $location->timezone : 'UTC',
+            $this->variant($booking),
+            CarbonImmutable::instance($booking->starts_at),
+            CarbonImmutable::instance($booking->ends_at),
+            $booking->participants,
+            $this->addOnLines->snapshot($booking),
+            $this->channelFrom($existing),
+            is_numeric($tax) ? (int) $tax : 0,
+            $promoCode,
+            100,
+        );
+        $payload = $selection['payload'];
+        $payload['operator_fees'] = $this->operatorFees->replace($booking, $selection['priced']->operatorFeeLines);
+        $existing->currency = $selection['currency'];
+        $existing->payload = $payload;
+        $existing->rules_version = FeeCalculator::RULES_VERSION;
+        $existing->disclosure_version_id = $selection['disclosure']?->id;
+        $existing->save();
+
+        return $existing->refresh();
+    }
+
+    /**
      * The same direct quote public checkout stores, without writing a snapshot
      * or copying operator-fee rows. Fee rates are read, not changed.
      *
@@ -102,21 +156,6 @@ final class BookingPricer
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
         $rules = VariantPrice::overrideBase(PriceRule::inputsFor($serviceId), $variant?->price_override_cents);
 
-        $promo = null;
-        $percent = null;
-        $amount = null;
-
-        if ($promoCode !== null && $promoCode !== '') {
-            $promo = PromoCode::query()->where('code', strtoupper($promoCode))->where('active', true)->first();
-
-            if (! $promo instanceof PromoCode) {
-                throw new InvalidArgumentException('That promo code is not active.');
-            }
-
-            $percent = $promo->percent_off;
-            $amount = $promo->amount_off_cents;
-        }
-
         $zone = $timezone !== '' ? $timezone : 'UTC';
         $on = $startsAt->timezone($zone);
         $seconds = $endsAt->utc()->getTimestamp() - $startsAt->utc()->getTimestamp();
@@ -124,6 +163,16 @@ final class BookingPricer
 
         if ($duration < 1) {
             throw new InvalidArgumentException('Choose a valid interval.');
+        }
+
+        $promo = null;
+        $percent = null;
+        $amount = null;
+
+        if ($promoCode !== null && trim($promoCode) !== '') {
+            $promo = $this->promoCodes->resolve($promoCode, $on);
+            $percent = $promo->percent_off;
+            $amount = $promo->amount_off_cents;
         }
 
         $addOnsCents = 0;
@@ -172,6 +221,21 @@ final class BookingPricer
             'disclosure' => $disclosure,
             'payload' => $payload,
         ];
+    }
+
+    private function channelFrom(PricingSnapshot $snapshot): FeeChannel
+    {
+        $value = $snapshot->payload['channel'] ?? null;
+
+        if (is_string($value)) {
+            $channel = FeeChannel::tryFrom($value);
+
+            if ($channel instanceof FeeChannel) {
+                return $channel;
+            }
+        }
+
+        return FeeChannel::Direct;
     }
 
     private function variant(Booking $booking): ?ServiceVariant

@@ -54,8 +54,11 @@
         dl { margin: 0; }
         .line { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-top: 1px solid var(--line); }
         .line:first-child { border-top: 0; }
+        .line dt, .line dd { min-width: 0; overflow-wrap: anywhere; }
         .line dt { color: var(--ink-soft); }
-        .line dd { margin: 0; font-weight: 600; }
+        .line dd { margin: 0; font-weight: 600; text-align: right; }
+        .promo-form { min-width: 0; }
+        .promo-form label, .promo-form input { min-width: 0; max-width: 100%; }
         .line.total { border-top: 2px solid var(--ink); font-size: 1.15rem; }
         .booking-fee-refund-terms { margin: 1rem 0; padding: .9rem 1rem; background: #fff; border: 1px solid var(--line); border-radius: 12px; font-size: .875rem; }
         .booking-fee-refund-terms h3 { margin: 0 0 .4rem; font-size: .95rem; }

@@ -81,8 +81,7 @@ class BookingWidgetTest extends TestCase
             ->assertSee('$103.00')
             ->assertSee('Pay with card');
 
-        preg_match('/action="([^"]+)"/', (string) $checkout->getContent(), $action);
-        $pay = $this->post(html_entity_decode($action[1]));
+        $pay = $this->post($this->formAction((string) $checkout->getContent(), 'Pay with card'));
         $pay->assertStatus(409)->assertSee('Online payments are not enabled for this workspace.');
 
         app(TenantManager::class)->set($workspace['tenant']);
@@ -124,9 +123,7 @@ class BookingWidgetTest extends TestCase
         $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-pay'));
         $held->assertRedirect();
         $checkout = $this->get((string) $held->headers->get('Location'))->assertOk();
-        preg_match('/action="([^"]+)"/', (string) $checkout->getContent(), $action);
-
-        $this->post(html_entity_decode($action[1]))
+        $this->post($this->formAction((string) $checkout->getContent(), 'Pay with card'))
             ->assertRedirect('https://checkout.stripe.test/pay/cs_test_123');
         $this->assertSame(300, $fake->sessions[0]['params']['payment_intent_data']['application_fee_amount']);
         $this->assertArrayNotHasKey('payment_method_types', $fake->sessions[0]['params']);
@@ -177,9 +174,7 @@ class BookingWidgetTest extends TestCase
             ->assertSee('$103.00')
             ->assertSee('Booking fee');
 
-        preg_match_all('/action="([^"]+)"/', (string) $checkout->getContent(), $actions);
-        $this->assertCount(2, $actions[1]);
-        $pickup = html_entity_decode($actions[1][1]);
+        $pickup = $this->formAction((string) $checkout->getContent(), 'Pay at pickup');
 
         $confirmed = $this->post($pickup)->assertRedirect();
         $this->get((string) $confirmed->headers->get('Location'))
@@ -277,6 +272,14 @@ class BookingWidgetTest extends TestCase
         ])->assertCreated();
 
         return [$workspace, $service];
+    }
+
+    private function formAction(string $html, string $button): string
+    {
+        $pattern = '/<form method="post" action="([^"]+)"[^>]*>\s*<button[^>]*>'.preg_quote($button, '/').'/s';
+        $this->assertSame(1, preg_match($pattern, $html, $matches), 'Missing the '.$button.' form.');
+
+        return html_entity_decode($matches[1]);
     }
 
     private function bookingId(string $location): string

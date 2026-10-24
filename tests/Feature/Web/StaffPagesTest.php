@@ -53,6 +53,7 @@ class StaffPagesTest extends TestCase
             '/staff/closures' => 'Closures',
             '/staff/setup/resources' => 'Single kayak',
             '/staff/setup/services' => 'Kayak rental',
+            '/staff/promo-codes' => 'Promo codes',
             '/staff/setup/services/'.$shop['service']->id => 'Per paddler',
             '/staff/settings' => 'Who pays the booking fee',
             '/staff/team' => 'Invite by email',

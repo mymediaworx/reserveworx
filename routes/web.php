@@ -33,6 +33,7 @@ use App\Livewire\Staff\NewBooking;
 use App\Livewire\Staff\Schedule;
 use App\Livewire\Staff\Settings;
 use App\Livewire\Staff\Setup\Locations;
+use App\Livewire\Staff\Setup\PromoCodes;
 use App\Livewire\Staff\Setup\Resources;
 use App\Livewire\Staff\Setup\ServiceDetail;
 use App\Livewire\Staff\Setup\Services;
@@ -125,6 +126,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/resources', Resources::class);
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
+        Route::get('/promo-codes', PromoCodes::class);
         Route::get('/settings', Settings::class);
         Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);
@@ -186,6 +188,7 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::get('/services/{service}', [WidgetController::class, 'create'])->name('widget.create');
         Route::post('/services/{service}', [WidgetController::class, 'store'])->name('widget.store');
         Route::get('/checkout/{booking}', [WidgetController::class, 'checkout'])->name('widget.checkout')->middleware('signed');
+        Route::post('/checkout/{booking}/promo', [WidgetController::class, 'applyPromo'])->name('widget.promo')->middleware('signed');
         Route::post('/checkout/{booking}', [WidgetController::class, 'pay'])->name('widget.pay')->middleware('signed');
         Route::post('/pickup/{booking}', [WidgetController::class, 'pickup'])->name('widget.pickup')->middleware('signed');
         Route::get('/confirmation/{booking}', [WidgetController::class, 'confirmation'])->name('widget.confirmation')->middleware('signed');

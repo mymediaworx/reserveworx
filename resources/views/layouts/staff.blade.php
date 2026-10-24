@@ -26,13 +26,14 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/closures', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/manifest')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/closures', 'staff/promo-codes', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/manifest')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*')],
         ['href' => '/staff/closures', 'label' => 'Closures', 'icon' => 'closure', 'active' => request()->is('staff/closures')],
         ['href' => '/staff/setup/resources', 'label' => 'Boats & gear', 'icon' => 'boat', 'active' => request()->is('staff/setup/resources*')],
         ['href' => '/staff/setup/services', 'label' => 'Services & prices', 'icon' => 'tag', 'active' => request()->is('staff/setup/services*')],
+        ['href' => '/staff/promo-codes', 'label' => 'Promo codes', 'icon' => 'tag', 'active' => request()->is('staff/promo-codes')],
         ['href' => '/staff/branding', 'label' => 'Branding', 'icon' => 'palette', 'active' => request()->is('staff/branding')],
         ['href' => '/staff/settings', 'label' => 'Settings', 'icon' => 'settings', 'active' => request()->is('staff/settings')],
     ];

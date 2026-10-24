@@ -46,6 +46,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
 | Tenant domain | `/staff/closures` | Full-day or time-range closures for one location, optionally one category or one boat or pool, with a reason. A closure can repeat every year. Confirmed bookings that overlap are listed and stay booked. `settings.view` opens the page. `settings.update` adds, edits, and removes |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures` |
+| Tenant domain | `/staff/promo-codes` | List, add, edit, and turn off promo codes. A code is a percent or a fixed amount. Dates and a use limit are optional |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
 | Tenant domain | `/staff/team` | Invite by email, resend or revoke a pending invitation, change a role, or remove a member. Owners, and anyone else with `members.manage`, can open it. The signed accept link expires in 7 days |
 | Tenant domain | `/staff/invites/{membership}` | Signed page for that invitation. A new person sets a password. An existing account joins this workspace and keeps its password |
@@ -55,7 +56,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/businesses/new` | Add a business. Fee rates stay at the standard defaults. An optional address is saved unverified |
 | Tenant domain | `/staff/switch/{tenant}`, `/staff/enter/{token}` | Move to another business this login belongs to. The entry token lasts two minutes and works once, on that business's verified address |
 | Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
-| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page shows a check-in code once the booking is confirmed |
+| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. The review page takes an optional promo code and shows the discount. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page shows a check-in code once the booking is confirmed |
 
 ## Tenant isolation
 
@@ -81,7 +82,7 @@ Platform pages exist only on platform hosts (`platform.host`) and require `auth`
 
 ## Booking links
 
-The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The widget's own markup and controller are unchanged. Only its stylesheet was restyled to the same palette.
+The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The review page takes an optional promo code, shows the discount, and recalculates the booking fee on the subtotal after that discount. The widget does not use a cookie session. Its stylesheet matches the staff palette.
 
 ## Demo data
 

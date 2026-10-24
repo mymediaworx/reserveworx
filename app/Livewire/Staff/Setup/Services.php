@@ -70,12 +70,17 @@ class Services extends Component
             'promoValue' => $this->promoType === 'percent' ? ['required', 'integer', 'between:1,100'] : ['required', 'integer', 'min:1', 'max:100000'],
         ]);
 
-        PromoCode::query()->create([
+        $promo = PromoCode::query()->create([
             'tenant_id' => $this->tenant()->id,
             'code' => strtoupper($this->promoCode),
             'percent_off' => $this->promoType === 'percent' ? $this->promoValue : null,
             'amount_off_cents' => $this->promoType === 'amount' ? $this->promoValue * 100 : null,
             'active' => true,
+        ]);
+        $this->audit('promo_code.created', $promo, [
+            'code' => $promo->code,
+            'percent_off' => $promo->percent_off,
+            'amount_off_cents' => $promo->amount_off_cents,
         ]);
 
         $this->reset('promoCode');
@@ -89,6 +94,10 @@ class Services extends Component
         abort_unless($promo instanceof PromoCode, 404);
         $promo->active = ! $promo->active;
         $promo->save();
+        $this->audit($promo->active ? 'promo_code.updated' : 'promo_code.deactivated', $promo, [
+            'code' => $promo->code,
+            'active' => $promo->active,
+        ]);
     }
 
     public function render(): View

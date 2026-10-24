@@ -38,6 +38,7 @@
 
             <section class="panel">
                 <h2>Promo codes</h2>
+                <p class="muted">Dates, a use limit, and edits are on <a href="/staff/promo-codes" wire:navigate>Promo codes</a>.</p>
                 @if ($promos->isEmpty())
                     <p class="muted">No promo codes.</p>
                 @else
