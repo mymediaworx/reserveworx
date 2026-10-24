@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\OperationsController;
 use App\Http\Controllers\Api\V1\OutboxController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
+use App\Http\Controllers\Api\V1\Platform\FeeRevenueController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
@@ -49,6 +50,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/tenants/{tenant}/domains', [DomainController::class, 'store']);
             Route::post('/tenants/{tenant}/domains/{domain}/verify', [DomainController::class, 'verify']);
             Route::patch('/tenants/{tenant}/fees', [FeeSettingsController::class, 'update']);
+            Route::get('/fee-revenue', [FeeRevenueController::class, 'show']);
         });
     });
 
