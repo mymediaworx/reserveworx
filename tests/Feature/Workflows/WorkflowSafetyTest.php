@@ -33,6 +33,9 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString("tr '[:upper:]' '[:lower:]'", $remote);
 
         $this->assertStringContainsString('chmod 600', $remote);
+        $this->assertStringContainsString('harbor.reserveworx.com', $remote);
+        $this->assertStringContainsString('reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com', $remote);
+        $this->assertStringContainsString('Team sign in', $remote);
 
         $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
         $this->assertStringContainsString('sg_key.pub', $prepare);
@@ -124,6 +127,62 @@ BASH);
             2 => ['pipe', 'w'],
         ];
         $process = proc_open(['bash', '-lc', $command], $descriptors, $pipes);
+        $this->assertIsResource($process);
+        $output = stream_get_contents($pipes[1]).stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return ['exit' => proc_close($process), 'output' => $output];
+    }
+
+    public function test_harbor_front_controller_uses_the_live_app_and_leaves_the_main_site_alone(): void
+    {
+        $home = sys_get_temp_dir().'/rw-harbor-'.bin2hex(random_bytes(4));
+        $harbor = $home.'/www/harbor.reserveworx.com/public_html';
+        $main = $home.'/www/reserveworx.com/public_html';
+        $app = $home.'/www/app.reserveworx.com';
+        mkdir($harbor, 0777, true);
+        mkdir($main, 0777, true);
+        mkdir($app.'/public_html', 0777, true);
+        mkdir($app.'/laravel/current/public', 0777, true);
+        file_put_contents($main.'/index.html', 'main-site');
+        file_put_contents($app.'/public_html/.htaccess', "RewriteEngine On\n");
+
+        $script = base_path('scripts/remote-deploy.sh');
+        $boot = $app.'/laravel/current';
+        $command = 'export HOME='.escapeshellarg($home)
+            .' ACTION=deploy RW_DEPLOY_LIBRARY=1; source '.escapeshellarg($script)
+            .'; harbor_docroot_verified; install_harbor_front_controller';
+        $ran = $this->runShell($command);
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('harbor_docroot='.$harbor, $ran['output']);
+        $this->assertStringContainsString('harbor_front_controller=absolute '.$boot, $ran['output']);
+        $index = (string) file_get_contents($harbor.'/index.php');
+        $this->assertStringContainsString("\$root = '".$boot."';", $index);
+        $this->assertStringNotContainsString('www/reserveworx.com', $index);
+        $this->assertSame("RewriteEngine On\n", (string) file_get_contents($harbor.'/.htaccess'));
+        $this->assertSame('main-site', (string) file_get_contents($main.'/index.html'));
+
+        unlink($harbor.'/index.php');
+        unlink($harbor.'/.htaccess');
+        rmdir($harbor);
+        $missing = $this->runShell(
+            'export HOME='.escapeshellarg($home)
+            .' ACTION=deploy RW_DEPLOY_LIBRARY=1; source '.escapeshellarg($script)
+            .'; harbor_docroot_verified',
+        );
+        $this->assertNotSame(0, $missing['exit']);
+        $this->assertStringContainsString('harbor_docroot=missing', $missing['output']);
+        $this->assertStringContainsString('www_entry=reserveworx.com', $missing['output']);
+        $this->assertSame('main-site', (string) file_get_contents($main.'/index.html'));
+    }
+
+    /**
+     * @return array{exit: int, output: string}
+     */
+    private function runShell(string $command): array
+    {
+        $process = proc_open(['bash', '-lc', $command], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
         $this->assertIsResource($process);
         $output = stream_get_contents($pipes[1]).stream_get_contents($pipes[2]);
         fclose($pipes[1]);

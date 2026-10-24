@@ -2,7 +2,7 @@
 
 Production target: `app.reserveworx.com` on SiteGround. The supported path is the manual GitHub Actions workflow `.github/workflows/deploy.yml`. It always checks out `main`. It does not deploy the branch that happens to contain the workflow file.
 
-The layout below was reported by BrandWorx Dev for distrosku.com on October 23, 2026, and is not yet verified for this site. The script still only writes under `$HOME/www/app.reserveworx.com`. It does not list or modify any other site folder.
+The layout below was reported by BrandWorx Dev for distrosku.com on October 23, 2026, and is not yet verified for this site. The script writes the application under `$HOME/www/app.reserveworx.com`. The only other site folder it writes is an existing `$HOME/www/harbor.reserveworx.com/public_html`, and only `index.php` and `.htaccess` there. It does not create that site and it does not write under `www/reserveworx.com`.
 
 ```text
 /home/customer/www/app.reserveworx.com/public_html/index.php  boots ../laravel/current
@@ -39,6 +39,7 @@ Do not run this workflow until:
 10. `public_html` stays a real directory. Nginx on this account returns 403 when the document root itself is a symlink. `index.php` there boots `../laravel/current`. A placeholder directory (`index.html`, `index.php`, `cgi-bin`, `.well-known`, `default.html`, any case) is moved aside inside the same domain folder first. Any other files leave `public_html` unchanged and fail the job. A listing of that directory does not use `/dev/fd`, which this host does not provide.
 11. Dynamic Cache: the script sends `PURGE` to `http://127.0.0.1/` with `Host: app.reserveworx.com` only. That request is what operators report for nginx; it is not the method in SiteGround's knowledge base. The knowledge base (updated January 29, 2025) says WordPress uses `wp sg purge` and every other application is flushed in Site Tools → Speed → Caching → Dynamic Cache. Success here is a body that contains `Successful purge`. HTTP 202 is not a successful purge. If the purge is not confirmed, flush this domain in Site Tools and do not flush other sites.
 12. Health check requests `https://app.reserveworx.com/up` with `Cache-Control: no-cache` and the `wpSGCacheBypass=1` cookie documented in that same knowledge base. Success is HTTP 200 and a body that contains `Application up`. HTTP 202 is the SiteGround bot check and is not proof the application is up.
+13. Before anything is extracted, the script checks that `$HOME/www/harbor.reserveworx.com/public_html` is a real directory and that its resolved path is not under `www/reserveworx.com`. If that directory is missing, the job stops and the app document root is not changed. After the app health check, the script writes `index.php` and `.htaccess` into that harbor directory. `index.php` boots `$HOME/www/app.reserveworx.com/laravel/current`. It then runs `php artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com` and requests `https://harbor.reserveworx.com/staff/login`. Success is HTTP 200 and a body that contains `Team sign in`.
 
 `action=rollback`
 
