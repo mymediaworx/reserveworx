@@ -27,7 +27,7 @@ class SessionController extends Controller
         $tenantId = $this->tenants->id();
 
         if ($user instanceof User && is_string($tenantId) && $this->access->hasActiveMembership($user, $tenantId)) {
-            return redirect()->route('admin.dashboard');
+            return redirect()->route('staff.home');
         }
 
         return view('admin.login');
@@ -63,7 +63,7 @@ class SessionController extends Controller
             request: $request,
         );
 
-        return redirect()->route('admin.dashboard');
+        return redirect()->route('staff.home');
     }
 
     public function destroy(Request $request): RedirectResponse

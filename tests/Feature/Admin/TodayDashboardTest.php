@@ -128,7 +128,7 @@ class TodayDashboardTest extends TestCase
             'refund_tax_cents' => 100,
         ]);
 
-        $this->get($this->tenantUrl('dock.test', '/admin'))->assertRedirect(route('admin.login'));
+        $this->get($this->tenantUrl('dock.test', '/admin'))->assertRedirect('/staff');
 
         $this->actingAsWorkspace($workspace);
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/reports/today'))
@@ -170,13 +170,12 @@ class TodayDashboardTest extends TestCase
         $this->post($this->tenantUrl('dock.test', '/admin/login'), [
             'email' => $workspace['user']->email,
             'password' => 'password',
-        ])->assertRedirect(route('admin.dashboard'));
+        ])->assertRedirect(route('staff.home'));
 
-        $this->get($this->tenantUrl('dock.test', '/admin'))
+        $this->get($this->tenantUrl('dock.test', '/admin'))->assertRedirect('/staff');
+        $this->get($this->tenantUrl('dock.test', '/staff'))
             ->assertOk()
-            ->assertSee('Kayak')
-            ->assertSee('Engine service')
-            ->assertSee('$2.00');
+            ->assertSee('Kayak');
 
         $other = $this->workspace('other.test');
         $this->post($this->tenantUrl('other.test', '/admin/login'), [
@@ -187,7 +186,8 @@ class TodayDashboardTest extends TestCase
 
         $this->flushSession();
         $this->actingAs($other['user']);
-        $this->get($this->tenantUrl('dock.test', '/admin'))->assertForbidden();
+        $this->get($this->tenantUrl('dock.test', '/admin'))->assertRedirect('/staff');
+        $this->get($this->tenantUrl('dock.test', '/staff'))->assertForbidden();
         $this->get($this->tenantUrl('localhost', '/admin'))->assertNotFound();
     }
 

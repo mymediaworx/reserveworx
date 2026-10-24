@@ -4,7 +4,7 @@
 
 @section('content')
     <h1>Integrations</h1>
-    <p class="muted"><a href="{{ route('admin.dashboard') }}">Today</a></p>
+    <p class="muted"><a href="{{ route('staff.home') }}">Today</a></p>
     <p>GoHighLevel is not connected. These events are stored here and are not sent. Email is not sent either.</p>
     <div class="stats">
         <div class="stat"><strong>{{ $summary['queued'] }}</strong> Queued</div>
