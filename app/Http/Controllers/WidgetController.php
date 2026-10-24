@@ -25,6 +25,7 @@ use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Widget\WidgetTokens;
@@ -45,6 +46,7 @@ class WidgetController extends Controller
         private readonly PricingEngine $pricing,
         private readonly BookingPricer $pricer,
         private readonly CheckoutService $checkout,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -317,7 +319,23 @@ class WidgetController extends Controller
             : FeeRate::defaultFor($channel);
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
         $rules = PriceRule::inputsFor($service->id);
-        $priced = $this->pricing->price($channel, $rate, $payer, $rules, $participants, $minutes, $on, 0, null, null, null, 100);
+        $priced = $this->pricing->price(
+            $channel,
+            $rate,
+            $payer,
+            $rules,
+            $participants,
+            $minutes,
+            $on,
+            0,
+            null,
+            null,
+            null,
+            100,
+            0,
+            [],
+            $this->operatorFees->definitionsFor($service->id, $service->location_id),
+        );
 
         return [
             'total_cents' => $priced->quote->customerTotalCents(),

@@ -10,8 +10,16 @@
     @if (! $hold)
         <p class="error" role="alert">This hold has expired. Choose another time.</p>
     @endif
+    @php
+        $priced = $snapshot->payload;
+        $operatorFees = is_array($priced['operator_fees'] ?? null) ? $priced['operator_fees'] : [];
+        $addOnCents = is_numeric($priced['add_ons_cents'] ?? null) ? (int) $priced['add_ons_cents'] : 0;
+        $serviceCents = is_numeric($priced['services_cents'] ?? null) ? (int) $priced['services_cents'] : 0;
+        $discountCents = is_numeric($priced['discount_cents'] ?? null) ? (int) $priced['discount_cents'] : 0;
+    @endphp
     @include('disclosures.checkout-summary', [
-        'subtotalCents' => (int) $snapshot->payload['services_cents'] - (int) $snapshot->payload['discount_cents'],
+        'subtotalCents' => max(0, $serviceCents - $discountCents + $addOnCents),
+        'operatorFees' => $operatorFees,
         'bookingFeeCents' => $snapshot->payload['customer_fee_line_cents'],
         'taxCents' => (int) $snapshot->payload['tax_cents'],
         'totalCents' => (int) $snapshot->payload['customer_total_cents'],

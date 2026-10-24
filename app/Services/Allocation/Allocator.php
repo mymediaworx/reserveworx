@@ -29,6 +29,7 @@ use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Booking\SlotFinder;
+use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
@@ -52,6 +53,7 @@ class Allocator
         private readonly TenantManager $tenants,
         private readonly BookingEvents $events,
         private readonly ReturnConditions $returnConditions,
+        private readonly BookingOperatorFeeLines $operatorFees,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -442,6 +444,7 @@ class Allocator
                 $booking->participants = $participants;
                 $booking->save();
                 $this->repricePerPersonAddOns($booking, $participants);
+                $this->operatorFees->repriceForParty($booking);
                 Hold::query()
                     ->where('booking_id', $booking->id)
                     ->whereNull('asset_id')
@@ -470,6 +473,7 @@ class Allocator
             $booking->participants = $participants;
             $booking->save();
             $this->repricePerPersonAddOns($booking, $participants);
+            $this->operatorFees->repriceForParty($booking);
             $held = $booking->status === BookingStatus::Held;
 
             if ($held) {
@@ -966,6 +970,7 @@ class Allocator
             'payload_hash' => $intent->payloadHash(),
         ]);
         $this->writeAddOns($booking, $intent);
+        $this->operatorFees->attach($booking);
 
         Hold::query()->create([
             'tenant_id' => $booking->tenant_id,
@@ -1204,6 +1209,7 @@ class Allocator
             'payload_hash' => $intent->payloadHash(),
         ]);
         $this->writeAddOns($booking, $intent);
+        $this->operatorFees->attach($booking);
 
         return $booking;
     }

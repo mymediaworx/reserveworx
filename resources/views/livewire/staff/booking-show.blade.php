@@ -5,6 +5,8 @@
     $open = in_array($status, ['held', 'pending_payment', 'confirmed'], true);
     $currency = $snapshot?->currency ?? 'USD';
     $p = $snapshot?->payload ?? [];
+    $operatorFees = is_array($p['operator_fees'] ?? null) ? $p['operator_fees'] : [];
+    $operatorCents = is_numeric($p['mandatory_operator_fees_cents'] ?? null) ? (int) $p['mandatory_operator_fees_cents'] : 0;
 @endphp
 <div class="page">
     <p class="crumb"><a href="/staff/bookings" wire:navigate>Bookings</a></p>
@@ -58,7 +60,8 @@
                 <h2>Price</h2>
                 @if ($snapshot)
                     @include('disclosures.checkout-summary', [
-                        'subtotalCents' => (int) ($p['basis_cents'] ?? 0),
+                        'subtotalCents' => max(0, (int) ($p['basis_cents'] ?? 0) - $operatorCents),
+                        'operatorFees' => $operatorFees,
                         'bookingFeeCents' => $p['customer_fee_line_cents'] ?? null,
                         'taxCents' => (int) ($p['tax_cents'] ?? 0),
                         'totalCents' => (int) ($p['customer_total_cents'] ?? 0),

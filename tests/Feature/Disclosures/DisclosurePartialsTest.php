@@ -121,6 +121,27 @@ class DisclosurePartialsTest extends TestCase
         $this->assertMatchesRegularExpression('/Refunded.*\$55\.00.*Booking fee refunded.*\$1\.50/s', $html);
     }
 
+    public function test_a_required_fee_is_its_own_line_and_its_name_is_escaped(): void
+    {
+        $html = view('disclosures.checkout-summary', [
+            'subtotalCents' => 10_000,
+            'operatorFees' => [
+                ['name' => 'Cleaning', 'total_cents' => 2_500],
+                ['name' => '<script>', 'total_cents' => 100],
+            ],
+            'bookingFeeCents' => 375,
+            'taxCents' => 0,
+            'totalCents' => 12_975,
+            'refundTerms' => $this->terms(),
+        ])->render();
+
+        $this->assertMatchesRegularExpression('/Subtotal.*\$100\.00.*Cleaning.*\$25\.00.*Booking fee.*\$3\.75/s', $html);
+        $this->assertStringContainsString('class="line operator-fee"', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertNoForbiddenTerms($html);
+    }
+
     public function test_business_name_is_escaped(): void
     {
         $html = view('disclosures.checkout-summary', [
