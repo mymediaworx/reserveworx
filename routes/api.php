@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\NotificationHookController;
 use App\Http\Controllers\Api\V1\OperationsController;
 use App\Http\Controllers\Api\V1\OutboxController;
+use App\Http\Controllers\Api\V1\ParticipantController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeReconciliationController;
@@ -123,6 +124,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/bookings/{booking}/incidents', [OperationsController::class, 'indexIncidents']);
             Route::post('/bookings/{booking}/waivers', [OperationsController::class, 'signWaiver']);
             Route::get('/bookings/{booking}/waivers/{signature}', [OperationsController::class, 'waiverPdf']);
+            Route::get('/bookings/{booking}/participants', [ParticipantController::class, 'index']);
+            Route::post('/bookings/{booking}/participants', [ParticipantController::class, 'store']);
+            Route::delete('/bookings/{booking}/participants/{participant}', [ParticipantController::class, 'destroy']);
             Route::get('/maintenance-windows', [OperationsController::class, 'indexMaintenance']);
             Route::post('/maintenance-windows', [OperationsController::class, 'storeMaintenance']);
             Route::get('/assets/{asset}/maintenance-records', [OperationsController::class, 'indexMaintenanceRecords']);

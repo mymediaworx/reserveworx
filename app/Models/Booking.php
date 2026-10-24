@@ -106,4 +106,14 @@ class Booking extends Model
     {
         return $this->hasMany(RentalCheckout::class);
     }
+
+    /**
+     * Named people on this booking. This is not the party-size column.
+     *
+     * @return HasMany<Participant, $this>
+     */
+    public function partyMembers(): HasMany
+    {
+        return $this->hasMany(Participant::class);
+    }
 }

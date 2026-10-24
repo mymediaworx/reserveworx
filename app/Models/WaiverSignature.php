@@ -11,7 +11,7 @@ class WaiverSignature extends Model
     use BelongsToTenant, HasUlids;
 
     protected $fillable = [
-        'tenant_id', 'booking_id', 'waiver_version_id', 'participant_name', 'is_minor',
+        'tenant_id', 'booking_id', 'participant_id', 'waiver_version_id', 'participant_name', 'is_minor',
         'guardian_name', 'ip_address', 'user_agent', 'content_hash', 'signed_at',
     ];
 
