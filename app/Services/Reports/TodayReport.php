@@ -87,6 +87,7 @@ final class TodayReport
             'overdue_checkouts' => RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
             'payments' => $payments,
             'totals' => $this->totals($bookings, $windowStart, $windowEnd, $clockZone, $reportDate),
+            'outcomes' => $this->outcomes($windowStart, $windowEnd, $reportDate),
             'fees' => [
                 'charged_cents' => $charged,
                 'refunded_cents' => $refunded,
@@ -163,6 +164,10 @@ final class TodayReport
         fputcsv($handle, ['total', 'booking_fee', '', '', 'booking fee', '', $totals['booking_fee_cents'] ?? 0]);
         fputcsv($handle, ['total', 'refunds', '', '', 'customer refund', '', $totals['refunds_cents'] ?? 0]);
         fputcsv($handle, ['fee', 'net', '', '', 'all_time', '', $fees['net_cents'] ?? 0]);
+        $outcomes = is_array($report['outcomes'] ?? null) ? $report['outcomes'] : [];
+        fputcsv($handle, ['outcome', 'confirmed', '', '', 'confirmed', $outcomes['confirmed'] ?? 0, '']);
+        fputcsv($handle, ['outcome', 'cancelled', '', '', 'cancelled', $outcomes['cancelled'] ?? 0, '']);
+        fputcsv($handle, ['outcome', 'no_show', '', '', 'no show', $outcomes['no_show'] ?? 0, '']);
         rewind($handle);
         $csv = stream_get_contents($handle);
         fclose($handle);
@@ -298,6 +303,41 @@ final class TodayReport
             'tax_cents' => $tax,
             'booking_fee_cents' => $fee,
             'refunds_cents' => $refunds,
+        ];
+    }
+
+    /**
+     * Counts bookings that start on the report date in the booking location's zone.
+     * Holds, unpaid checkouts, and payment exceptions are left out of the rates.
+     * Basis points use integer division. A day with none of these statuses is zero.
+     *
+     * @return array{confirmed: int, cancelled: int, no_show: int, cancellation_bps: int, no_show_bps: int}
+     */
+    private function outcomes(CarbonImmutable $windowStart, CarbonImmutable $windowEnd, string $reportDate): array
+    {
+        $rows = Booking::query()
+            ->with('location')
+            ->where('starts_at', '>=', $windowStart)
+            ->where('starts_at', '<', $windowEnd)
+            ->whereIn('status', [
+                BookingStatus::Confirmed->value,
+                BookingStatus::Cancelled->value,
+                BookingStatus::NoShow->value,
+            ])
+            ->get()
+            ->filter(fn (Booking $booking): bool => $this->onDate($booking->starts_at, $this->zoneOf($booking->location), $reportDate));
+
+        $confirmed = $rows->filter(fn (Booking $booking): bool => $booking->status === BookingStatus::Confirmed)->count();
+        $cancelled = $rows->filter(fn (Booking $booking): bool => $booking->status === BookingStatus::Cancelled)->count();
+        $noShow = $rows->filter(fn (Booking $booking): bool => $booking->status === BookingStatus::NoShow)->count();
+        $denominator = $confirmed + $cancelled + $noShow;
+
+        return [
+            'confirmed' => $confirmed,
+            'cancelled' => $cancelled,
+            'no_show' => $noShow,
+            'cancellation_bps' => $denominator === 0 ? 0 : intdiv($cancelled * 10000, $denominator),
+            'no_show_bps' => $denominator === 0 ? 0 : intdiv($noShow * 10000, $denominator),
         ];
     }
 

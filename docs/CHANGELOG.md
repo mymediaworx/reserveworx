@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Today's report counts confirmed, cancelled, and no-show bookings that start that day, and gives each rate in basis points. Holds and unpaid checkouts stay out of the rate.
 - A platform administrator can read stored booking-fee totals by workspace and stored channel at `GET /api/v1/platform/fee-revenue`. The report does not call Stripe.
 - Today's report separates gross booking value, tax, booking fees, card payments, offline payments, and customer refunds.
 - A signed waiver can be downloaded as a PDF of the stored text, hash, and signature record. That file is not an electronic-signature certificate.
