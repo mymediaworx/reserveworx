@@ -5,6 +5,7 @@ Semantic versions start at the first tagged release. This file records what land
 ## Unreleased
 
 - Staff who can view bookings can list and open customers at `GET /api/v1/customers`. A search matches the stored name, email, or phone. The list is limited to 50.
+- `GET /api/v1/audit-logs` accepts optional `action` and `subject_id` filters. Omitting them still returns the workspace log.
 - A `booking.refunded` notification hook includes the booking-fee portion of the customer refund beside the application-fee refund.
 - A platform administrator can read stored booking-fee totals by workspace and stored channel at `GET /api/v1/platform/fee-revenue`. The report does not call Stripe.
 - Today's report separates gross booking value, tax, booking fees, card payments, offline payments, and customer refunds.
