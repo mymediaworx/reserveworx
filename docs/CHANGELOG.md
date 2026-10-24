@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A platform administrator can compare stored booking fees for a UTC date window with the application fees Stripe lists for that same window. The stored fee report still does not call Stripe.
 - `GET /api/v1/fee-ledger` lists each booking's fees and the reason each fee was refunded. The workspace totals are unchanged. A booking id from another workspace is not found.
 - A deploy opens one SiteGround SSH connection and reuses it for the database backup, the release upload, and activation. It does not scan the host key on a separate connection, and it does not retry a dropped handshake.
 - A confirmed booking that moves onto a lower price can be refunded the difference. `POST /api/v1/bookings/{booking}/decrease-refund` returns the subtotal and tax that fell, and a proportional share of the booking fee already charged.

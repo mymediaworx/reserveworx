@@ -23,6 +23,14 @@ final class FakeStripeGateway implements StripeGateway
     /** @var list<array{fee: string, amount: int, idempotency_key: string}> */
     public array $feeRefunds = [];
 
+    /** @var list<array{gte: int, lt: int}> */
+    public array $feeLists = [];
+
+    /** @var list<array{id: string, amount: int, amount_refunded: int, account: ?string, created: int}> */
+    public array $applicationFees = [];
+
+    public bool $truncateFeeList = false;
+
     public string $accountId = 'acct_test_123';
 
     public string $sessionId = 'cs_test_123';
@@ -95,5 +103,24 @@ final class FakeStripeGateway implements StripeGateway
         ];
 
         return ['id' => 'fr_test_'.count($this->feeRefunds)];
+    }
+
+    public function listApplicationFees(int $createdGte, int $createdLt): array
+    {
+        $this->feeLists[] = ['gte' => $createdGte, 'lt' => $createdLt];
+
+        if ($this->truncateFeeList) {
+            throw new FeeListTruncatedException;
+        }
+
+        $rows = [];
+
+        foreach ($this->applicationFees as $fee) {
+            if ($fee['created'] >= $createdGte && $fee['created'] < $createdLt) {
+                $rows[] = $fee;
+            }
+        }
+
+        return $rows;
     }
 }
