@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- `GET /api/v1/reports/revenue` lists gross service cents by service and by the location-local date a booking starts. Confirmed and no-show bookings count. The total for one location on one date matches that day's stored summary gross. The live today report still does not include this breakdown.
 - `reports:build-summaries` stores utilization, conversion, average order value, and revenue per resource-hour for each location. `GET /api/v1/reports/summaries` reads those rows for a date window and does not recompute them. The live today report still does not.
 - A platform administrator can compare stored booking fees for a UTC date window with the application fees Stripe lists for that same window. The stored fee report still does not call Stripe.
 - `GET /api/v1/fee-ledger` lists each booking's fees and the reason each fee was refunded. The workspace totals are unchanged. A booking id from another workspace is not found.
