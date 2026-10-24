@@ -147,6 +147,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/reports/revenue/export', [ReportController::class, 'exportRevenue']);
             Route::get('/reports/customers', [ReportController::class, 'customers']);
             Route::get('/reports/customers/export', [ReportController::class, 'exportCustomers']);
+            Route::get('/reports/tours', [ReportController::class, 'tours']);
+            Route::get('/reports/tours/export', [ReportController::class, 'exportTours']);
             Route::get('/widget-tokens', [WidgetTokenController::class, 'index']);
             Route::post('/widget-tokens', [WidgetTokenController::class, 'store']);
             Route::post('/widget-tokens/{widget_token}/revoke', [WidgetTokenController::class, 'revoke']);

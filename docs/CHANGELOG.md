@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- `GET /api/v1/reports/tours` lists each tour departure in a date window with the service, the location, the local start time, and the seat cap. Seats booked are confirmed and no-show participants. Seats attended are the confirmed participants. Fill rate and attendance rate are basis points, and stay empty when the cap or the booked seats are zero. Held, expired, and cancelled bookings stay out. `GET /api/v1/reports/tours/export` downloads the same rows. The read does not write a summary row.
 - Today's report counts booking-fee refunds recorded on the report date in each booking's location timezone. A refund from another local day stays out of that total. Charged fees and the net fee total stay all-time.
 - `GET /api/v1/reports/summaries/export`, `GET /api/v1/reports/revenue/export`, and `GET /api/v1/reports/customers/export` download the same rows as those JSON reports. A blank rate is an empty stored figure. The customer file includes attribution lines. The download does not rebuild a summary.
 - `GET /api/v1/reports/customers` counts new and repeat customers for a date window, and counts bookings by the channel stored on the pricing snapshot. A customer is new on the day and location of their first confirmed or no-show booking. Held and cancelled bookings stay out. A booking with no customer is not a customer. The live today report still does not include this.
