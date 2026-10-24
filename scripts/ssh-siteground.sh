@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # A drop during connect, before the remote command prints anything, is tried
-# again. A command that already started is not run a second time.
+# up to six times. A command that already started is not run a second time.
 ssh_with_retry() {
   local attempt out err status
   attempt=1
@@ -15,7 +15,7 @@ ssh_with_retry() {
     "$SG_SSH_BIN" "$@" >"$out" 2>"$err"
     status=$?
     set -e
-    if [[ "$status" -eq 255 && "$attempt" -lt 3 && ! -s "$out" ]] && grep -qE 'kex_exchange_identification|Connection reset by peer|Connection closed by' "$err"; then
+    if [[ "$status" -eq 255 && "$attempt" -lt 6 && ! -s "$out" ]] && grep -qE 'kex_exchange_identification|Connection reset by peer|Connection closed by' "$err"; then
       cat "$err" >&2
       echo "ssh_connect_retry attempt=${attempt}" >&2
       rm -f "$out" "$err"

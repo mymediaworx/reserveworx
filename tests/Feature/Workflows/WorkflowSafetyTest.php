@@ -219,6 +219,10 @@ if [[ "$mode" == "closed-then-ok" && "$n" -eq 1 ]]; then
   echo "Connection closed by 203.0.113.5 port 22" >&2
   exit 255
 fi
+if [[ "$mode" == "reset-four-then-ok" && "$n" -le 4 ]]; then
+  echo "kex_exchange_identification: read: Connection reset by peer" >&2
+  exit 255
+fi
 if [[ "$mode" == "started" ]]; then
   echo "started"
   echo "kex_exchange_identification: read: Connection reset by peer" >&2
@@ -250,6 +254,13 @@ BASH);
         $this->assertStringContainsString('ssh_connect_retry attempt=1', $closed['output']);
         $this->assertStringContainsString('payloadsession-open', $closed['output']);
         $this->assertSame('2', (string) file_get_contents($count));
+
+        file_put_contents($count, '0');
+        $repeated = $this->runShell($base.'export RW_SSH_FAKE_MODE=reset-four-then-ok; printf payload | ssh_with_retry');
+        $this->assertSame(0, $repeated['exit'], $repeated['output']);
+        $this->assertStringContainsString('ssh_connect_retry attempt=4', $repeated['output']);
+        $this->assertStringContainsString('payloadsession-open', $repeated['output']);
+        $this->assertSame('5', (string) file_get_contents($count));
 
         file_put_contents($count, '0');
         $started = $this->runShell($base.'RW_SSH_FAKE_MODE=started ssh_with_retry');
