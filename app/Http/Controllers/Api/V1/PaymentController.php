@@ -7,7 +7,6 @@ use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
-use App\Models\PlatformFee;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\User;
@@ -15,6 +14,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Payments\CheckoutService;
+use App\Services\Payments\FeeLedger;
 use App\Services\Payments\RefundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -26,6 +26,7 @@ class PaymentController extends Controller
         private readonly CheckoutService $checkout,
         private readonly StripeGateway $stripe,
         private readonly AuditLogger $audit,
+        private readonly FeeLedger $ledger,
     ) {}
 
     public function connect(Request $request): JsonResponse
@@ -248,14 +249,18 @@ class PaymentController extends Controller
     public function ledger(Request $request): JsonResponse
     {
         $this->authorize('viewAny', Booking::class);
-        $fees = PlatformFee::query()->get();
+        $validated = $request->validate([
+            'booking_id' => ['sometimes', 'string', 'ulid'],
+        ]);
+        $bookingId = $validated['booking_id'] ?? null;
 
-        return response()->json(['data' => [
-            'charged_cents' => (int) $fees->sum('amount_cents'),
-            'refunded_cents' => (int) $fees->sum('refunded_cents'),
-            'net_cents' => (int) $fees->sum('amount_cents') - (int) $fees->sum('refunded_cents'),
-            'count' => $fees->count(),
-        ]]);
+        if (is_string($bookingId)) {
+            $this->authorize('view', Booking::query()->findOrFail($bookingId));
+        }
+
+        return response()->json([
+            'data' => $this->ledger->build(is_string($bookingId) ? $bookingId : null),
+        ]);
     }
 
     private function idempotencyKey(Request $request, mixed $body): ?string
