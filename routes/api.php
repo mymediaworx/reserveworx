@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AddOnController;
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -90,6 +91,11 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/blackouts', [BlackoutController::class, 'index']);
             Route::post('/blackouts', [BlackoutController::class, 'store']);
             Route::delete('/blackouts/{blackout}', [BlackoutController::class, 'destroy']);
+            Route::get('/add-ons', [AddOnController::class, 'index']);
+            Route::post('/add-ons', [AddOnController::class, 'store']);
+            Route::get('/add-ons/{add_on}', [AddOnController::class, 'show']);
+            Route::patch('/add-ons/{add_on}', [AddOnController::class, 'update']);
+            Route::delete('/add-ons/{add_on}', [AddOnController::class, 'destroy']);
             Route::get('/services', [ServiceController::class, 'index']);
             Route::post('/services', [ServiceController::class, 'store']);
             Route::get('/services/{service}', [ServiceController::class, 'show']);

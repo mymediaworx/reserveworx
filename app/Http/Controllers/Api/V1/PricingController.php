@@ -6,10 +6,12 @@ use App\Domain\Fees\FeeChannel;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\PriceRule;
+use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Pricing\BookingPricer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +24,7 @@ class PricingController extends Controller
     public function __construct(
         private readonly BookingPricer $pricer,
         private readonly AuditLogger $audit,
+        private readonly BookingAddOnLines $addOnLines,
     ) {}
 
     public function storeRule(Request $request, Service $service): JsonResponse
@@ -94,10 +97,21 @@ class PricingController extends Controller
             'tax_basis_points' => ['sometimes', 'integer', 'between:0,10000'],
             'promo_code' => ['nullable', 'string', 'max:40'],
             'deposit_percent' => ['sometimes', 'integer', 'between:1,100'],
+            'add_ons' => ['sometimes', 'array', 'max:20'],
+            'add_ons.*.id' => ['required', 'string', 'distinct'],
+            'add_ons.*.quantity' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
         $channel = isset($validated['channel']) && is_string($validated['channel'])
             ? FeeChannel::from($validated['channel'])
             : FeeChannel::Direct;
+        $requestedAddOns = $validated['add_ons'] ?? [];
+
+        if ($request->exists('add_ons') && is_array($requestedAddOns) && ! PricingSnapshot::query()->where('booking_id', $booking->id)->exists()) {
+            $this->addOnLines->replace(
+                $booking,
+                $this->addOnLines->price($booking->participants, $requestedAddOns),
+            );
+        }
 
         try {
             $snapshot = $this->pricer->quote(

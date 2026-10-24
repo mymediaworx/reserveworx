@@ -15,6 +15,7 @@ use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Services\Catalog\BookingAddOnLines;
 use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 
@@ -23,6 +24,7 @@ final class BookingPricer
     public function __construct(
         private readonly PricingEngine $pricing,
         private readonly DisclosurePublisher $disclosures,
+        private readonly BookingAddOnLines $addOnLines,
     ) {}
 
     public function quote(Booking $booking, Tenant $tenant, FeeChannel $channel, int $taxBasisPoints, ?string $promoCode, int $depositPercent): PricingSnapshot
@@ -74,6 +76,13 @@ final class BookingPricer
             throw new InvalidArgumentException('Choose a valid interval.');
         }
 
+        $addOnLines = $this->addOnLines->snapshot($booking);
+        $addOnsCents = 0;
+
+        foreach ($addOnLines as $line) {
+            $addOnsCents += $line['total_cents'];
+        }
+
         $priced = $this->pricing->price(
             $channel,
             $rate,
@@ -87,6 +96,8 @@ final class BookingPricer
             $amount,
             $promo instanceof PromoCode ? $promo->code : null,
             $depositPercent,
+            $addOnsCents,
+            $addOnLines,
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
         $payload = $priced->toSnapshot();

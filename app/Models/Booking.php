@@ -116,4 +116,14 @@ class Booking extends Model
     {
         return $this->hasMany(Participant::class);
     }
+
+    /**
+     * Add-on and equipment lines chosen for this booking. Totals are fixed when chosen.
+     *
+     * @return HasMany<BookingAddOn, $this>
+     */
+    public function addOns(): HasMany
+    {
+        return $this->hasMany(BookingAddOn::class)->orderBy('id');
+    }
 }

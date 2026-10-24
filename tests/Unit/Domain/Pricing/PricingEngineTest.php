@@ -56,6 +56,46 @@ class PricingEngineTest extends TestCase
         $this->assertFalse($snapshot['tax_includes_booking_fee']);
         $this->assertFalse($snapshot['deposit_was_raised']);
         $this->assertSame('SAVE10', $snapshot['promo_code']);
+        $this->assertSame(0, $snapshot['add_ons_cents']);
+        $this->assertSame([], $snapshot['add_ons']);
+    }
+
+    public function test_add_ons_join_the_fee_basis_and_the_snapshot_without_changing_service_tax(): void
+    {
+        $lines = [
+            ['name' => 'Cooler', 'total_cents' => 1_500],
+            ['name' => 'Paddle', 'total_cents' => 1_400],
+        ];
+        $priced = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            10,
+            null,
+            'SAVE10',
+            100,
+            2_900,
+            $lines,
+        );
+        $snapshot = $priced->toSnapshot();
+
+        $this->assertSame(10_000, $snapshot['services_cents']);
+        $this->assertSame(1_000, $snapshot['discount_cents']);
+        $this->assertSame(2_900, $snapshot['add_ons_cents']);
+        $this->assertSame($lines, $snapshot['add_ons']);
+        $this->assertSame(11_900, $snapshot['basis_cents']);
+        $this->assertSame(900, $snapshot['tax_cents']);
+        $this->assertSame(357, $snapshot['fee_cents']);
+        $this->assertSame(357, $snapshot['customer_fee_line_cents']);
+        $this->assertSame(13_157, $snapshot['customer_total_cents']);
+        $this->assertSame(13_157, $snapshot['charge_cents']);
+        $this->assertSame(357, $snapshot['application_fee_cents']);
+        $this->assertFalse($snapshot['tax_includes_booking_fee']);
     }
 
     public function test_a_weekend_rate_and_a_per_person_rate_add_together(): void

@@ -2,12 +2,14 @@
 
 namespace App\Services\Platform;
 
+use App\Models\AddOn;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\AuditLog;
 use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
 use App\Models\Booking;
+use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
@@ -268,6 +270,8 @@ class TenantExporter
             WaitlistEntry::class,
             PriceRule::class,
             PromoCode::class,
+            AddOn::class,
+            BookingAddOn::class,
             PricingSnapshot::class,
             Payment::class,
             PlatformFee::class,
