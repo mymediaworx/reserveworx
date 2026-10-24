@@ -17,6 +17,7 @@ final class PricingEngine
 
     /**
      * @param  list<PriceRuleInput>  $rules
+     * @param  list<array<string, mixed>>  $addOnLines
      */
     public function price(
         FeeChannel $channel,
@@ -31,6 +32,8 @@ final class PricingEngine
         ?int $amountOffCents,
         ?string $promoCode,
         int $depositPercent,
+        int $addOnsCents = 0,
+        array $addOnLines = [],
     ): PricedBooking {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -44,6 +47,10 @@ final class PricingEngine
             throw new InvalidArgumentException('A deposit percent must be between 1 and 100.');
         }
 
+        if ($addOnsCents < 0) {
+            throw new InvalidArgumentException('Add-ons must not be negative.');
+        }
+
         [$services, $discount, $tax] = $this->components(
             $rules,
             $participants,
@@ -53,17 +60,18 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
-        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, discountsCents: $discount), $tax);
+        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, addOnsCents: $addOnsCents, discountsCents: $discount), $tax);
         $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
-        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode);
+        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode, $addOnsCents, $addOnLines);
     }
 
     /**
      * Price the booking as it stands and charge only the amount above the quoted snapshot.
      *
      * The fixed amount and the minimum were collected on the first payment, so
-     * the increase uses the percentage alone.
+     * the increase uses the percentage alone. Add-on lines are part of the fee
+     * basis. Tax stays on the discounted service total.
      *
      * @param  list<PriceRuleInput>  $rules
      */
@@ -81,7 +89,13 @@ final class PricingEngine
         int $quotedServicesCents,
         int $quotedDiscountCents,
         int $quotedTaxCents,
+        int $quotedAddOnsCents = 0,
+        int $addOnsCents = 0,
     ): PriceIncrease {
+        if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
+            throw new InvalidArgumentException('Add-ons must not be negative.');
+        }
+
         [$services, $discount, $tax] = $this->components(
             $rules,
             $participants,
@@ -93,7 +107,8 @@ final class PricingEngine
         );
         $servicesDelta = $services - $quotedServicesCents;
         $discountDelta = $discount - $quotedDiscountCents;
-        $basisDelta = $servicesDelta - $discountDelta;
+        $addOnsDelta = $addOnsCents - $quotedAddOnsCents;
+        $basisDelta = $servicesDelta - $discountDelta + $addOnsDelta;
         $taxDelta = $tax - $quotedTaxCents;
 
         if ($basisDelta <= 0) {
@@ -113,6 +128,7 @@ final class PricingEngine
             $taxDelta,
             $increase,
             $this->fees->priceIncreaseStripePayment($increase),
+            $addOnsDelta,
         );
     }
 
@@ -120,6 +136,7 @@ final class PricingEngine
      * Price the booking as it stands and measure the drop below the quoted snapshot.
      *
      * A lower tax is refunded with the subtotal. A higher tax is not collected here.
+     * Add-on lines are part of the subtotal. Tax stays on the discounted service total.
      *
      * @param  list<PriceRuleInput>  $rules
      */
@@ -134,7 +151,13 @@ final class PricingEngine
         int $quotedServicesCents,
         int $quotedDiscountCents,
         int $quotedTaxCents,
+        int $quotedAddOnsCents = 0,
+        int $addOnsCents = 0,
     ): PriceDecrease {
+        if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
+            throw new InvalidArgumentException('Add-ons must not be negative.');
+        }
+
         [$services, $discount, $tax] = $this->components(
             $rules,
             $participants,
@@ -144,7 +167,7 @@ final class PricingEngine
             $percentOff,
             $amountOffCents,
         );
-        $basisDelta = ($services - $quotedServicesCents) - ($discount - $quotedDiscountCents);
+        $basisDelta = ($services - $quotedServicesCents) - ($discount - $quotedDiscountCents) + ($addOnsCents - $quotedAddOnsCents);
 
         if ($basisDelta >= 0) {
             throw new InvalidArgumentException('This booking has no price decrease.');
@@ -152,7 +175,7 @@ final class PricingEngine
 
         $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
 
-        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction);
+        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents);
     }
 
     /**

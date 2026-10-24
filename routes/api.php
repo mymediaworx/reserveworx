@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AddOnController;
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuditLogController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\NotificationHookController;
 use App\Http\Controllers\Api\V1\OperationsController;
 use App\Http\Controllers\Api\V1\OutboxController;
+use App\Http\Controllers\Api\V1\ParticipantController;
 use App\Http\Controllers\Api\V1\PaymentController;
 use App\Http\Controllers\Api\V1\Platform\DomainController;
 use App\Http\Controllers\Api\V1\Platform\FeeReconciliationController;
@@ -89,6 +91,11 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/blackouts', [BlackoutController::class, 'index']);
             Route::post('/blackouts', [BlackoutController::class, 'store']);
             Route::delete('/blackouts/{blackout}', [BlackoutController::class, 'destroy']);
+            Route::get('/add-ons', [AddOnController::class, 'index']);
+            Route::post('/add-ons', [AddOnController::class, 'store']);
+            Route::get('/add-ons/{add_on}', [AddOnController::class, 'show']);
+            Route::patch('/add-ons/{add_on}', [AddOnController::class, 'update']);
+            Route::delete('/add-ons/{add_on}', [AddOnController::class, 'destroy']);
             Route::get('/services', [ServiceController::class, 'index']);
             Route::post('/services', [ServiceController::class, 'store']);
             Route::get('/services/{service}', [ServiceController::class, 'show']);
@@ -116,7 +123,6 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/reschedule', [BookingController::class, 'reschedule']);
             Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
             Route::post('/bookings/{booking}/party-size', [BookingController::class, 'partySize']);
-            Route::post('/bookings/{booking}/participants', [BookingController::class, 'storeParticipant']);
             Route::post('/bookings/{booking}/no-show', [BookingController::class, 'noShow']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
             Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout'])->middleware('throttle:checkout');
@@ -125,6 +131,9 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/bookings/{booking}/incidents', [OperationsController::class, 'indexIncidents']);
             Route::post('/bookings/{booking}/waivers', [OperationsController::class, 'signWaiver']);
             Route::get('/bookings/{booking}/waivers/{signature}', [OperationsController::class, 'waiverPdf']);
+            Route::get('/bookings/{booking}/participants', [ParticipantController::class, 'index']);
+            Route::post('/bookings/{booking}/participants', [ParticipantController::class, 'store']);
+            Route::delete('/bookings/{booking}/participants/{participant}', [ParticipantController::class, 'destroy']);
             Route::get('/maintenance-windows', [OperationsController::class, 'indexMaintenance']);
             Route::post('/maintenance-windows', [OperationsController::class, 'storeMaintenance']);
             Route::get('/assets/{asset}/maintenance-records', [OperationsController::class, 'indexMaintenanceRecords']);
@@ -149,6 +158,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/reports/revenue/export', [ReportController::class, 'exportRevenue']);
             Route::get('/reports/customers', [ReportController::class, 'customers']);
             Route::get('/reports/customers/export', [ReportController::class, 'exportCustomers']);
+            Route::get('/reports/tours', [ReportController::class, 'tours']);
+            Route::get('/reports/tours/export', [ReportController::class, 'exportTours']);
             Route::get('/widget-tokens', [WidgetTokenController::class, 'index']);
             Route::post('/widget-tokens', [WidgetTokenController::class, 'store']);
             Route::post('/widget-tokens/{widget_token}/revoke', [WidgetTokenController::class, 'revoke']);

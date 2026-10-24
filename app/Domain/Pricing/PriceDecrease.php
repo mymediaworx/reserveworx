@@ -15,5 +15,6 @@ final readonly class PriceDecrease
         public int $discountCents,
         public int $basisReductionCents,
         public int $taxReductionCents,
+        public int $addOnsCents,
     ) {}
 }

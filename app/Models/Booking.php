@@ -107,7 +107,7 @@ class Booking extends Model
      */
     public function namedParticipants(): HasMany
     {
-        return $this->hasMany(Participant::class);
+        return $this->hasMany(Participant::class)->orderBy('id');
     }
 
     /**
@@ -116,5 +116,25 @@ class Booking extends Model
     public function checkouts(): HasMany
     {
         return $this->hasMany(RentalCheckout::class);
+    }
+
+    /**
+     * Named people on this booking. This is not the party-size column.
+     *
+     * @return HasMany<Participant, $this>
+     */
+    public function partyMembers(): HasMany
+    {
+        return $this->hasMany(Participant::class)->orderBy('id');
+    }
+
+    /**
+     * Add-on and equipment lines chosen for this booking. Totals are fixed when chosen.
+     *
+     * @return HasMany<BookingAddOn, $this>
+     */
+    public function addOns(): HasMany
+    {
+        return $this->hasMany(BookingAddOn::class)->orderBy('id');
     }
 }

@@ -182,16 +182,24 @@ class PartySizeTest extends TestCase
 
         $ada = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/participants'), [
             'name' => 'Ada Lovelace',
+            'is_minor' => false,
         ])->assertCreated()
-            ->assertJsonPath('data.named_participant_count', 1)
-            ->assertJsonPath('data.named_participants.0.name', 'Ada Lovelace');
+            ->assertJsonPath('data.name', 'Ada Lovelace');
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/participants'), [
             'name' => 'Grace Hopper',
-        ])->assertCreated()->assertJsonPath('data.named_participant_count', 2);
+            'is_minor' => false,
+        ])->assertCreated();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.named_participant_count', 2)
+            ->assertJsonPath('data.named_participants.0.name', 'Ada Lovelace')
+            ->assertJsonPath('data.named_participants.1.name', 'Grace Hopper');
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/participants'), [
             'name' => '   ',
+            'is_minor' => false,
         ])->assertStatus(422);
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/party-size'), [
@@ -209,8 +217,8 @@ class PartySizeTest extends TestCase
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/participants'), [
             'name' => 'Katherine Johnson',
-        ])->assertStatus(409)
-            ->assertJsonPath('message', 'Raise the party size before naming another participant.');
+            'is_minor' => false,
+        ])->assertStatus(422)->assertJsonValidationErrors('name');
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/cancel'))->assertOk();
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/party-size'), [
@@ -218,10 +226,11 @@ class PartySizeTest extends TestCase
         ])->assertStatus(409)->assertJsonPath('message', 'Only a held or confirmed booking can change party size.');
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/participants'), [
             'name' => 'Mary Jackson',
+            'is_minor' => false,
         ])->assertStatus(409)->assertJsonPath('message', 'Only a held or confirmed booking can name a participant.');
 
         $shown = $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))->assertOk();
-        $this->assertSame($ada->json('data.named_participants.0.id'), $shown->json('data.named_participants.0.id'));
+        $this->assertSame($ada->json('data.id'), $shown->json('data.named_participants.0.id'));
         $this->assertSame(2, $shown->json('data.named_participant_count'));
     }
 

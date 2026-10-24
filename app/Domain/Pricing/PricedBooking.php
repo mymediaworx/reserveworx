@@ -7,6 +7,9 @@ use App\Domain\Fees\PaymentFee;
 
 final readonly class PricedBooking
 {
+    /**
+     * @param  list<array<string, mixed>>  $addOnLines
+     */
     public function __construct(
         public int $servicesCents,
         public int $discountCents,
@@ -14,6 +17,8 @@ final readonly class PricedBooking
         public BookingFeeQuote $quote,
         public PaymentFee $payment,
         public ?string $promoCode,
+        public int $addOnsCents = 0,
+        public array $addOnLines = [],
     ) {}
 
     /**
@@ -23,6 +28,8 @@ final readonly class PricedBooking
     {
         return $this->quote->toSnapshot() + [
             'services_cents' => $this->servicesCents,
+            'add_ons_cents' => $this->addOnsCents,
+            'add_ons' => $this->addOnLines,
             'discount_cents' => $this->discountCents,
             'promo_code' => $this->promoCode,
             'tax_includes_booking_fee' => false,

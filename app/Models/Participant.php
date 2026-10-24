@@ -15,6 +15,14 @@ class Participant extends Model
         'tenant_id',
         'booking_id',
         'name',
+        'is_minor',
+        'guardian_name',
+        'idempotency_key',
+        'payload_hash',
+    ];
+
+    protected $casts = [
+        'is_minor' => 'boolean',
     ];
 
     /**

@@ -2,6 +2,8 @@
 
 namespace App\Services\Allocation;
 
+use App\Domain\Catalog\AddOnCharge;
+use App\Enums\AddOnPricing;
 use App\Enums\BookingStatus;
 use App\Enums\DepartureStatus;
 use App\Enums\OperationalStatus;
@@ -12,6 +14,7 @@ use App\Enums\ServiceKind;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
@@ -33,6 +36,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 /**
  * @phpstan-type Demand array{type: ResourceType, id: string, quantity: int, buffer_start: CarbonImmutable, buffer_end: CarbonImmutable, name: string, buckets: list<int>}
@@ -390,7 +394,7 @@ class Allocator
             }
 
             if ($participants === $booking->participants) {
-                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants']);
+                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
             }
 
             $named = $booking->namedParticipants()->count();
@@ -418,13 +422,14 @@ class Allocator
             if ($this->seatOnly($booking)) {
                 $booking->participants = $participants;
                 $booking->save();
+                $this->repricePerPersonAddOns($booking, $participants);
                 Hold::query()
                     ->where('booking_id', $booking->id)
                     ->whereNull('asset_id')
                     ->whereNull('pool_id')
                     ->update(['quantity' => $participants]);
 
-                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants']);
+                return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
             }
 
             $intent = $this->intentFor($booking, $participants);
@@ -445,6 +450,7 @@ class Allocator
 
             $booking->participants = $participants;
             $booking->save();
+            $this->repricePerPersonAddOns($booking, $participants);
             $held = $booking->status === BookingStatus::Held;
 
             if ($held) {
@@ -457,7 +463,7 @@ class Allocator
             $this->writeRows($booking, $plan, $held);
             $this->refreshCounters($plan);
 
-            return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants']);
+            return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
         }));
     }
 
@@ -929,6 +935,7 @@ class Allocator
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
+        $this->writeAddOns($booking, $intent);
 
         Hold::query()->create([
             'tenant_id' => $booking->tenant_id,
@@ -1150,7 +1157,7 @@ class Allocator
         $service = Service::query()->findOrFail($intent->serviceId);
         $customerId = $this->customerId($intent);
 
-        return Booking::query()->create([
+        $booking = Booking::query()->create([
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
@@ -1166,6 +1173,52 @@ class Allocator
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
+        $this->writeAddOns($booking, $intent);
+
+        return $booking;
+    }
+
+    private function repricePerPersonAddOns(Booking $booking, int $participants): void
+    {
+        $lines = BookingAddOn::query()->where('booking_id', $booking->id)->lockForUpdate()->get();
+
+        foreach ($lines as $line) {
+            if ($line->pricing !== AddOnPricing::PerPerson) {
+                continue;
+            }
+
+            try {
+                $total = AddOnCharge::total($line->pricing, $line->unit_amount_cents, $line->quantity, $participants);
+            } catch (InvalidArgumentException $exception) {
+                throw new AllocationUnavailableException($exception->getMessage());
+            }
+
+            if ($total > 2_000_000_000) {
+                throw new AllocationUnavailableException('That add-on total is too large.');
+            }
+
+            if ($line->total_cents !== $total) {
+                $line->total_cents = $total;
+                $line->save();
+            }
+        }
+    }
+
+    private function writeAddOns(Booking $booking, AllocationIntent $intent): void
+    {
+        foreach ($intent->addOns as $line) {
+            BookingAddOn::query()->create([
+                'tenant_id' => $booking->tenant_id,
+                'booking_id' => $booking->id,
+                'add_on_id' => $line['add_on_id'],
+                'name' => $line['name'],
+                'kind' => $line['kind'],
+                'pricing' => $line['pricing'],
+                'unit_amount_cents' => $line['unit_amount_cents'],
+                'quantity' => $line['quantity'],
+                'total_cents' => $line['total_cents'],
+            ]);
+        }
     }
 
     /**

@@ -18,5 +18,6 @@ final readonly class PriceIncrease
         public int $taxCents,
         public BookingFeeQuote $quote,
         public PaymentFee $payment,
+        public int $addOnsDeltaCents = 0,
     ) {}
 }
