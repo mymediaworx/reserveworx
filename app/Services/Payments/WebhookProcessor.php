@@ -109,7 +109,8 @@ final class WebhookProcessor
             $sessionId = is_string($session['id'] ?? null) ? $session['id'] : null;
             $existing = $sessionId === null ? null : Payment::query()->where('stripe_checkout_session_id', $sessionId)->first();
             $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
-            $fee = $snapshot instanceof PricingSnapshot ? (int) ($snapshot->payload['application_fee_cents'] ?? 0) : 0;
+            $snapshotFee = $snapshot instanceof PricingSnapshot ? (int) ($snapshot->payload['application_fee_cents'] ?? 0) : 0;
+            $fee = $existing instanceof Payment ? (int) $existing->fee_cents : $snapshotFee;
             $amount = is_numeric($session['amount_total'] ?? null)
                 ? (int) $session['amount_total']
                 : ($existing instanceof Payment ? $existing->amount_cents : 0);
@@ -139,12 +140,13 @@ final class WebhookProcessor
 
             if ($fresh->status->value !== 'payment_exception') {
                 $total = $snapshot instanceof PricingSnapshot ? (int) ($snapshot->payload['customer_total_cents'] ?? $amount) : $amount;
-                $fresh->payment_status = $amount < $total ? PaymentStatus::DepositPaid : PaymentStatus::Paid;
+                $paid = (int) Payment::query()->where('booking_id', $fresh->id)->where('status', 'paid')->sum('amount_cents');
+                $fresh->payment_status = $total > 0 && $paid < $total ? PaymentStatus::DepositPaid : PaymentStatus::Paid;
                 $fresh->save();
             }
 
             if ($fee > 0 && ! PlatformFee::query()->where('payment_id', $payment->id)->exists()) {
-                $stored = $snapshot->payload['channel'] ?? null;
+                $stored = $snapshot instanceof PricingSnapshot ? ($snapshot->payload['channel'] ?? null) : null;
                 $channel = is_string($stored) && $stored !== '' ? $stored : 'direct';
 
                 $recorded = PlatformFee::query()->create([
