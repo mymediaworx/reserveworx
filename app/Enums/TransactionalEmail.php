@@ -21,6 +21,7 @@ enum TransactionalEmail: string
     case RefundIssued = 'refund.issued';
     case RentalOverdue = 'rental.overdue';
     case WaitlistPromoted = 'waitlist.promoted';
+    case BookingFeedback = 'booking.feedback';
 
     /**
      * @return list<string>

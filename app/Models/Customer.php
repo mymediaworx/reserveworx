@@ -22,10 +22,12 @@ class Customer extends Model
         'phone',
         'customer_account_id',
         'anonymized_at',
+        'feedback_opted_out_at',
     ];
 
     protected $casts = [
         'anonymized_at' => 'datetime',
+        'feedback_opted_out_at' => 'datetime',
     ];
 
     /**

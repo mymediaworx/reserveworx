@@ -6,14 +6,18 @@ use App\Enums\BookingStatus;
 use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\RentalCheckout;
+use App\Services\Feedback\FeedbackRequests;
 
 /**
  * Queues the notification hooks staff and guest flows already perform.
- * Nothing here sends mail or calls GoHighLevel.
+ * A return also records one feedback request. Mail waits for feedback:dispatch.
  */
 final class BookingEvents
 {
-    public function __construct(private readonly NotificationHooks $hooks) {}
+    public function __construct(
+        private readonly NotificationHooks $hooks,
+        private readonly FeedbackRequests $feedback,
+    ) {}
 
     public function confirmed(Booking $booking): void
     {
@@ -67,6 +71,7 @@ final class BookingEvents
                 'conditions' => $conditions,
             ],
         );
+        $this->feedback->queue($booking, true);
     }
 
     public function paymentCompleted(Payment $payment): void

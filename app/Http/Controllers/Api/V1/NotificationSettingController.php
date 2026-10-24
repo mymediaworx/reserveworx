@@ -55,6 +55,19 @@ class NotificationSettingController extends Controller
             $setting->transactional_emails = $preferences;
         }
 
+        if ($request->exists('feedback_delay_minutes')) {
+            $minutes = $request->validated('feedback_delay_minutes');
+
+            if (is_int($minutes) || (is_string($minutes) && is_numeric($minutes))) {
+                $setting->feedback_delay_minutes = (int) $minutes;
+            }
+        }
+
+        if ($request->exists('review_url')) {
+            $review = $request->validated('review_url');
+            $setting->review_url = is_string($review) && $review !== '' ? $review : null;
+        }
+
         $setting->save();
 
         $actor = $request->user();

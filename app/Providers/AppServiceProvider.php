@@ -5,11 +5,14 @@ namespace App\Providers;
 use App\Auth\CustomerTokenGuard;
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
+use App\Enums\OperationalStatus;
+use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\Refund;
 use App\Models\Tenant;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Branding\WorkspaceProfiles;
+use App\Services\Feedback\FeedbackRequests;
 use App\Services\Integrations\GhlSync;
 use App\Services\Integrations\GoHighLevelClient;
 use App\Services\Payments\StripeSdkGateway;
@@ -96,6 +99,20 @@ class AppServiceProvider extends ServiceProvider
 
         app(GhlSync::class)->register();
 
+        Booking::updated(function (Booking $booking): void {
+            if (! $booking->wasChanged('operational_status')) {
+                return;
+            }
+
+            $status = $booking->operational_status;
+
+            if ($status !== OperationalStatus::Returned && $status !== OperationalStatus::Completed) {
+                return;
+            }
+
+            app(FeedbackRequests::class)->queue($booking);
+        });
+
         RateLimiter::for('login', function (Request $request): Limit {
             $email = strtolower((string) $request->input('email'));
 
@@ -148,6 +165,10 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('signup-verify', function (Request $request): Limit {
             return Limit::perMinute(10)->by('signup-verify|'.$request->ip());
+        });
+
+        RateLimiter::for('feedback', function (Request $request): Limit {
+            return Limit::perMinute(30)->by('feedback|'.$request->ip());
         });
 
         Auth::extend('customer-token', function ($app, string $name, array $config): CustomerTokenGuard {

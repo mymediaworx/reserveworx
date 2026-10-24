@@ -20,6 +20,8 @@ class TenantNotificationSettingResource extends JsonResource
             'reply_to' => $this->reply_to,
             'staff_alert_recipients' => $this->recipients(),
             'transactional_emails' => $this->preferences(),
+            'feedback_delay_minutes' => $this->feedbackDelayMinutes(),
+            'review_url' => $this->review_url,
         ];
     }
 }
