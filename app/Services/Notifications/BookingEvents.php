@@ -52,14 +52,20 @@ final class BookingEvents
         );
     }
 
-    public function returned(Booking $booking): void
+    /**
+     * @param  list<array{asset_id: string, condition: string, notes: ?string, recorded_by: string}>  $conditions
+     */
+    public function returned(Booking $booking, array $conditions = []): void
     {
         $this->hooks->record(
             $booking->tenant_id,
             $booking->id,
             'booking.returned',
             'booking.returned:'.$booking->id,
-            ['booking_id' => $booking->id],
+            [
+                'booking_id' => $booking->id,
+                'conditions' => $conditions,
+            ],
         );
     }
 

@@ -34,6 +34,7 @@ use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
 use App\Models\Refund;
 use App\Models\RentalCheckout;
+use App\Models\RentalReturn;
 use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
@@ -285,6 +286,7 @@ class TenantExporter
             MaintenanceRecord::class,
             Incident::class,
             RentalCheckout::class,
+            RentalReturn::class,
             WidgetToken::class,
             NotificationHook::class,
             IntegrationOutbox::class,

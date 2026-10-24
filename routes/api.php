@@ -127,6 +127,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
             Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/return', [BookingController::class, 'returnRental']);
+            Route::get('/bookings/{booking}/returns', [BookingController::class, 'indexReturns']);
+            Route::post('/bookings/{booking}/returns', [BookingController::class, 'returnRental']);
             Route::post('/bookings/{booking}/incidents', [OperationsController::class, 'storeIncident']);
             Route::get('/bookings/{booking}/incidents', [OperationsController::class, 'indexIncidents']);
             Route::post('/bookings/{booking}/waivers', [OperationsController::class, 'signWaiver']);

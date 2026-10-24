@@ -30,6 +30,7 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
+use App\Services\Operations\ReturnConditions;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -49,6 +50,7 @@ class Allocator
         private readonly BucketPlanner $buckets,
         private readonly TenantManager $tenants,
         private readonly BookingEvents $events,
+        private readonly ReturnConditions $returnConditions,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -510,11 +512,12 @@ class Allocator
     }
 
     /**
-     * @return array{booking: Booking, released_start: ?CarbonImmutable, released_end: ?CarbonImmutable}
+     * @param  list<array{asset_id: string, condition: string, notes: ?string, recorded_by: string}>|null  $conditions
+     * @return array{booking: Booking, released_start: ?CarbonImmutable, released_end: ?CarbonImmutable, conditions: list<array{asset_id: string, condition: string, notes: ?string, recorded_by: string}>, maintained_asset_ids: list<string>}
      */
-    public function returnRental(Booking $booking): array
+    public function returnRental(Booking $booking, ?array $conditions = null): array
     {
-        $returned = $this->retry(fn (): array => $this->transaction(function () use ($booking): array {
+        $returned = $this->retry(fn (): array => $this->transaction(function () use ($booking, $conditions): array {
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
             $open = RentalCheckout::query()
@@ -581,15 +584,18 @@ class Allocator
             }
 
             $this->refreshCounters($plan);
+            $recorded = $this->returnConditions->record($booking, $open, $conditions);
 
             return [
                 'booking' => $booking->load(['allocations', 'checkouts']),
                 'released_start' => $released ? $releasedStart : null,
                 'released_end' => $released ? $releasedEnd : null,
+                'conditions' => $recorded['conditions'],
+                'maintained_asset_ids' => $recorded['maintained_asset_ids'],
             ];
         }));
 
-        $this->events->returned($returned['booking']);
+        $this->events->returned($returned['booking'], $returned['conditions']);
 
         return $returned;
     }
