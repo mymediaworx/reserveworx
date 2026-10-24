@@ -42,6 +42,8 @@ use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\TenantBrandingController;
 use App\Http\Controllers\Api\V1\TenantSettingController;
 use App\Http\Controllers\Api\V1\WaitlistController;
+use App\Http\Controllers\Api\V1\WebhookDeliveryController;
+use App\Http\Controllers\Api\V1\WebhookEndpointController;
 use App\Http\Controllers\Api\V1\WidgetTokenController;
 use Illuminate\Support\Facades\Route;
 
@@ -186,6 +188,14 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
             Route::get('/integrations/outbox', [OutboxController::class, 'index']);
+            Route::get('/webhook-endpoints', [WebhookEndpointController::class, 'index']);
+            Route::post('/webhook-endpoints', [WebhookEndpointController::class, 'store']);
+            Route::get('/webhook-endpoints/{webhook_endpoint}', [WebhookEndpointController::class, 'show']);
+            Route::patch('/webhook-endpoints/{webhook_endpoint}', [WebhookEndpointController::class, 'update']);
+            Route::delete('/webhook-endpoints/{webhook_endpoint}', [WebhookEndpointController::class, 'destroy']);
+            Route::get('/webhook-deliveries', [WebhookDeliveryController::class, 'index']);
+            Route::get('/webhook-deliveries/{webhook_delivery}', [WebhookDeliveryController::class, 'show']);
+            Route::post('/webhook-deliveries/{webhook_delivery}/redeliver', [WebhookDeliveryController::class, 'redeliver']);
             Route::get('/reports/today', [ReportController::class, 'today']);
             Route::get('/reports/today/export', [ReportController::class, 'export']);
             Route::get('/reports/summaries', [ReportController::class, 'summaries']);

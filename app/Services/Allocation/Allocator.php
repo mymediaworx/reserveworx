@@ -33,6 +33,7 @@ use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
+use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -54,6 +55,7 @@ class Allocator
         private readonly BookingEvents $events,
         private readonly ReturnConditions $returnConditions,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly WebhookPublisher $webhooks,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -139,6 +141,7 @@ class Allocator
                 Hold::query()->where('booking_id', $booking->id)->delete();
                 $booking->status = BookingStatus::Confirmed;
                 $booking->save();
+                $this->webhooks->bookingChanged($booking);
 
                 return $booking->load(['allocations', 'lineItems']);
             }
@@ -153,6 +156,7 @@ class Allocator
                 $booking->status = BookingStatus::Confirmed;
                 $booking->save();
                 $this->refreshCounters($plan);
+                $this->webhooks->bookingChanged($booking);
 
                 return $booking->load(['allocations', 'lineItems']);
             }
@@ -166,6 +170,7 @@ class Allocator
             } catch (AllocationUnavailableException) {
                 $booking->status = BookingStatus::PaymentException;
                 $booking->save();
+                $this->webhooks->bookingChanged($booking);
 
                 return $booking;
             }
@@ -175,6 +180,7 @@ class Allocator
             $booking->status = BookingStatus::Confirmed;
             $booking->save();
             $this->refreshCounters($plan);
+            $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'lineItems']);
         }));
@@ -240,6 +246,7 @@ class Allocator
                 BookingLineItem::query()->where('booking_id', $booking->id)->delete();
                 $this->writeRows($booking, $plan, hold: false);
                 $this->refreshCounters($plan);
+                $this->webhooks->bookingChanged($booking);
 
                 return $booking->load(['allocations', 'lineItems']);
             }));
@@ -267,6 +274,10 @@ class Allocator
             $booking->status = BookingStatus::Cancelled;
             $booking->save();
             $this->refreshCounters($plan);
+
+            if ($booking->wasChanged('status')) {
+                $this->webhooks->bookingCancelled($booking);
+            }
 
             return $booking;
         }));
@@ -360,6 +371,7 @@ class Allocator
             BookingLineItem::query()->where('booking_id', $booking->id)->delete();
             $this->writeRows($booking, $plan, hold: false);
             $this->refreshCounters($plan);
+            $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'lineItems', 'service']);
         }));
@@ -397,6 +409,7 @@ class Allocator
             BookingLineItem::query()->where('booking_id', $booking->id)->delete();
             $this->writeRows($booking, $plan, hold: false);
             $this->refreshCounters($plan);
+            $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'lineItems', 'service']);
         }));
@@ -452,6 +465,7 @@ class Allocator
                     ->whereNull('asset_id')
                     ->whereNull('pool_id')
                     ->update(['quantity' => $participants]);
+                $this->webhooks->bookingChanged($booking);
 
                 return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
             }
@@ -487,6 +501,7 @@ class Allocator
             BookingLineItem::query()->where('booking_id', $booking->id)->delete();
             $this->writeRows($booking, $plan, $held);
             $this->refreshCounters($plan);
+            $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'holds', 'lineItems', 'service', 'namedParticipants', 'addOns']);
         }));
@@ -992,6 +1007,7 @@ class Allocator
             'ends_at' => $intent->endsAt->utc(),
             'expires_at' => now()->addMinutes($this->holdMinutes($booking->tenant_id)),
         ]);
+        $this->webhooks->bookingCreated($booking);
 
         return $booking;
     }
@@ -1223,6 +1239,7 @@ class Allocator
         ]);
         $this->writeAddOns($booking, $intent);
         $this->operatorFees->attach($booking);
+        $this->webhooks->bookingCreated($booking);
 
         return $booking;
     }

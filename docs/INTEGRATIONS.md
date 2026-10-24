@@ -4,6 +4,8 @@ Research for Stripe Connect and GoHighLevel, retrieved October 23, 2026 from the
 
 Payment state, when it exists, will come only from verified Stripe webhooks. A browser redirect is not payment proof. A GoHighLevel outage must not change bookings, payments, or inventory (spec Section 1.3 and D10). The outbox stores events and refuses a different workspace. It does not call HighLevel. Marketplace OAuth is still unapproved.
 
+A workspace can also register its own HTTPS webhook endpoints. Those deliveries are signed and logged. They are not sent to HighLevel, and they do not choose an auth model for GoHighLevel.
+
 ## Stripe Connect
 
 Decisions D1–D8: Standard accounts, direct charges, Stripe-owned processing pricing, application fee only, no subscription.
