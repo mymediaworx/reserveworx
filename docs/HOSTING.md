@@ -1,8 +1,8 @@
 # Hosting checklist
 
-Status: **partially verified** on October 23, 2026 by an SSH session from GitHub Actions. Cells that the session did not measure stay marked unverified. No secret values are stored in this file.
+Status: **partially verified**. An SSH session on October 23, 2026 measured the account layout and CLI tools. Deploy run [40080763617](https://github.com/mymediaworx/reserveworx/actions/runs/40080763617) on October 24, 2026 measured the application database, the InnoDB row lock, the deploy PHP limits, and the queue schedule. Cells that neither run measured stay unverified. No secret values are stored in this file.
 
-The product owner created `app.reserveworx.com` and stored GitHub Actions secrets `SG_HOST`, `SG_USER`, `SG_PORT` (value stated as 18765), `SG_SSH_KEY`, and possibly `SG_SSH_PASSPHRASE`. Those secrets were not read while this repository was built. The workflows that use them are `.github/workflows/hosting-check.yml` and `.github/workflows/deploy.yml`. Run the hosting check from `main` after merge, then replace the "unverified" cells below with the job summary. Do not paste secrets into this file.
+The product owner created `app.reserveworx.com` and stored GitHub Actions secrets `SG_HOST`, `SG_USER`, `SG_PORT` (value stated as 18765), `SG_SSH_KEY`, and possibly `SG_SSH_PASSPHRASE`. Those secrets were not read while this repository was built. The workflows that use them are `.github/workflows/hosting-check.yml` and `.github/workflows/deploy.yml`. Deploy runs `reserveworx:hosting-check` after activate and prints the output below. Do not paste secrets into this file.
 
 ## How to collect the facts
 
@@ -16,13 +16,13 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Check | Result |
 |---|---|
 | Plan name (StartUp, GrowBig, GoGeek, or Cloud) | GoGeek, reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site |
-| PHP versions this account can run | CLI `/usr/bin/php` and `/usr/local/bin/php` are 8.2.35. CGI binaries exist at `/usr/local/php74`, `php82`, `php83`, `php84`, `php85`, and `php86`. The `php82` CGI binary is also 8.2.35. Those CGI binaries reject `php -r` |
-| `memory_limit` | CLI 8.2.35 reports 768M. The `php82` CGI binary reports 128M. The per-site PHP selection in Site Tools was not read |
-| `max_execution_time` | CLI reports 0. The `php82` CGI probe printed an empty value. The web limit is still unverified |
+| PHP versions this account can run | CLI `/usr/bin/php` and `/usr/local/bin/php` are 8.2.35. CGI binaries exist at `/usr/local/php74`, `php82`, `php83`, `php84`, `php85`, and `php86`. The `php82` CGI binary is also 8.2.35. Those CGI binaries reject `php -r`. Deploy run 40080763617 printed `php_version=8.2.35` for the binary that runs artisan |
+| `memory_limit` | The artisan process printed `memory_limit=768M` on October 24, 2026. The October 23 `php82` CGI probe reported 128M. The per-site PHP selection in Site Tools was not read |
+| `max_execution_time` | The artisan process printed `max_execution_time=0` on October 24, 2026. The October 23 `php82` CGI probe printed an empty value. The web limit is still unverified |
 | PHP extensions | CLI 8.2.35 includes bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pdo_mysql, tokenizer, xml, and zip |
-| MySQL or MariaDB version | Client is MySQL 8.4.10. The server version is unverified. Login returned error 1045, using password NO. There is no `~/.my.cnf` |
-| InnoDB, transactions, and `SELECT … FOR UPDATE` | Unverified on the host. CI covers the row lock on both engines |
-| Minimum cron interval | `crontab` is not available over SSH. The every-minute Site Tools schedule remains a report, not a measurement |
+| MySQL or MariaDB version | The application connection printed `db_version=8.4.11-11` on October 24, 2026. The October 23 SSH client was MySQL 8.4.10 and could not log in (error 1045, using password NO). There is no `~/.my.cnf` |
+| InnoDB, transactions, and `SELECT … FOR UPDATE` | 57 application tables, all `engine=InnoDB`. `for_update=ok`. `transaction_rollback=ok`. Measured October 24, 2026 by `reserveworx:hosting-check` |
+| Minimum cron interval | `host_crontab=not read`. The application schedule uses `queue_connection=database`, `queue_work_max_time=20`, and `cron_command=schedule:run`. The every-minute Site Tools schedule remains a report, not a measurement |
 | SSH | Opened October 23, 2026. Host key fingerprint `SHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A`. See the install section below |
 | Git on the server | git 2.56.0. Deploys do not use it |
 | Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
@@ -33,12 +33,94 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
 | Inbound webhook WAF or rate limits | Not observable from SSH. An external curl that receives HTTP 202 is SiteGround's bot check, not proof the application answered |
 
+## Deploy hosting check, October 24, 2026
+
+[Deploy run 40080763617](https://github.com/mymediaworx/reserveworx/actions/runs/40080763617) succeeded. The Hosting check step logged `ssh_handshake=0`, then printed this. No secret is included.
+
+```text
+db_version=8.4.11-11
+table=allocations engine=InnoDB
+table=assets engine=InnoDB
+table=audit_logs engine=InnoDB
+table=availability_schedules engine=InnoDB
+table=blackouts engine=InnoDB
+table=booking_line_items engine=InnoDB
+table=bookings engine=InnoDB
+table=cache engine=InnoDB
+table=cache_locks engine=InnoDB
+table=capacity_ledger engine=InnoDB
+table=customers engine=InnoDB
+table=departures engine=InnoDB
+table=disclosure_versions engine=InnoDB
+table=domains engine=InnoDB
+table=failed_jobs engine=InnoDB
+table=holds engine=InnoDB
+table=incidents engine=InnoDB
+table=integration_outbox engine=InnoDB
+table=job_batches engine=InnoDB
+table=jobs engine=InnoDB
+table=locations engine=InnoDB
+table=maintenance_records engine=InnoDB
+table=maintenance_windows engine=InnoDB
+table=memberships engine=InnoDB
+table=migrations engine=InnoDB
+table=notification_hooks engine=InnoDB
+table=password_reset_tokens engine=InnoDB
+table=payments engine=InnoDB
+table=permissions engine=InnoDB
+table=personal_access_tokens engine=InnoDB
+table=platform_administrators engine=InnoDB
+table=platform_fee_refunds engine=InnoDB
+table=platform_fees engine=InnoDB
+table=pools engine=InnoDB
+table=price_rules engine=InnoDB
+table=pricing_snapshots engine=InnoDB
+table=promo_codes engine=InnoDB
+table=refunds engine=InnoDB
+table=rental_checkouts engine=InnoDB
+table=report_summaries engine=InnoDB
+table=resource_categories engine=InnoDB
+table=resource_requirements engine=InnoDB
+table=role_permission engine=InnoDB
+table=roles engine=InnoDB
+table=service_durations engine=InnoDB
+table=services engine=InnoDB
+table=sessions engine=InnoDB
+table=stripe_accounts engine=InnoDB
+table=tenant_data_exports engine=InnoDB
+table=tenant_settings engine=InnoDB
+table=tenants engine=InnoDB
+table=users engine=InnoDB
+table=waitlist_entries engine=InnoDB
+table=waiver_signatures engine=InnoDB
+table=waiver_versions engine=InnoDB
+table=webhook_events engine=InnoDB
+table=widget_tokens engine=InnoDB
+app_tables=57
+app_tables_innodb=57
+innodb=yes
+for_update=ok
+transaction_rollback=ok
+php_version=8.2.35
+max_execution_time=0
+memory_limit=768M
+queue_connection=database
+queue_work_max_time=20
+schedule=* * * * * queue:work database --stop-when-empty --tries=3 --max-time=20 withoutOverlapping=yes
+schedule=* * * * * holds:purge-expired withoutOverlapping=yes
+schedule=* * * * * integrations:dispatch withoutOverlapping=yes
+schedule=* * * * * rentals:flag-overdue withoutOverlapping=yes
+schedule=0 * * * * reports:build-summaries withoutOverlapping=yes
+cron_command=schedule:run
+host_crontab=not read
+```
+
 ## Public background, not this account
 
 These are published SiteGround statements. They are not measurements of `app.reserveworx.com`.
 
 - Managed PHP default was documented as 8.2 on May 30, 2024. A security note on October 22, 2026 lists patched builds of PHP 8.5.12, 8.4.27, 8.3.36, and 8.2.35, and discussion still mentions PHP 7.4 being offered. An affiliate features page that claims PHP 8.6 was not used as a source.
-- A knowledge-base article dated November 30, 2021 says shared `memory_limit` is 768 MB. Treat that number as stale until the check prints `ini_get`.
+- A knowledge-base article dated November 30, 2021 says shared `memory_limit` is 768 MB. The artisan process printed `memory_limit=768M` on October 24, 2026. The October 23 `php82` CGI probe reported 128M, and the per-site selection in Site Tools was not read.
 - Fair-use guidance for shared StartUp, GrowBig, and GoGeek says at least 30 minutes between cron runs. If this account is on one of those plans and the limit holds, a Cloud plan or a small VPS is the simplest upgrade. Do not migrate without approval.
 - A Laravel knowledge-base article dated August 7, 2025 says Composer is preinstalled and SSH is available. Ultrafast PHP is not on StartUp.
 - The hosting check is still required. Public pages do not prove what this account can select.
@@ -62,7 +144,7 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12 on PHP 8.2.35. The server MySQL version, the web `max_execution_time`, and InnoDB on this host stay unverified until a database login exists.
+Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` and the host crontab are still unread.
 
 ## First install, October 23, 2026
 
