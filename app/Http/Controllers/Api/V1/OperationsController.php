@@ -8,6 +8,7 @@ use App\Models\Booking;
 use App\Models\Incident;
 use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
+use App\Models\Participant;
 use App\Models\Pool;
 use App\Models\Tenant;
 use App\Models\WaiverSignature;
@@ -15,6 +16,7 @@ use App\Models\WaiverVersion;
 use App\Services\Operations\AffectedBookings;
 use App\Services\Operations\WaiverPdf;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -179,8 +181,9 @@ class OperationsController extends Controller
         $tenant = $this->tenant($request);
         $validated = $request->validate([
             'waiver_version_id' => ['required', 'string'],
-            'participant_name' => ['required', 'string', 'max:120'],
-            'is_minor' => ['required', 'boolean'],
+            'participant_id' => ['nullable', 'string'],
+            'participant_name' => ['required_without:participant_id', 'nullable', 'string', 'max:120'],
+            'is_minor' => ['required_without:participant_id', 'boolean'],
             'guardian_name' => ['nullable', 'string', 'max:120'],
         ]);
         $waiver = WaiverVersion::query()->find($validated['waiver_version_id']);
@@ -189,31 +192,69 @@ class OperationsController extends Controller
             throw ValidationException::withMessages(['waiver_version_id' => 'That waiver version was not found.']);
         }
 
-        $minor = (bool) $validated['is_minor'];
-        $guardian = $validated['guardian_name'] ?? null;
+        $participant = $this->participantOnBooking($booking, $validated['participant_id'] ?? null);
 
-        if ($minor && (! is_string($guardian) || trim($guardian) === '')) {
-            throw ValidationException::withMessages(['guardian_name' => 'A minor needs a parent or guardian signature.']);
+        if ($participant instanceof Participant) {
+            $existing = $this->existingSignature($booking, $waiver, $participant);
+
+            if ($existing instanceof WaiverSignature) {
+                return response()->json(['data' => $this->signaturePayload($existing)]);
+            }
+
+            $name = $participant->name;
+            $minor = $participant->is_minor;
+            $guardian = $participant->guardian_name;
+        } else {
+            $name = $validated['participant_name'] ?? null;
+            $minor = (bool) ($validated['is_minor'] ?? false);
+            $guardian = $validated['guardian_name'] ?? null;
+
+            if (! is_string($name) || trim($name) === '') {
+                throw ValidationException::withMessages(['participant_name' => 'A participant needs a name.']);
+            }
+
+            $name = trim($name);
+
+            if ($minor) {
+                if (! is_string($guardian) || trim($guardian) === '') {
+                    throw ValidationException::withMessages(['guardian_name' => 'A minor needs a parent or guardian signature.']);
+                }
+
+                $guardian = trim($guardian);
+            } else {
+                $guardian = null;
+            }
         }
 
-        $signature = WaiverSignature::query()->create([
-            'tenant_id' => $tenant->id,
-            'booking_id' => $booking->id,
-            'waiver_version_id' => $waiver->id,
-            'participant_name' => $validated['participant_name'],
-            'is_minor' => $minor,
-            'guardian_name' => $minor ? $guardian : null,
-            'ip_address' => $request->ip(),
-            'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
-            'content_hash' => $waiver->content_hash,
-            'signed_at' => now(),
-        ]);
+        try {
+            $signature = WaiverSignature::query()->create([
+                'tenant_id' => $tenant->id,
+                'booking_id' => $booking->id,
+                'participant_id' => $participant?->id,
+                'waiver_version_id' => $waiver->id,
+                'participant_name' => $name,
+                'is_minor' => $minor,
+                'guardian_name' => $guardian,
+                'ip_address' => $request->ip(),
+                'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
+                'content_hash' => $waiver->content_hash,
+                'signed_at' => now(),
+            ]);
+        } catch (QueryException $exception) {
+            if (! $participant instanceof Participant || (int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+                throw $exception;
+            }
 
-        return response()->json(['data' => [
-            'id' => $signature->id,
-            'content_hash' => $signature->content_hash,
-            'guardian_name' => $signature->guardian_name,
-        ]], 201);
+            $existing = $this->existingSignature($booking, $waiver, $participant);
+
+            if (! $existing instanceof WaiverSignature) {
+                throw $exception;
+            }
+
+            return response()->json(['data' => $this->signaturePayload($existing)]);
+        }
+
+        return response()->json(['data' => $this->signaturePayload($signature)], 201);
     }
 
     public function waiverPdf(Booking $booking, string $signature, WaiverPdf $pdf): Response
@@ -235,6 +276,49 @@ class OperationsController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="waiver-'.$row->id.'.pdf"',
         ]);
+    }
+
+    private function participantOnBooking(Booking $booking, mixed $participantId): ?Participant
+    {
+        if (! is_string($participantId) || $participantId === '') {
+            return null;
+        }
+
+        $participant = Participant::query()->where('booking_id', $booking->id)->whereKey($participantId)->first();
+
+        if (! $participant instanceof Participant) {
+            throw ValidationException::withMessages(['participant_id' => 'That participant was not found on this booking.']);
+        }
+
+        return $participant;
+    }
+
+    private function existingSignature(Booking $booking, WaiverVersion $waiver, Participant $participant): ?WaiverSignature
+    {
+        $existing = WaiverSignature::query()
+            ->where('booking_id', $booking->id)
+            ->where('waiver_version_id', $waiver->id)
+            ->where('participant_id', $participant->id)
+            ->first();
+
+        return $existing instanceof WaiverSignature ? $existing : null;
+    }
+
+    /**
+     * @return array{id: string, participant_id: string|null, content_hash: string, guardian_name: string|null, participant_name: string}
+     */
+    private function signaturePayload(WaiverSignature $signature): array
+    {
+        $participantId = $signature->getAttribute('participant_id');
+        $guardian = $signature->getAttribute('guardian_name');
+
+        return [
+            'id' => $signature->id,
+            'participant_id' => is_string($participantId) ? $participantId : null,
+            'participant_name' => (string) $signature->participant_name,
+            'content_hash' => (string) $signature->content_hash,
+            'guardian_name' => is_string($guardian) ? $guardian : null,
+        ];
     }
 
     /**
