@@ -21,6 +21,8 @@ Mobile first, modeled on the BrandWorx mobile app (product owner, October 24, 20
 
 Links use `WidgetTokens::hostedPlain`, which is stable, so codes can be copied again any time. Named links that can be turned off are under **More links**. The booking page posts its height to the parent frame when embedded. The **Pay with card** form targets `_top`, because Stripe's payment page cannot run inside a frame. `/embed.js` sets no cookies. That route exists because SiteGround's `public_html` only receives `index.php` and a few fixed files at deploy. Livewire serves its own JavaScript from a PHP route.
 
+An owner of the current workspace sees **All businesses** and **Add a business** in the side navigation and on the phone menu, including when they own only one. Other workspaces they belong to are listed there too. Switching posts to that workspace's verified address. The session cookie stays on the host that set it. A member who is not an owner of the current address does not see the rollup, and a workspace id they do not own is not found.
+
 ## Where pages live
 
 | Host | Path | What |
@@ -40,6 +42,9 @@ Links use `WidgetTokens::hostedPlain`, which is stable, so codes can be copied a
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
 | Tenant domain | `/staff/share` | Share & embed: link, button, on-page embed, pop-up, and named links |
 | Tenant domain | `/staff/branding` | Name, logo, colors, support contacts |
+| Tenant domain | `/staff/portfolio`, `/staff/portfolio.csv` | Rollup for every business this owner holds, or one of them. Presets are 7, 30, and 90 days, plus a custom range, with a trend and a CSV download |
+| Tenant domain | `/staff/businesses/new` | Add a business. Fee rates stay at the standard defaults. An optional address is saved unverified |
+| Tenant domain | `/staff/switch/{tenant}`, `/staff/enter/{token}` | Move to another business this login belongs to. The entry token lasts two minutes and works once, on that business's verified address |
 | Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
 | Tenant domain | `/book/{token}` | Customer booking widget, styled to match. When `pay_at_pickup` is on, the review page also offers Pay at pickup. |
 

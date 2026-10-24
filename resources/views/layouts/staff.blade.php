@@ -62,6 +62,7 @@
                         <x-icon :name="$item['icon']" size="20" /> {{ $item['label'] }}
                     </a>
                 @endforeach
+                @include('layouts.partials.business-switcher', ['variant' => 'nav'])
             </nav>
             <div class="side-user">
                 <span>{{ $staffUser?->name }}</span>

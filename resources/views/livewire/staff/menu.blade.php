@@ -23,6 +23,8 @@
         </div>
     </section>
 
+    @include('layouts.partials.business-switcher', ['variant' => 'menu'])
+
     <section class="panel top-gap">
         <ul class="menu-list">
             <li>

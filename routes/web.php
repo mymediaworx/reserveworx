@@ -7,7 +7,9 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\GuestBookingController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\PlatformAuthController;
+use App\Http\Controllers\Web\PortfolioController;
 use App\Http\Controllers\Web\StaffAuthController;
+use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
@@ -71,6 +73,9 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         ->name('staff.password.reset');
     Route::post('/reset-password', [StaffAuthController::class, 'resetPassword'])->middleware('throttle:password-reset');
     Route::post('/logout', [StaffAuthController::class, 'logout'])->middleware('auth');
+    Route::get('/enter/{token}', [StaffBusinessController::class, 'enter'])
+        ->where('token', '[a-f0-9]{64}')
+        ->middleware('throttle:10,1');
 
     Route::middleware(['auth', 'tenant.member'])->group(function (): void {
         Route::get('/', Dashboard::class)->name('staff.home');
@@ -87,6 +92,11 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/branding', Branding::class);
         Route::get('/share', Share::class);
         Route::redirect('/booking-links', '/staff/share');
+        Route::get('/portfolio', [PortfolioController::class, 'show']);
+        Route::get('/portfolio.csv', [PortfolioController::class, 'export']);
+        Route::get('/businesses/new', [StaffBusinessController::class, 'create']);
+        Route::post('/businesses', [StaffBusinessController::class, 'store']);
+        Route::post('/switch/{tenant}', [StaffBusinessController::class, 'switch'])->middleware('throttle:10,1');
     });
 });
 

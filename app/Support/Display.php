@@ -64,6 +64,15 @@ final class Display
         return Money::format($cents, $currency);
     }
 
+    public static function basisPoints(?int $basisPoints): string
+    {
+        if ($basisPoints === null) {
+            return '—';
+        }
+
+        return number_format($basisPoints / 100, 1).'%';
+    }
+
     public static function status(string $value): string
     {
         return ucfirst(str_replace('_', ' ', $value));
