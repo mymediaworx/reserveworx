@@ -109,6 +109,11 @@ class ServiceVariantTest extends TestCase
             'name' => 'Other',
             'kind' => 'rental',
         ]);
+        $betaCategory = ResourceCategory::factory()->create([
+            'tenant_id' => $beta['tenant']->id,
+            'name' => 'Beta kayaks',
+            'slug' => 'beta-kayaks',
+        ]);
         app(TenantManager::class)->forget();
 
         $this->postJson($this->tenantUrl('beta.test', '/api/v1/services/'.$betaService->id.'/variants'), [
@@ -116,7 +121,7 @@ class ServiceVariantTest extends TestCase
             'duration_minutes' => 60,
             'resources' => [[
                 'resource_type' => 'pool',
-                'resource_category_id' => $category->id,
+                'resource_category_id' => $betaCategory->id,
                 'resource_id' => $tandem->id,
                 'quantity' => 1,
             ]],
@@ -290,6 +295,55 @@ class ServiceVariantTest extends TestCase
         $this->assertSame(16_000, $peak['services_cents']);
         $this->assertSame(480, $peak['fee_cents']);
         $this->assertSame(60, $peak['time_windows'][0]['minutes']);
+    }
+
+    public function test_a_percent_operator_fee_uses_the_variant_total_including_peak_minutes(): void
+    {
+        [$workspace, $service, $tandem, $category] = $this->shop();
+        $this->actingAsWorkspace($workspace);
+        $variantId = $this->tandemVariant($service, $tandem, $category);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Open',
+            'kind' => 'base',
+            'amount_cents' => 4_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Afternoon peak',
+            'kind' => 'base',
+            'amount_cents' => 16_000,
+            'local_start' => '10:00',
+            'local_end' => '14:00',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/operator-fees'), [
+            'name' => 'Fuel',
+            'pricing' => 'percent',
+            'percent_bps' => 1_000,
+            'service_id' => $service->id,
+        ])->assertCreated();
+
+        $plain = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$this->hold($service, null, 'fee-base', '2026-06-15T12:00:00Z', '2026-06-15T13:00:00Z', 1).'/pricing'))
+            ->assertOk()
+            ->json('data.payload');
+        $this->assertSame(4_000, $plain['services_cents']);
+        $this->assertSame(400, $plain['mandatory_operator_fees_cents']);
+        $this->assertSame(4_400, $plain['basis_cents']);
+        $this->assertSame(132, $plain['fee_cents']);
+
+        $override = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$this->hold($service, $variantId, 'fee-off', '2026-06-15T12:00:00Z', '2026-06-15T13:00:00Z', 2).'/pricing'))
+            ->assertOk()
+            ->json('data.payload');
+        $this->assertSame(8_000, $override['services_cents']);
+        $this->assertSame(800, $override['mandatory_operator_fees_cents']);
+        $this->assertSame(8_800, $override['basis_cents']);
+        $this->assertSame(264, $override['fee_cents']);
+
+        $peak = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$this->hold($service, $variantId, 'fee-peak', '2026-06-15T15:00:00Z', '2026-06-15T16:00:00Z', 2).'/pricing'))
+            ->assertOk()
+            ->json('data.payload');
+        $this->assertSame(16_000, $peak['services_cents']);
+        $this->assertSame(1_600, $peak['mandatory_operator_fees_cents']);
+        $this->assertSame(17_600, $peak['basis_cents']);
+        $this->assertSame(528, $peak['fee_cents']);
     }
 
     public function test_a_service_without_variants_still_books_its_own_length_and_price(): void

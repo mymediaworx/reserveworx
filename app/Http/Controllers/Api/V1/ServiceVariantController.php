@@ -17,6 +17,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class ServiceVariantController extends Controller
@@ -40,27 +41,31 @@ class ServiceVariantController extends Controller
         $tenant = $request->attributes->get('tenant');
         abort_unless($tenant instanceof Tenant, 403);
 
-        try {
-            $variant = ServiceVariant::query()->create([
-                'tenant_id' => $tenant->id,
+        $variant = DB::transaction(function () use ($request, $service, $tenant): ServiceVariant {
+            try {
+                $variant = ServiceVariant::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'service_id' => $service->id,
+                    'name' => $request->string('name')->toString(),
+                    'duration_minutes' => $request->integer('duration_minutes'),
+                    'price_override_cents' => $request->filled('price_override_cents') ? $request->integer('price_override_cents') : null,
+                ]);
+            } catch (QueryException $exception) {
+                $this->rethrowDuplicateName($exception);
+            }
+
+            $this->resources->replace($variant, $service, $this->resourceRows($request->input('resources', [])));
+            $variant->load('resources');
+
+            $this->audit->log('service_variant.created', $variant, [
                 'service_id' => $service->id,
-                'name' => $request->string('name')->toString(),
-                'duration_minutes' => $request->integer('duration_minutes'),
-                'price_override_cents' => $request->filled('price_override_cents') ? $request->integer('price_override_cents') : null,
-            ]);
-        } catch (QueryException $exception) {
-            $this->rethrowDuplicateName($exception);
-        }
+                'name' => $variant->name,
+                'duration_minutes' => $variant->duration_minutes,
+                'price_override_cents' => $variant->price_override_cents,
+            ], request: $request);
 
-        $this->resources->replace($variant, $service, $this->resourceRows($request->input('resources', [])));
-        $variant->load('resources');
-
-        $this->audit->log('service_variant.created', $variant, [
-            'service_id' => $service->id,
-            'name' => $variant->name,
-            'duration_minutes' => $variant->duration_minutes,
-            'price_override_cents' => $variant->price_override_cents,
-        ], request: $request);
+            return $variant;
+        });
 
         return (new ServiceVariantResource($variant))->response()->setStatusCode(201);
     }
@@ -77,29 +82,32 @@ class ServiceVariantController extends Controller
     public function update(UpdateServiceVariantRequest $request, Service $service, ServiceVariant $service_variant): ServiceVariantResource
     {
         $this->owned($service, $service_variant);
-        $service_variant->fill($request->safe()->only(['name', 'duration_minutes']));
 
-        if ($request->exists('price_override_cents')) {
-            $service_variant->price_override_cents = $request->filled('price_override_cents')
-                ? $request->integer('price_override_cents')
-                : null;
-        }
+        DB::transaction(function () use ($request, $service, $service_variant): void {
+            $service_variant->fill($request->safe()->only(['name', 'duration_minutes']));
 
-        try {
-            $service_variant->save();
-        } catch (QueryException $exception) {
-            $this->rethrowDuplicateName($exception);
-        }
+            if ($request->exists('price_override_cents')) {
+                $service_variant->price_override_cents = $request->filled('price_override_cents')
+                    ? $request->integer('price_override_cents')
+                    : null;
+            }
 
-        if ($request->exists('resources')) {
-            $this->resources->replace($service_variant, $service, $this->resourceRows($request->input('resources', [])));
-        }
+            try {
+                $service_variant->save();
+            } catch (QueryException $exception) {
+                $this->rethrowDuplicateName($exception);
+            }
 
-        $service_variant->load('resources');
-        $this->audit->log('service_variant.updated', $service_variant, [
-            'service_id' => $service->id,
-            'name' => $service_variant->name,
-        ], request: $request);
+            if ($request->exists('resources')) {
+                $this->resources->replace($service_variant, $service, $this->resourceRows($request->input('resources', [])));
+            }
+
+            $service_variant->load('resources');
+            $this->audit->log('service_variant.updated', $service_variant, [
+                'service_id' => $service->id,
+                'name' => $service_variant->name,
+            ], request: $request);
+        });
 
         return new ServiceVariantResource($service_variant);
     }
