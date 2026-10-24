@@ -29,6 +29,9 @@ class Booking extends Model
         'status',
         'payment_status',
         'operational_status',
+        'checked_in_at',
+        'checked_in_by',
+        'check_in_waiver_override_reason',
         'starts_at',
         'ends_at',
         'participants',
@@ -40,6 +43,7 @@ class Booking extends Model
         'status' => BookingStatus::class,
         'payment_status' => PaymentStatus::class,
         'operational_status' => OperationalStatus::class,
+        'checked_in_at' => 'datetime',
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
         'participants' => 'integer',
@@ -75,6 +79,14 @@ class Booking extends Model
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function checkedInBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'checked_in_by');
     }
 
     /**
