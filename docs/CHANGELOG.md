@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- `GET /admin` redirects to `/staff`. The older today page is no longer served.
 - Staff who can view bookings can list and open customers at `GET /api/v1/customers`. A search matches the stored name, email, or phone. The list is limited to 50.
 - Today's report counts confirmed, cancelled, and no-show bookings that start that day, and gives each rate in basis points. Holds and unpaid checkouts stay out of the rate.
 - `GET /api/v1/audit-logs` accepts optional `action` and `subject_id` filters. Omitting them still returns the workspace log.

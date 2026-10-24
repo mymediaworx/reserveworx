@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\IntegrationController;
 use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
@@ -72,11 +71,11 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
 });
 
 Route::middleware('tenant.resolve')->group(function (): void {
+    Route::redirect('/admin', '/staff')->name('admin.dashboard');
     Route::get('/admin/login', [SessionController::class, 'create'])->name('admin.login');
     Route::post('/admin/login', [SessionController::class, 'store'])->middleware('throttle:login')->name('admin.login.store');
 
     Route::middleware(['auth:web,sanctum', 'tenant.member'])->group(function (): void {
-        Route::get('/admin', [DashboardController::class, 'show'])->name('admin.dashboard');
         Route::get('/admin/today.csv', [ReportController::class, 'export'])->name('admin.report.export');
         Route::get('/admin/integrations', [IntegrationController::class, 'show'])->name('admin.integrations');
         Route::post('/admin/logout', [SessionController::class, 'destroy'])->name('admin.logout');
