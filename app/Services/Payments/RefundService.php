@@ -96,6 +96,7 @@ final class RefundService
             [
                 'reason' => $reason->value,
                 'customer_refund_cents' => $plan->customerRefundCents,
+                'customer_fee_refund_cents' => $plan->customerFeeRefundCents,
                 'application_fee_refund_cents' => $plan->applicationFeeRefundCents,
             ],
         );
