@@ -41,7 +41,9 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
+use App\Models\TenantBranding;
 use App\Models\TenantDataExport;
+use App\Models\TenantNotificationSetting;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Models\WaitlistEntry;
@@ -249,6 +251,8 @@ class TenantExporter
     {
         return [
             TenantSetting::class,
+            TenantBranding::class,
+            TenantNotificationSetting::class,
             Domain::class,
             Membership::class,
             Location::class,
