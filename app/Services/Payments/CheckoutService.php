@@ -465,6 +465,41 @@ final class CheckoutService
     }
 
     /**
+     * Whether the booking's current schedule prices above or below its snapshot.
+     * Reads the increase and decrease rules and does not charge or refund.
+     *
+     * @return 'increase'|'decrease'|null
+     */
+    public function pendingPriceChange(Booking $booking): ?string
+    {
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
+
+        if (! $snapshot instanceof PricingSnapshot) {
+            return null;
+        }
+
+        [$addOnsCents] = $this->currentAddOns($booking);
+
+        try {
+            $this->priceIncrease($booking, $snapshot->payload, $addOnsCents);
+
+            return 'increase';
+        } catch (AllocationUnavailableException $exception) {
+            if ($exception->getMessage() !== 'This booking has no price increase.') {
+                return null;
+            }
+        }
+
+        try {
+            $this->priceDecrease($booking, $snapshot->payload, $addOnsCents);
+
+            return 'decrease';
+        } catch (AllocationUnavailableException) {
+            return null;
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     private function priceIncrease(Booking $booking, array $payload, int $addOnsCents): PriceIncrease

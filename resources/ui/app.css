@@ -654,7 +654,8 @@ body.auth { display: grid; place-items: center; min-height: 100vh; padding: 1rem
 .auth-panel.wide { width: min(36rem, 100%); }
 .hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
-/* Resource schedule. The grid is wider than a 390px screen and scrolls sideways. */
+/* Resource schedule. The grid is wider than a 390px screen and scrolls sideways.
+   The Move panel sits outside that grid so it stays full width on a phone. */
 
 .schedule-page { min-width: 0; }
 .schedule-scroll {
@@ -738,9 +739,31 @@ body.auth { display: grid; place-items: center; min-height: 100vh; padding: 1rem
     color: inherit;
     z-index: 1;
 }
+button.schedule-block {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    box-sizing: border-box;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    appearance: none;
+    background: transparent;
+}
+button.schedule-block:focus-visible,
+.move-panel:focus { outline: 3px solid var(--brand); outline-offset: 2px; }
+.move-panel { max-width: 100%; min-width: 0; margin: 0 0 1rem; }
+.move-suggestions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+@media (max-width: 420px) {
+    .move-panel .stack > .button,
+    .move-suggestions .button { width: 100%; justify-self: stretch; white-space: normal; text-align: center; }
+    .move-suggestions { display: grid; }
+}
 .schedule-block.is-booking { background: var(--brand-soft); color: var(--brand-soft-ink); }
 .schedule-block.is-hold { background: var(--accent-soft); color: var(--accent-soft-ink); }
 .schedule-block.is-quiet { opacity: 0.55; }
+.schedule-block.is-selected { box-shadow: inset 0 0 0 2px var(--brand); }
 .schedule-buffer {
     flex: none;
     height: 100%;

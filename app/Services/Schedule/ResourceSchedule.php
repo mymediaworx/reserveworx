@@ -18,9 +18,10 @@ use DateTimeInterface;
 use Illuminate\Support\Collection;
 
 /**
- * Read-only resource board for one workspace. Each location uses its own
- * timezone. Holds and allocations already store the buffered interval, so the
- * shaded edges are the minutes outside the booking itself.
+ * Resource board for one workspace. Each location uses its own timezone.
+ * Holds and allocations already store the buffered interval, so the shaded
+ * edges are the minutes outside the booking itself. Moving a block is a
+ * separate action on the staff page and still goes through the allocator.
  */
 final class ResourceSchedule
 {

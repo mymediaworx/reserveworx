@@ -8,11 +8,13 @@
     @foreach ($days as $day)
         <div @class(['schedule-daylane', 'is-today' => $day['today']]) data-date="{{ $day['date'] }}" data-minutes="{{ $day['minutes'] }}">
             @foreach ($row['cells'][$day['date']]['blocks'] as $block)
-                <a
-                    class="schedule-block {{ $block['kind'] === 'hold' ? 'is-hold' : 'is-booking' }} {{ $block['status'] === 'no_show' ? 'is-quiet' : '' }}"
-                    href="{{ $block['href'] }}"
-                    wire:navigate
+                <button
+                    type="button"
+                    class="schedule-block {{ $block['kind'] === 'hold' ? 'is-hold' : 'is-booking' }} {{ $block['status'] === 'no_show' ? 'is-quiet' : '' }} {{ $selected === $block['booking_id'] ? 'is-selected' : '' }}"
+                    wire:click="openMove('{{ $block['booking_id'] }}', '{{ $block['row'] }}')"
                     style="left: {{ $block['left'] }}%; width: {{ $block['width'] }}%; --lane: {{ $block['lane'] }}"
+                    aria-pressed="{{ $selected === $block['booking_id'] ? 'true' : 'false' }}"
+                    aria-controls="move-panel"
                     data-booking="{{ $block['booking_id'] }}"
                     data-row="{{ $block['row'] }}"
                     data-kind="{{ $block['kind'] }}"
@@ -38,7 +40,7 @@
                     @if ($block['buffer_after'] !== '0.000')
                         <span class="schedule-buffer is-tail" style="width: {{ $block['buffer_after'] }}%" aria-hidden="true"></span>
                     @endif
-                </a>
+                </button>
             @endforeach
         </div>
     @endforeach
