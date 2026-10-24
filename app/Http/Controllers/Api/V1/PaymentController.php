@@ -92,6 +92,14 @@ class PaymentController extends Controller
             return response()->json(['message' => $exception->getMessage()], 409);
         }
 
+        if ($started['url'] !== null) {
+            $this->audit->log('payment.checkout_started', $started['payment'], [
+                'booking_id' => $booking->id,
+                'amount_cents' => $started['payment']->amount_cents,
+                'fee_cents' => $started['payment']->fee_cents,
+            ], request: $request);
+        }
+
         return response()->json(['data' => [
             'payment_id' => $started['payment']->id,
             'checkout_url' => $started['url'],

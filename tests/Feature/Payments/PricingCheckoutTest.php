@@ -5,6 +5,7 @@ namespace Tests\Feature\Payments;
 use App\Domain\Payments\StripeGateway;
 use App\Enums\PaymentStatus;
 use App\Models\Asset;
+use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Domain;
 use App\Models\Location;
@@ -384,6 +385,13 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame('https://checkout.stripe.test/pay/cs_test_123', $started->json('data.checkout_url'));
         $this->assertNull($replay->json('data.checkout_url'));
         $this->assertCount(1, $fake->sessions);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(1, AuditLog::query()->where('action', 'payment.checkout_started')->count());
+        $checkoutAudit = AuditLog::query()->where('action', 'payment.checkout_started')->firstOrFail();
+        $this->assertSame($started->json('data.payment_id'), $checkoutAudit->subject_id);
+        $this->assertSame(10_300, $checkoutAudit->properties['amount_cents'] ?? null);
+        app(TenantManager::class)->forget();
 
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$second.'/checkout-session'), [
             'success_url' => 'https://dock.test/other',
