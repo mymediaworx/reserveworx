@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A verified tenant domain's `/` renders that workspace's public booking page. Staff sign-in stays at `/staff/login`.
 - Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.
 - A push to `main` deploys `app.reserveworx.com` and runs migrations. If `https://app.reserveworx.com/up` is not healthy, the code release is swapped back once. That check does not use localhost.
 - The same deploy grants `michael@brandworx.ai` as a platform administrator. When that account is new, its password is written only on the server.
