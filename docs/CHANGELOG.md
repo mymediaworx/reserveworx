@@ -5,6 +5,9 @@ Semantic versions start at the first tagged release. This file records what land
 ## Unreleased
 
 - Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.
+- A push to `main` deploys `app.reserveworx.com` and runs migrations. If `https://app.reserveworx.com/up` is not healthy, the code release is swapped back once. That check does not use localhost.
+- The same deploy grants `michael@brandworx.ai` as a platform administrator. When that account is new, its password is written only on the server.
+- A deploy writes `index.php` into an existing `harbor.reserveworx.com` document root so it boots the live app, then marks that hostname verified for Harbor Demo. It does not create the site and it does not write under `reserveworx.com`.
 - `GET /admin` redirects to `/staff`. The older today page is no longer served.
 - An offline payment records the customer total without the booking-fee line. The payment row still stores a fee of zero.
 - Staff who can view bookings can list and open customers at `GET /api/v1/customers`. A search matches the stored name, email, or phone. The list is limited to 50.

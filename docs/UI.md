@@ -65,8 +65,8 @@ Tenant pages are served only on a verified tenant domain, so a demo needs a real
    $app->handleRequest(Request::capture());
    ```
 
-   Copy `.htaccess` from `app.reserveworx.com/public_html` too. Deploys never write outside `app.reserveworx.com`, so this file is a one-time manual step per subdomain. Because it points at `laravel/current`, it follows every deploy and rollback.
-3. **Platform admin:** sign in at `https://app.reserveworx.com/platform`. Open Harbor Demo, add `harbor.reserveworx.com`, and mark it verified. The first platform admin is granted over SSH with `php artisan reserveworx:grant-platform-admin <email>` (see [`RUNBOOK.md`](RUNBOOK.md)).
+   Copy `.htaccess` from `app.reserveworx.com/public_html` too. A deploy does this itself when `$HOME/www/harbor.reserveworx.com/public_html` is already a real directory. It does not create that site, and it does not write under `www/reserveworx.com`. Because the file points at `laravel/current`, it follows every deploy and rollback.
+3. **Domain row:** the same deploy runs `php artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com`. That attaches the hostname to Harbor Demo and marks it verified. It does not replace the workspace's primary hostname. The deploy also grants `michael@brandworx.ai` as a platform administrator. When that account is created by the deploy, the password is stored only in `laravel/shared/platform-admin.txt` on the server.
 4. **Try it:** staff sign in at `https://harbor.reserveworx.com/staff/login` with the Harbor Demo login from `laravel/shared/demo-logins.txt`. Make a link under **Booking links** to see the customer side.
 
 Wildcard subdomains would remove step 2 for every new operator. Whether SiteGround supports them is still open question 9.
