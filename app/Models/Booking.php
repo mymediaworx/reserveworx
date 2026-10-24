@@ -32,6 +32,7 @@ class Booking extends Model
         'checked_in_at',
         'checked_in_by',
         'check_in_waiver_override_reason',
+        'staff_notes',
         'starts_at',
         'ends_at',
         'participants',
