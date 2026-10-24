@@ -21,6 +21,7 @@ class Waitlist
         ?string $customerEmail,
         ?string $createdBy,
         ?string $idempotencyKey,
+        ?string $variantId = null,
     ): WaitlistEntry {
         $key = $idempotencyKey !== null && $idempotencyKey !== '' ? $idempotencyKey : null;
 
@@ -36,6 +37,7 @@ class Waitlist
             return WaitlistEntry::query()->create([
                 'tenant_id' => $tenantId,
                 'service_id' => $serviceId,
+                'service_variant_id' => $variantId !== null && $variantId !== '' ? $variantId : null,
                 'departure_id' => $departureId,
                 'location_id' => $locationId,
                 'created_by' => $createdBy,

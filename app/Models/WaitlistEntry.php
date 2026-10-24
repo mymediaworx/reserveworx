@@ -15,6 +15,7 @@ class WaitlistEntry extends Model
     protected $fillable = [
         'tenant_id',
         'service_id',
+        'service_variant_id',
         'departure_id',
         'booking_id',
         'location_id',

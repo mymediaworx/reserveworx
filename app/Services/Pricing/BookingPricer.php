@@ -7,11 +7,13 @@ use App\Domain\Fees\FeeCalculator;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
 use App\Domain\Pricing\PricingEngine;
+use App\Domain\Pricing\VariantPrice;
 use App\Enums\FeePayer;
 use App\Models\Booking;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Catalog\BookingAddOnLines;
@@ -41,7 +43,8 @@ final class BookingPricer
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
-        $rules = PriceRule::inputsFor($booking->service_id);
+        $variant = $this->variant($booking);
+        $rules = VariantPrice::overrideBase(PriceRule::inputsFor($booking->service_id), $variant?->price_override_cents);
 
         $promo = null;
         $percent = null;
@@ -104,6 +107,12 @@ final class BookingPricer
         $payload['promo_percent_off'] = $percent;
         $payload['promo_amount_off_cents'] = $amount;
 
+        if ($variant instanceof ServiceVariant) {
+            $payload['variant_id'] = $variant->id;
+            $payload['variant_name'] = $variant->name;
+            $payload['price_override_cents'] = $variant->price_override_cents;
+        }
+
         return PricingSnapshot::query()->create([
             'tenant_id' => $tenant->id,
             'booking_id' => $booking->id,
@@ -112,5 +121,18 @@ final class BookingPricer
             'rules_version' => FeeCalculator::RULES_VERSION,
             'disclosure_version_id' => $disclosure?->id,
         ]);
+    }
+
+    private function variant(Booking $booking): ?ServiceVariant
+    {
+        $id = $booking->service_variant_id;
+
+        if (! is_string($id) || $id === '') {
+            return null;
+        }
+
+        $variant = ServiceVariant::query()->where('service_id', $booking->service_id)->find($id);
+
+        return $variant instanceof ServiceVariant ? $variant : null;
     }
 }

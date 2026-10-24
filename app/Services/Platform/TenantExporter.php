@@ -42,6 +42,8 @@ use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
+use App\Models\ServiceVariant;
+use App\Models\ServiceVariantResource;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\TenantBranding;
@@ -266,6 +268,8 @@ class TenantExporter
             Blackout::class,
             Service::class,
             ServiceDuration::class,
+            ServiceVariant::class,
+            ServiceVariantResource::class,
             ResourceRequirement::class,
             Customer::class,
             Booking::class,

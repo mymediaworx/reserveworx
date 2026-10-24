@@ -4,11 +4,12 @@ namespace App\Models;
 
 use App\Enums\ResourceType;
 use App\Models\Concerns\BelongsToTenant;
+use App\Services\Allocation\ConsumesInventory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class ResourceRequirement extends Model
+class ResourceRequirement extends Model implements ConsumesInventory
 {
     use BelongsToTenant, HasUlids;
 
@@ -33,6 +34,16 @@ class ResourceRequirement extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    public function resourceType(): ResourceType
+    {
+        return $this->resource_type;
+    }
+
+    public function resourceId(): string
+    {
+        return $this->resource_id;
     }
 
     public function unitsFor(int $participants): int

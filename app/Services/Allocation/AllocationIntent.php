@@ -22,6 +22,7 @@ readonly class AllocationIntent
         public ?string $guideUserId = null,
         public ?string $customerPhone = null,
         public array $addOns = [],
+        public ?string $variantId = null,
     ) {}
 
     public function payloadHash(): string
@@ -48,6 +49,10 @@ readonly class AllocationIntent
                 'add_on_id' => $line['add_on_id'],
                 'quantity' => $line['quantity'],
             ], $lines);
+        }
+
+        if ($this->variantId !== null && $this->variantId !== '') {
+            $fields['variant_id'] = $this->variantId;
         }
 
         $encoded = json_encode($fields, JSON_THROW_ON_ERROR);

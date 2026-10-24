@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Location;
 use App\Models\Service;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\Allocator;
@@ -12,6 +13,7 @@ use App\Services\Inventory\OpeningHours;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class AvailabilityController extends Controller
 {
@@ -26,12 +28,14 @@ class AvailabilityController extends Controller
 
         $validated = $request->validate([
             'service_id' => ['required', 'string'],
+            'variant_id' => ['nullable', 'string'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
         ]);
 
         $service = Service::query()->with('location')->findOrFail($validated['service_id']);
         $this->authorize('view', $service);
+        $variantId = $this->variantId($service, $validated['variant_id'] ?? null);
         $location = $service->location;
         abort_unless($location instanceof Location, 404);
 
@@ -54,6 +58,7 @@ class AvailabilityController extends Controller
                 null,
                 null,
                 null,
+                variantId: $variantId,
             ));
             $durationOk = $hint['duration_ok'];
             $offered = $hint['offered_durations'];
@@ -70,7 +75,25 @@ class AvailabilityController extends Controller
                 'duration_ok' => $durationOk,
                 'available' => $available,
                 'offered_durations' => $offered,
+                'variant_id' => $variantId,
             ],
         ]);
+    }
+
+    private function variantId(Service $service, mixed $variantId): ?string
+    {
+        if (! is_string($variantId) || $variantId === '') {
+            return null;
+        }
+
+        $variant = ServiceVariant::query()->where('service_id', $service->id)->find($variantId);
+
+        if (! $variant instanceof ServiceVariant) {
+            throw ValidationException::withMessages([
+                'variant_id' => 'That variant is not on this service.',
+            ]);
+        }
+
+        return $variant->id;
     }
 }

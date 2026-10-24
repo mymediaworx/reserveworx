@@ -16,6 +16,7 @@ use App\Models\Participant;
 use App\Models\RentalCheckout;
 use App\Models\RentalReturn;
 use App\Models\Service;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Models\User;
@@ -69,6 +70,7 @@ class BookingController extends Controller
 
         $validated = $request->validate([
             'service_id' => ['required', 'string'],
+            'variant_id' => ['nullable', 'string'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             'participants' => ['required', 'integer', 'min:1'],
@@ -129,6 +131,7 @@ class BookingController extends Controller
         $addOns = $request->exists('add_ons') && is_array($requestedAddOns)
             ? $this->addOnLines->price((int) $validated['participants'], $requestedAddOns)
             : [];
+        $variantId = $this->variantId($validated['service_id'], $validated['variant_id'] ?? null);
 
         $intent = new AllocationIntent(
             $tenant->id,
@@ -143,6 +146,7 @@ class BookingController extends Controller
             is_string($guideUserId) ? $guideUserId : null,
             $this->customerPhone($validated['customer_phone'] ?? null),
             $addOns,
+            $variantId,
         );
 
         try {
@@ -164,6 +168,7 @@ class BookingController extends Controller
                         $validated['customer_email'] ?? null,
                         $request->user()?->id,
                         is_string($key) ? $key : null,
+                        $variantId,
                     );
 
                     return response()->json(['data' => [
@@ -531,6 +536,7 @@ class BookingController extends Controller
             'customer_id' => $booking->customer_id,
             'customer' => $this->customerPayload($booking),
             'service_id' => $booking->service_id,
+            'variant_id' => $booking->service_variant_id,
             'departure_id' => $booking->departure_id,
             'location_id' => $booking->location_id,
             'status' => $booking->status->value,
@@ -580,6 +586,23 @@ class BookingController extends Controller
         }
 
         return $rows;
+    }
+
+    private function variantId(string $serviceId, mixed $variantId): ?string
+    {
+        if (! is_string($variantId) || $variantId === '') {
+            return null;
+        }
+
+        $variant = ServiceVariant::query()->where('service_id', $serviceId)->find($variantId);
+
+        if (! $variant instanceof ServiceVariant) {
+            throw ValidationException::withMessages([
+                'variant_id' => 'That variant is not on this service.',
+            ]);
+        }
+
+        return $variant->id;
     }
 
     private function customerPhone(mixed $phone): ?string

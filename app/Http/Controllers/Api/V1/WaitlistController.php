@@ -6,6 +6,7 @@ use App\Enums\WaitlistStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Departure;
 use App\Models\Service;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\WaitlistEntry;
 use App\Services\AuditLogger;
@@ -41,6 +42,7 @@ class WaitlistController extends Controller
 
         $validated = $request->validate([
             'service_id' => ['required', 'string'],
+            'variant_id' => ['nullable', 'string'],
             'departure_id' => ['nullable', 'string'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
@@ -89,6 +91,7 @@ class WaitlistController extends Controller
             $validated['customer_email'] ?? null,
             $request->user()?->id,
             $validated['idempotency_key'] ?? null,
+            $this->variantId($service, $validated['variant_id'] ?? null),
         );
 
         $this->audit->log('waitlist.joined', $entry, ['service_id' => $service->id], request: $request);
@@ -114,6 +117,7 @@ class WaitlistController extends Controller
         return [
             'id' => $entry->id,
             'service_id' => $entry->service_id,
+            'variant_id' => $entry->service_variant_id,
             'departure_id' => $entry->departure_id,
             'location_id' => $entry->location_id,
             'starts_at' => $entry->starts_at->utc()->format('Y-m-d\TH:i:s\Z'),
@@ -121,5 +125,22 @@ class WaitlistController extends Controller
             'participants' => $entry->participants,
             'status' => $entry->status->value,
         ];
+    }
+
+    private function variantId(Service $service, mixed $variantId): ?string
+    {
+        if (! is_string($variantId) || $variantId === '') {
+            return null;
+        }
+
+        $variant = ServiceVariant::query()->where('service_id', $service->id)->find($variantId);
+
+        if (! $variant instanceof ServiceVariant) {
+            throw ValidationException::withMessages([
+                'variant_id' => 'That variant is not on this service.',
+            ]);
+        }
+
+        return $variant->id;
     }
 }

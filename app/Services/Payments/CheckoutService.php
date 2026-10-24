@@ -14,6 +14,7 @@ use App\Domain\Pricing\PriceDecrease;
 use App\Domain\Pricing\PriceIncrease;
 use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
+use App\Domain\Pricing\VariantPrice;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
@@ -637,7 +638,7 @@ final class CheckoutService
         $rate = $setting instanceof TenantSetting
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
-        $rules = PriceRule::inputsFor($booking->service_id);
+        $rules = VariantPrice::overrideBase(PriceRule::inputsFor($booking->service_id), VariantPrice::forBooking($booking));
         $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
 
         return [$channel, $rate, $payer, $rules, CarbonImmutable::instance($booking->starts_at)->timezone($zone)];
