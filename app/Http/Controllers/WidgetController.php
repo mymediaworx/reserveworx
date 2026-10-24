@@ -10,6 +10,7 @@ use App\Domain\Pricing\PricingEngine;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
+use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\DisclosureVersion;
 use App\Models\Hold;
@@ -81,6 +82,7 @@ class WidgetController extends Controller
             'service' => $service,
             'error' => null,
             'old' => [],
+            'suggestions' => [],
         ]);
     }
 
@@ -119,7 +121,9 @@ class WidgetController extends Controller
             ));
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
         } catch (InvalidArgumentException|IdempotencyConflictException|AllocationUnavailableException $exception) {
-            return $this->formResponse($token, $service, $exception->getMessage(), $request, 409);
+            $offers = $exception instanceof AllocationUnavailableException ? $exception->offers : [];
+
+            return $this->formResponse($token, $service, $exception->getMessage(), $request, 409, $offers);
         }
 
         $expires = $this->signatureExpiry($booking);
@@ -438,14 +442,58 @@ class WidgetController extends Controller
         return DisclosureVersion::query()->find($snapshot->disclosure_version_id);
     }
 
-    private function formResponse(string $token, Service $service, string $error, Request $request, int $status): Response
+    /**
+     * @param  array<string, mixed>  $offers
+     */
+    private function formResponse(string $token, Service $service, string $error, Request $request, int $status, array $offers = []): Response
     {
         return response()->view('widget.form', [
             'token' => $token,
             'service' => $service,
             'error' => $error,
             'old' => $request->all(),
+            'suggestions' => $this->suggestionLines($service, $offers),
         ], $status);
+    }
+
+    /**
+     * @param  array<string, mixed>  $offers
+     * @return list<string>
+     */
+    private function suggestionLines(Service $service, array $offers): array
+    {
+        if ($offers === []) {
+            return [];
+        }
+
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $lines = [];
+
+        foreach ($offers['times'] ?? [] as $time) {
+            if (! is_array($time) || ! is_string($time['starts_at'] ?? null) || ! is_string($time['ends_at'] ?? null)) {
+                continue;
+            }
+
+            $start = CarbonImmutable::parse($time['starts_at'])->timezone($zone);
+            $end = CarbonImmutable::parse($time['ends_at'])->timezone($zone);
+            $lines[] = $start->format('M j, g:i A').' to '.$end->format('g:i A');
+        }
+
+        $ids = [];
+
+        foreach ($offers['other_asset_ids'] ?? [] as $id) {
+            if (is_string($id) && $id !== '') {
+                $ids[] = $id;
+            }
+        }
+
+        if ($ids !== []) {
+            foreach (Asset::query()->whereIn('id', $ids)->orderBy('name')->pluck('name') as $name) {
+                $lines[] = (string) $name;
+            }
+        }
+
+        return $lines;
     }
 
     /**
