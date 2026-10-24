@@ -16,8 +16,12 @@ use App\Models\Booking;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\Customer;
+use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
 use App\Models\CustomerDataExport;
+use App\Models\CustomerSignInToken;
+use App\Models\GhlConnection;
+use App\Models\GhlSyncLog;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
@@ -34,9 +38,11 @@ use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
+use App\Services\Customers\CustomerAccountLinker;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -397,6 +403,210 @@ class CustomerPrivacyTest extends TestCase
         $this->assertSame('ada-other@example.com', $foreignRow->email);
         $this->assertNull($foreignRow->anonymized_at);
         $this->assertSame($deletionId, $repeated->json('data.id'));
+    }
+
+    public function test_export_and_anonymizing_deletion_remove_an_exclusive_customer_account(): void
+    {
+        $workspace = $this->workspace('dock.test');
+        $tenantId = $workspace['tenant']->id;
+        $customer = $this->customer($tenantId, 'Ada Kayak', 'ada@example.com', '312-555-0100');
+        $booking = $this->booking($tenantId, $customer->id, 'ada-kayak');
+        $account = CustomerAccount::query()->create([
+            'tenant_id' => $tenantId,
+            'email' => 'Ada@example.com',
+            'name' => 'Ada Kayak',
+            'password' => 'correct-horse-battery',
+        ]);
+        $this->within($workspace['tenant'], function () use ($account, $customer): void {
+            $account->forceFill(['email_verified_at' => now()])->save();
+            $customer->forceFill(['customer_account_id' => $account->id])->save();
+        });
+        $tokenHash = hash('sha256', 'plain-sign-in-token-not-exported');
+        CustomerSignInToken::query()->create([
+            'tenant_id' => $tenantId,
+            'customer_account_id' => $account->id,
+            'token_hash' => $tokenHash,
+            'expires_at' => now()->addHour(),
+        ]);
+        $plain = $account->createToken('customer')->plainTextToken;
+        $passwordHash = $account->password;
+        $this->assertIsString($passwordHash);
+        AuditLog::query()->create([
+            'tenant_id' => $tenantId,
+            'actor_user_id' => $workspace['user']->id,
+            'action' => 'customer_auth.sign_in',
+            'subject_type' => CustomerAccount::class,
+            'subject_id' => $account->id,
+            'properties' => ['email' => 'ada@example.com'],
+            'created_at' => now(),
+        ]);
+
+        Storage::fake('local');
+        $this->actingAsWorkspace($workspace);
+        $created = $this->postJson($this->tenantUrl('dock.test', '/api/v1/customers/'.$customer->id.'/exports'))
+            ->assertStatus(202)
+            ->assertJsonPath('data.status', 'completed')
+            ->assertJsonPath('data.row_counts.customer_account', 1);
+        $exportId = $created->json('data.id');
+        $this->assertIsString($exportId);
+        $path = $this->within($workspace['tenant'], function () use ($exportId): string {
+            $path = CustomerDataExport::query()->findOrFail($exportId)->path;
+            $this->assertIsString($path);
+
+            return $path;
+        });
+        $entries = $this->zipEntries($path);
+        $this->assertIsArray($entries['customer_account.json']);
+        $this->assertSame($account->id, $entries['customer_account.json']['id']);
+        $this->assertSame('ada@example.com', $entries['customer_account.json']['email']);
+        $this->assertSame('Ada Kayak', $entries['customer_account.json']['name']);
+        $this->assertArrayNotHasKey('password', $entries['customer_account.json']);
+        $this->assertArrayNotHasKey('remember_token', $entries['customer_account.json']);
+        $blob = json_encode($entries, JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString($passwordHash, $blob);
+        $this->assertStringNotContainsString($tokenHash, $blob);
+        $this->assertStringNotContainsString('correct-horse-battery', $blob);
+        $this->assertStringContainsString('ada@example.com', $blob);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/customers/'.$customer->id.'/deletion'))
+            ->assertOk()
+            ->assertJsonPath('data.idempotent', false);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($plain)
+            ->getJson($this->tenantUrl('dock.test', '/api/v1/customer/bookings'))
+            ->assertUnauthorized();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/customer/session'), [
+            'email' => 'ada@example.com',
+            'password' => 'correct-horse-battery',
+        ])->assertUnprocessable();
+
+        $this->within($workspace['tenant'], function () use ($customer, $booking): void {
+            $erased = $customer->fresh();
+            $this->assertInstanceOf(Customer::class, $erased);
+            $this->assertSame('Removed customer', $erased->name);
+            $this->assertNull($erased->email);
+            $this->assertNull($erased->customer_account_id);
+            $this->assertNotNull($erased->anonymized_at);
+            $this->assertSame($erased->id, $booking->fresh()?->customer_id);
+            $this->assertSame(0, CustomerAccount::query()->count());
+            $this->assertSame(0, CustomerSignInToken::query()->count());
+            $this->assertSame(0, DB::table('personal_access_tokens')->count());
+
+            $signIn = AuditLog::query()->where('action', 'customer_auth.sign_in')->firstOrFail();
+            $encoded = json_encode($signIn->properties, JSON_THROW_ON_ERROR);
+            $this->assertStringNotContainsString('ada@example.com', $encoded);
+
+            $again = Customer::query()->create([
+                'tenant_id' => $erased->tenant_id,
+                'name' => 'Ada Kayak',
+                'email' => 'ada@example.com',
+            ]);
+            app(CustomerAccountLinker::class)->attachGuestCustomer($again);
+            $this->assertNull($again->fresh()?->customer_account_id);
+        });
+    }
+
+    public function test_a_shared_customer_account_stays_when_another_customer_still_uses_it(): void
+    {
+        $workspace = $this->workspace('dock.test');
+        $tenantId = $workspace['tenant']->id;
+        $first = $this->customer($tenantId, 'Ada Kayak', 'ada@example.com');
+        $second = $this->customer($tenantId, 'Ada Kayak', 'ada@example.com');
+        $firstBooking = $this->booking($tenantId, $first->id, 'ada-first');
+        $secondBooking = $this->booking($tenantId, $second->id, 'ada-second');
+        $account = CustomerAccount::query()->create([
+            'tenant_id' => $tenantId,
+            'email' => 'ada@example.com',
+            'name' => 'Ada Kayak',
+            'password' => 'correct-horse-battery',
+        ]);
+        $this->within($workspace['tenant'], function () use ($account, $first, $second): void {
+            $account->forceFill(['email_verified_at' => now()])->save();
+            $first->forceFill(['customer_account_id' => $account->id])->save();
+            $second->forceFill(['customer_account_id' => $account->id])->save();
+        });
+        CustomerSignInToken::query()->create([
+            'tenant_id' => $tenantId,
+            'customer_account_id' => $account->id,
+            'token_hash' => hash('sha256', 'shared-sign-in-token'),
+            'expires_at' => now()->addHour(),
+        ]);
+        $plain = $account->createToken('customer')->plainTextToken;
+
+        $this->actingAsWorkspace($workspace);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/customers/'.$first->id.'/deletion'), [
+            'confirm' => true,
+        ])->assertOk()->assertJsonPath('data.idempotent', false);
+
+        $this->app['auth']->forgetGuards();
+        $listed = $this->withToken($plain)
+            ->getJson($this->tenantUrl('dock.test', '/api/v1/customer/bookings'))
+            ->assertOk();
+        $this->assertSame([$secondBooking->id], collect($listed->json('past'))->pluck('id')->all());
+        $this->assertNotContains($firstBooking->id, collect($listed->json('past'))->pluck('id')->all());
+
+        $this->within($workspace['tenant'], function () use ($first, $second, $account): void {
+            $erased = $first->fresh();
+            $this->assertInstanceOf(Customer::class, $erased);
+            $this->assertNull($erased->email);
+            $this->assertNull($erased->customer_account_id);
+            $kept = $second->fresh();
+            $this->assertInstanceOf(Customer::class, $kept);
+            $this->assertSame('ada@example.com', $kept->email);
+            $this->assertSame($account->id, $kept->customer_account_id);
+            $keptAccount = CustomerAccount::query()->find($account->id);
+            $this->assertInstanceOf(CustomerAccount::class, $keptAccount);
+            $this->assertSame('ada@example.com', $keptAccount->email);
+            $this->assertNotNull($keptAccount->password);
+            $this->assertSame(1, CustomerSignInToken::query()->count());
+            $this->assertSame(1, DB::table('personal_access_tokens')->count());
+        });
+    }
+
+    public function test_customer_export_includes_nothing_from_the_ghl_link(): void
+    {
+        $workspace = $this->workspace('dock.test');
+        $tenantId = $workspace['tenant']->id;
+        $customer = $this->customer($tenantId, 'Ada Kayak', 'ada@example.com');
+        $booking = $this->booking($tenantId, $customer->id, 'ada-kayak');
+        $token = 'pit-secret-ghl-token-value';
+        GhlConnection::query()->create([
+            'tenant_id' => $tenantId,
+            'location_id' => 'loc-ghl-private',
+            'private_integration_token' => $token,
+        ]);
+        GhlSyncLog::query()->create([
+            'tenant_id' => $tenantId,
+            'booking_id' => $booking->id,
+            'kind' => 'booking.created',
+            'attempt' => 1,
+            'status' => 'succeeded',
+            'location_id' => 'loc-ghl-private',
+            'error' => 'pit-secret-ghl-token-value must stay out',
+        ]);
+
+        Storage::fake('local');
+        $this->actingAsWorkspace($workspace);
+        $created = $this->postJson($this->tenantUrl('dock.test', '/api/v1/customers/'.$customer->id.'/exports'))
+            ->assertStatus(202)
+            ->assertJsonPath('data.status', 'completed');
+        $exportId = $created->json('data.id');
+        $this->assertIsString($exportId);
+        $path = $this->within($workspace['tenant'], function () use ($exportId): string {
+            $path = CustomerDataExport::query()->findOrFail($exportId)->path;
+            $this->assertIsString($path);
+
+            return $path;
+        });
+
+        $entries = $this->zipEntries($path);
+        $this->assertArrayNotHasKey('ghl_connections.json', $entries);
+        $this->assertArrayNotHasKey('ghl_sync_logs.json', $entries);
+        $blob = json_encode($entries, JSON_THROW_ON_ERROR);
+        $this->assertStringNotContainsString($token, $blob);
+        $this->assertStringNotContainsString('loc-ghl-private', $blob);
+        $this->assertStringContainsString('ada@example.com', $blob);
     }
 
     private function member(Tenant $tenant, string $role): User

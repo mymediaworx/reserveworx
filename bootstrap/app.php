@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureCustomerAccount;
 use App\Http\Middleware\EnsureKnownHost;
 use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\EnsurePlatformHost;
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tenant.resolve' => ResolveTenant::class,
             'tenant.member' => EnsureTenantMembership::class,
+            'customer.account' => EnsureCustomerAccount::class,
             'platform.admin' => EnsurePlatformAdmin::class,
             'platform.host' => EnsurePlatformHost::class,
         ]);

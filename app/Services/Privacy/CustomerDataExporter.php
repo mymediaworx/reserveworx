@@ -12,6 +12,7 @@ use App\Models\BookingLineItem;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\Customer;
+use App\Models\CustomerAccount;
 use App\Models\CustomerDataExport;
 use App\Models\Hold;
 use App\Models\Incident;
@@ -281,8 +282,9 @@ class CustomerDataExporter
         $refunds = $this->modelsForBookings(Refund::class, $bookingIds, $tenantId);
         $waitlist = $this->waitlist($customer, $bookingIds, $tenantId);
 
+        $accountId = is_string($customer->customer_account_id) ? $customer->customer_account_id : null;
         $subjectIds = array_values(array_unique(array_filter(array_merge(
-            [$customer->id],
+            [$customer->id, $accountId],
             $bookingIds,
             $this->ids($participants),
             $this->ids($signatures),
@@ -300,6 +302,7 @@ class CustomerDataExporter
                 'note' => 'Signed waiver rows are included. Spec open question 3 does not set how long they are kept, so a later anonymization keeps the rows and clears only direct identifiers.',
             ],
             'customer' => $this->attributes($customer, $tenantId),
+            'customer_account' => $this->accountFile($customer, $tenantId),
             'bookings' => $this->rows($bookings, $tenantId),
             'participants' => $participants,
             'waiver_signatures' => $signatures,
@@ -393,6 +396,36 @@ class CustomerDataExporter
                 unlink($temporary);
             }
         }
+    }
+
+    /**
+     * The linked sign-in, without the password, remember token, or sign-in hashes.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function accountFile(Customer $customer, string $tenantId): ?array
+    {
+        if (! is_string($customer->customer_account_id) || $customer->customer_account_id === '') {
+            return null;
+        }
+
+        $account = CustomerAccount::query()->whereKey($customer->customer_account_id)->first();
+
+        if (! $account instanceof CustomerAccount) {
+            return null;
+        }
+
+        $clean = [];
+
+        foreach ($this->attributes($account, $tenantId) as $key => $value) {
+            if (in_array($key, ['password', 'remember_token'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
+                continue;
+            }
+
+            $clean[$key] = $value;
+        }
+
+        return $clean;
     }
 
     /**
@@ -540,7 +573,17 @@ class CustomerDataExporter
             throw new CustomerExportException('A row from another workspace was read.');
         }
 
-        return $model->attributesToArray();
+        $clean = [];
+
+        foreach ($model->attributesToArray() as $key => $value) {
+            if (in_array($key, ['password', 'remember_token', 'private_integration_token'], true) || str_contains($key, 'secret') || str_contains($key, 'password')) {
+                continue;
+            }
+
+            $clean[$key] = $value;
+        }
+
+        return $clean;
     }
 
     private function assertTenant(?string $tenantId): void

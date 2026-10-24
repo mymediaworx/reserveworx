@@ -7,6 +7,7 @@ use Database\Factories\CustomerFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Customer extends Model
@@ -19,12 +20,21 @@ class Customer extends Model
         'name',
         'email',
         'phone',
+        'customer_account_id',
         'anonymized_at',
     ];
 
     protected $casts = [
         'anonymized_at' => 'datetime',
     ];
+
+    /**
+     * @return BelongsTo<CustomerAccount, $this>
+     */
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(CustomerAccount::class, 'customer_account_id');
+    }
 
     /**
      * @return HasMany<Booking, $this>

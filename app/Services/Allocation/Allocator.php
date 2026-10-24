@@ -30,6 +30,7 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Booking\SlotFinder;
 use App\Services\Catalog\BookingOperatorFeeLines;
+use App\Services\Customers\CustomerAccountLinker;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
@@ -56,6 +57,7 @@ class Allocator
         private readonly ReturnConditions $returnConditions,
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly WebhookPublisher $webhooks,
+        private readonly CustomerAccountLinker $customerAccounts,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -1401,6 +1403,8 @@ class Allocator
                 $customer->phone = $phone;
                 $customer->save();
             }
+
+            $this->customerAccounts->attachGuestCustomer($customer);
 
             return $customer->id;
         }
