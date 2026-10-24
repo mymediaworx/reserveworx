@@ -138,6 +138,10 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 `customers.anonymized_at` is set when direct identifiers are removed. The customer row stays, and `bookings.customer_id` still points at it. `customer_data_exports` records a queued, completed, or failed zip for one customer. `path` is on the local disk under `customer-exports/{tenant_id}/`. `row_counts` is the number of JSON values per file, and the manifest is not counted. The customer object counts as one. `GET /api/v1/customers/{customer}/exports/{export}/download` requires a signature and does not require a session. The signature expires 30 minutes after it is minted. `customer_data_deletions` is unique per tenant and customer. `confirmed` is true when deletion ran without an export file. `export_id` points at the completed export when one was on disk. Signed waiver rows are not deleted. How long they are kept is still open question 3.
 
+## Outbound webhooks
+
+`webhook_endpoints`, `webhook_deliveries`, and `webhook_delivery_attempts` are tenant-owned. An owner or manager with `webhooks.manage` registers an HTTPS URL and the events it receives: `booking.created`, `booking.cancelled`, `booking.changed`, `payment.succeeded`, and `refund.created`. `webhooks.view` reads the endpoint and the delivery log. Staff have neither permission. The signing secret is encrypted and is returned only by `POST /api/v1/webhook-endpoints`. Later reads omit it. `url_hash` is the SHA-256 of the URL and is unique per workspace. A private, loopback, or link-local address is refused when the endpoint is saved and again before each delivery. `DeliverWebhook` is queued on the database connection. It signs the raw JSON body with HMAC-SHA256 and retries a failed attempt up to five times, with delays of 30 seconds, 2 minutes, 10 minutes, and 30 minutes. Each attempt stores the status, response code, duration in milliseconds, and at most 2,000 characters of the response body. `GET /api/v1/webhook-deliveries` lists that log. `POST /api/v1/webhook-deliveries/{webhook_delivery}/redeliver` queues a finished delivery again. A pending delivery is left alone. These tables do not call GoHighLevel.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -145,7 +149,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
 - a mail transport and delivery webhooks
-- ghl_connections, ghl_mappings, integration_logs, and a live HighLevel client
+- ghl_connections, ghl_mappings, and a live HighLevel client. Generic outbound webhooks are migrated and are not a HighLevel connection
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
 

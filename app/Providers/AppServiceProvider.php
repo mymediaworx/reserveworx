@@ -4,11 +4,16 @@ namespace App\Providers;
 
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
+use App\Models\Payment;
+use App\Models\Refund;
 use App\Models\Tenant;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Branding\WorkspaceProfiles;
 use App\Services\Payments\StripeSdkGateway;
 use App\Services\Payments\UnconfiguredStripeGateway;
+use App\Services\Webhooks\HostAddressLookup;
+use App\Services\Webhooks\SystemHostAddressLookup;
+use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\TenantManager;
 use App\View\Composers\WorkspaceBrandingComposer;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -23,6 +28,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(TenantManager::class);
         $this->app->singleton(CurrentWorkspaceBranding::class);
+        $this->app->singleton(HostAddressLookup::class, SystemHostAddressLookup::class);
         $this->app->singleton(StripeGateway::class, function (): StripeGateway {
             $secret = config('services.stripe.secret');
             $webhookSecret = config('services.stripe.webhook_secret');
@@ -47,6 +53,30 @@ class AppServiceProvider extends ServiceProvider
 
         Tenant::created(function (Tenant $tenant): void {
             app(WorkspaceProfiles::class)->provision($tenant);
+        });
+
+        Payment::saved(function (Payment $payment): void {
+            if ($payment->status !== 'paid' || (! $payment->wasRecentlyCreated && ! $payment->wasChanged('status'))) {
+                return;
+            }
+
+            $context = app(TenantManager::class)->id();
+
+            if ($context === null || $context !== $payment->tenant_id) {
+                return;
+            }
+
+            app(WebhookPublisher::class)->paymentSucceeded($payment);
+        });
+
+        Refund::created(function (Refund $refund): void {
+            $context = app(TenantManager::class)->id();
+
+            if ($context === null || $context !== $refund->tenant_id) {
+                return;
+            }
+
+            app(WebhookPublisher::class)->refundCreated($refund);
         });
 
         RateLimiter::for('login', function (Request $request): Limit {

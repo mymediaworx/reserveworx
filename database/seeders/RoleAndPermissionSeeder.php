@@ -25,6 +25,8 @@ class RoleAndPermissionSeeder extends Seeder
             'bookings.manage' => 'Hold, confirm, extend, and cancel bookings',
             'reminders.manage' => 'Read and update booking reminder offsets',
             'customers.privacy' => 'Export and anonymize one customer',
+            'webhooks.view' => 'View webhook endpoints and the delivery log',
+            'webhooks.manage' => 'Register webhook endpoints and redeliver events',
         ];
 
         $saved = [];
@@ -49,6 +51,8 @@ class RoleAndPermissionSeeder extends Seeder
                 'bookings.manage',
                 'reminders.manage',
                 'customers.privacy',
+                'webhooks.view',
+                'webhooks.manage',
             ]],
             'staff' => ['name' => 'Staff', 'permissions' => [
                 'settings.view',
