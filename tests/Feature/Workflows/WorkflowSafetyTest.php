@@ -56,6 +56,7 @@ class WorkflowSafetyTest extends TestCase
         $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
         $this->assertStringContainsString('ssh_connect_retry', $ssh);
         $this->assertStringContainsString('kex_exchange_identification', $ssh);
+        $this->assertStringContainsString('Connection closed by', $ssh);
         $this->assertStringNotContainsString('www/reserveworx.com', $ssh);
 
         $prepare = (string) file_get_contents(base_path('scripts/prepare-siteground-ssh.sh'));
@@ -175,6 +176,10 @@ if [[ "$mode" == "reset-then-ok" && "$n" -eq 1 ]]; then
   echo "kex_exchange_identification: read: Connection reset by peer" >&2
   exit 255
 fi
+if [[ "$mode" == "closed-then-ok" && "$n" -eq 1 ]]; then
+  echo "Connection closed by 203.0.113.5 port 22" >&2
+  exit 255
+fi
 if [[ "$mode" == "started" ]]; then
   echo "started"
   echo "kex_exchange_identification: read: Connection reset by peer" >&2
@@ -198,6 +203,13 @@ BASH);
         $this->assertSame(0, $retried['exit'], $retried['output']);
         $this->assertStringContainsString('ssh_connect_retry attempt=1', $retried['output']);
         $this->assertStringContainsString('payloadsession-open', $retried['output']);
+        $this->assertSame('2', (string) file_get_contents($count));
+
+        file_put_contents($count, '0');
+        $closed = $this->runShell($base.'export RW_SSH_FAKE_MODE=closed-then-ok; printf payload | ssh_with_retry');
+        $this->assertSame(0, $closed['exit'], $closed['output']);
+        $this->assertStringContainsString('ssh_connect_retry attempt=1', $closed['output']);
+        $this->assertStringContainsString('payloadsession-open', $closed['output']);
         $this->assertSame('2', (string) file_get_contents($count));
 
         file_put_contents($count, '0');
