@@ -27,6 +27,10 @@
             @enderror
             <button type="submit" class="button primary">Sign in</button>
         </form>
+        @if (session('status'))
+            <p role="status">{{ session('status') }}</p>
+        @endif
+        <p class="auth-foot"><a href="/staff/forgot-password">Forgot password</a></p>
         <p class="auth-foot"><a href="/">Go to the booking page</a></p>
     </main>
 </body>

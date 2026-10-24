@@ -839,6 +839,7 @@ echo "composer_on_server=not run"
 (cd "$current" && "$php_bin" artisan route:cache --no-interaction)
 (cd "$current" && "$php_bin" artisan view:cache --no-interaction)
 echo "caches=written"
+(cd "$current" && "$php_bin" artisan reserveworx:mail-status --no-interaction) || echo "mail_status=failed" >&2
 
 switch_docroot
 purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"

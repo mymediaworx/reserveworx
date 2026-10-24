@@ -23,6 +23,10 @@
             @enderror
             <button type="submit" class="button primary">Sign in</button>
         </form>
+        @if (session('status'))
+            <p role="status">{{ session('status') }}</p>
+        @endif
+        <p class="auth-foot"><a href="/platform/forgot-password">Forgot password</a></p>
     </main>
 </body>
 </html>

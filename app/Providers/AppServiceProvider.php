@@ -43,6 +43,10 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($email.'|'.$request->ip());
         });
 
+        RateLimiter::for('password-reset', function (Request $request): Limit {
+            return Limit::perMinute(5)->by((string) $request->ip());
+        });
+
         RateLimiter::for('widget', function (Request $request): Limit {
             return Limit::perMinute(30)->by((string) $request->ip());
         });

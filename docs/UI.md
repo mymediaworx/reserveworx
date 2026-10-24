@@ -8,9 +8,11 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 |---|---|---|
 | Platform (`app.reserveworx.com`) | `/` | Product page with platform sign in |
 | Platform | `/platform/login`, `/platform` | Platform admins only: list and add workspaces |
+| Platform | `/platform/forgot-password`, `/platform/reset-password/{token}` | Request a reset link and choose a new password. The link expires in 60 minutes. |
 | Platform | `/platform/tenants/{id}` | Domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, a private data export, status |
 | Tenant domain | `/` | Public booking page for that workspace |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
+| Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
 | Tenant domain | `/staff` | Today: schedule, holds waiting on payment, booking fees |
 | Tenant domain | `/staff/calendar` | Week or day view with location and service filters |
 | Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
