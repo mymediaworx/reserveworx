@@ -19,6 +19,7 @@ class Booking extends Model
         'tenant_id',
         'location_id',
         'service_id',
+        'service_variant_id',
         'departure_id',
         'customer_id',
         'created_by',
@@ -49,6 +50,14 @@ class Booking extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * @return BelongsTo<ServiceVariant, $this>
+     */
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ServiceVariant::class, 'service_variant_id');
     }
 
     /**

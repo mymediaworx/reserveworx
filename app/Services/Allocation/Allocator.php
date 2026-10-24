@@ -23,9 +23,9 @@ use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
 use App\Models\RentalCheckout;
-use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Booking\SlotFinder;
@@ -219,6 +219,7 @@ class Allocator
                     null,
                     $booking->departure_id,
                     $booking->guide_user_id,
+                    variantId: $booking->service_variant_id,
                 );
                 $this->assertDuration($intent);
                 $plan = $this->plan($intent);
@@ -337,6 +338,7 @@ class Allocator
                 null,
                 null,
                 $booking->guide_user_id,
+                variantId: $booking->service_variant_id,
             );
             $this->assertDuration($intent);
             $plan = $this->plan($intent);
@@ -628,8 +630,16 @@ class Allocator
     {
         $service = Service::query()->with('durations')->find($intent->serviceId);
         $offered = [];
+        $variant = $service instanceof Service ? $this->findVariant($intent, $service) : null;
 
-        if ($service instanceof Service) {
+        if ($this->presentId($intent->variantId) !== null && $variant instanceof ServiceVariant) {
+            $offered[] = [
+                'name' => $variant->name,
+                'quantity' => $variant->duration_minutes,
+                'unit' => 'minutes',
+                'duration_minutes' => $variant->duration_minutes,
+            ];
+        } elseif ($service instanceof Service) {
             foreach ($service->durations as $duration) {
                 $offered[] = [
                     'name' => $duration->name,
@@ -857,15 +867,16 @@ class Allocator
 
         $guideUserId = $this->presentId($intent->guideUserId);
         $departureId = $this->presentId($intent->departureId);
+        $requirements = $this->requirementsFor($service, $intent);
 
-        if ($service->requirements->isEmpty() && $guideUserId === null) {
+        if ($requirements === [] && $guideUserId === null) {
             throw new AllocationUnavailableException('This service has no resources.');
         }
 
         /** @var array<string, array{type: ResourceType, id: string, quantity: int, buffer_start: CarbonImmutable, buffer_end: CarbonImmutable, name: string, buckets: list<int>}> $merged */
         $merged = [];
 
-        foreach ($service->requirements as $requirement) {
+        foreach ($requirements as $requirement) {
             $units = $requirement->unitsFor($intent->participants);
             $resource = $this->resource($requirement);
             $movingOffRetired = $resource instanceof Asset
@@ -877,7 +888,7 @@ class Allocator
                 throw new AllocationUnavailableException('A required resource is not available.');
             }
 
-            if ($requirement->resource_type === ResourceType::Asset && $units !== 1) {
+            if ($requirement->resourceType() === ResourceType::Asset && $units !== 1) {
                 throw new AllocationUnavailableException('An individual asset can only be held once.');
             }
 
@@ -887,7 +898,7 @@ class Allocator
                 $service->location,
                 $intent->startsAt,
                 $intent->endsAt,
-                $requirement->resource_type->value,
+                $requirement->resourceType()->value,
                 $resource->id,
             );
 
@@ -895,8 +906,8 @@ class Allocator
                 throw new AllocationUnavailableException('That resource is outside its hours or a blackout.');
             }
 
-            $key = $requirement->resource_type->value.':'.$resource->id;
-            $buckets = $requirement->resource_type === ResourceType::Pool
+            $key = $requirement->resourceType()->value.':'.$resource->id;
+            $buckets = $requirement->resourceType() === ResourceType::Pool
                 ? $this->buckets->covering($bufferStart, $bufferEnd, $bucketMinutes)
                 : [];
 
@@ -907,7 +918,7 @@ class Allocator
             }
 
             $merged[$key] = [
-                'type' => $requirement->resource_type,
+                'type' => $requirement->resourceType(),
                 'id' => $resource->id,
                 'quantity' => $units,
                 'buffer_start' => $bufferStart,
@@ -957,6 +968,7 @@ class Allocator
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
+            'service_variant_id' => $this->presentId($intent->variantId),
             'departure_id' => $intent->departureId,
             'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $this->customerId($intent),
@@ -1030,13 +1042,13 @@ class Allocator
         }
     }
 
-    private function resource(ResourceRequirement $requirement): Asset|Pool|null
+    private function resource(ConsumesInventory $requirement): Asset|Pool|null
     {
-        if ($requirement->resource_type === ResourceType::Asset) {
-            return Asset::query()->find($requirement->resource_id);
+        if ($requirement->resourceType() === ResourceType::Asset) {
+            return Asset::query()->find($requirement->resourceId());
         }
 
-        return Pool::query()->find($requirement->resource_id);
+        return Pool::query()->find($requirement->resourceId());
     }
 
     /**
@@ -1196,6 +1208,7 @@ class Allocator
             'tenant_id' => $intent->tenantId,
             'location_id' => $service->location_id,
             'service_id' => $service->id,
+            'service_variant_id' => $this->presentId($intent->variantId),
             'departure_id' => $this->presentId($intent->departureId),
             'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $customerId,
@@ -1400,6 +1413,7 @@ class Allocator
             null,
             $booking->departure_id,
             $booking->guide_user_id,
+            variantId: $booking->service_variant_id,
         );
     }
 
@@ -1721,6 +1735,7 @@ class Allocator
             null,
             $departureId,
             $intent->guideUserId,
+            variantId: $intent->variantId,
         ))['available'];
     }
 
@@ -1845,12 +1860,71 @@ class Allocator
         return 0;
     }
 
+    /**
+     * @return list<ConsumesInventory>
+     */
+    private function requirementsFor(Service $service, AllocationIntent $intent): array
+    {
+        $variant = $this->chosenVariant($intent, $service);
+
+        if ($variant instanceof ServiceVariant) {
+            $mapped = [];
+
+            foreach ($variant->resources()->orderBy('id')->get() as $row) {
+                $mapped[] = $row;
+            }
+
+            if ($mapped !== []) {
+                return $mapped;
+            }
+        }
+
+        $requirements = [];
+
+        foreach ($service->requirements as $requirement) {
+            $requirements[] = $requirement;
+        }
+
+        return $requirements;
+    }
+
+    private function chosenVariant(AllocationIntent $intent, Service $service): ?ServiceVariant
+    {
+        if ($this->presentId($intent->variantId) === null) {
+            return null;
+        }
+
+        $variant = $this->findVariant($intent, $service);
+
+        if (! $variant instanceof ServiceVariant) {
+            throw new AllocationUnavailableException('That variant is not available.');
+        }
+
+        return $variant;
+    }
+
+    private function findVariant(AllocationIntent $intent, Service $service): ?ServiceVariant
+    {
+        $id = $this->presentId($intent->variantId);
+
+        if ($id === null) {
+            return null;
+        }
+
+        $variant = ServiceVariant::query()->where('service_id', $service->id)->find($id);
+
+        return $variant instanceof ServiceVariant ? $variant : null;
+    }
+
     private function assertDuration(AllocationIntent $intent): void
     {
         $service = Service::query()->with('durations')->find($intent->serviceId);
+        $variant = $service instanceof Service ? $this->chosenVariant($intent, $service) : null;
 
         if (! $this->durationMatches($intent, $service instanceof Service ? $service : null)) {
-            throw new AllocationUnavailableException('Choose a rental length offered for this service.');
+            throw new AllocationUnavailableException($variant instanceof ServiceVariant
+                ? 'Choose the length offered for this variant.'
+                : 'Choose a rental length offered for this service.');
         }
     }
 
@@ -1858,6 +1932,18 @@ class Allocator
     {
         if (! $service instanceof Service || $this->presentId($intent->departureId) !== null) {
             return true;
+        }
+
+        if ($this->presentId($intent->variantId) !== null) {
+            $variant = $this->findVariant($intent, $service);
+
+            if (! $variant instanceof ServiceVariant) {
+                return false;
+            }
+
+            $elapsed = $intent->endsAt->utc()->getTimestamp() - $intent->startsAt->utc()->getTimestamp();
+
+            return $elapsed > 0 && $elapsed % 60 === 0 && intdiv($elapsed, 60) === $variant->duration_minutes;
         }
 
         if ($service->durations->isEmpty()) {

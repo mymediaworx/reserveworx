@@ -73,6 +73,7 @@ class WaitlistPromoter
             $entry->customer_name,
             $entry->customer_email,
             $entry->departure_id,
+            variantId: $entry->service_variant_id,
         );
 
         try {

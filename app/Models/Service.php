@@ -53,4 +53,12 @@ class Service extends Model
     {
         return $this->hasMany(ServiceDuration::class);
     }
+
+    /**
+     * @return HasMany<ServiceVariant, $this>
+     */
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ServiceVariant::class);
+    }
 }
