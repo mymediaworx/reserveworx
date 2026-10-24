@@ -2,14 +2,11 @@
 
 namespace App\Livewire\Platform;
 
-use App\Enums\TenantStatus;
 use App\Models\Domain;
 use App\Models\Tenant;
-use App\Models\TenantSetting;
 use App\Models\User;
-use App\Services\AuditLogger;
+use App\Services\Platform\WorkspaceProvisioner;
 use App\Tenancy\TenantScope;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -47,7 +44,7 @@ class Tenants extends Component
         $this->resetPage();
     }
 
-    public function create(AuditLogger $audit): void
+    public function create(WorkspaceProvisioner $workspaces): void
     {
         $actor = $this->guard();
         $this->validate([
@@ -55,25 +52,7 @@ class Tenants extends Component
             'slug' => ['required', 'string', 'max:63', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', 'unique:tenants,slug'],
         ]);
 
-        $tenant = DB::transaction(function () use ($audit, $actor): Tenant {
-            $tenant = Tenant::query()->create([
-                'name' => $this->name,
-                'slug' => $this->slug,
-                'status' => TenantStatus::Onboarding,
-            ]);
-            TenantSetting::withoutGlobalScope(TenantScope::class)->create(['tenant_id' => $tenant->id]);
-            $audit->log(
-                action: 'tenant.created',
-                subject: $tenant,
-                properties: ['name' => $tenant->name, 'slug' => $tenant->slug],
-                tenantId: $tenant->id,
-                actor: $actor,
-                request: request(),
-                useContextTenant: false,
-            );
-
-            return $tenant;
-        });
+        $tenant = $workspaces->create($this->name, $this->slug, $actor, request());
 
         $this->redirect('/platform/tenants/'.$tenant->id, navigate: true);
     }

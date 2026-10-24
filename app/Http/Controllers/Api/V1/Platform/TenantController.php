@@ -8,16 +8,14 @@ use App\Http\Requests\Api\V1\StoreTenantRequest;
 use App\Http\Requests\Api\V1\UpdateTenantStatusRequest;
 use App\Http\Resources\TenantResource;
 use App\Models\Tenant;
-use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\AuditLogger;
 use App\Services\Platform\TenantExporter;
+use App\Services\Platform\WorkspaceProvisioner;
 use App\Services\TenantLifecycle;
-use App\Tenancy\TenantScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class TenantController extends Controller
@@ -26,6 +24,7 @@ class TenantController extends Controller
         private readonly AuditLogger $audit,
         private readonly TenantLifecycle $lifecycle,
         private readonly TenantExporter $exports,
+        private readonly WorkspaceProvisioner $workspaces,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -45,30 +44,12 @@ class TenantController extends Controller
     public function store(StoreTenantRequest $request): JsonResponse
     {
         $actor = $request->user();
-
-        $tenant = DB::transaction(function () use ($request, $actor): Tenant {
-            $tenant = Tenant::query()->create([
-                'name' => $request->string('name')->toString(),
-                'slug' => $request->string('slug')->toString(),
-                'status' => TenantStatus::Onboarding,
-            ]);
-
-            TenantSetting::withoutGlobalScope(TenantScope::class)->create([
-                'tenant_id' => $tenant->id,
-            ]);
-
-            $this->audit->log(
-                action: 'tenant.created',
-                subject: $tenant,
-                properties: ['name' => $tenant->name, 'slug' => $tenant->slug],
-                tenantId: $tenant->id,
-                actor: $actor instanceof User ? $actor : null,
-                request: $request,
-                useContextTenant: false,
-            );
-
-            return $tenant;
-        });
+        $tenant = $this->workspaces->create(
+            $request->string('name')->toString(),
+            $request->string('slug')->toString(),
+            $actor instanceof User ? $actor : null,
+            $request,
+        );
 
         return (new TenantResource($tenant))->response()->setStatusCode(201);
     }
