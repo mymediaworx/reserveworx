@@ -22,6 +22,7 @@ use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
 use App\Models\NotificationHook;
+use App\Models\Participant;
 use App\Models\Payment;
 use App\Models\PlatformFee;
 use App\Models\PlatformFeeRefund;
@@ -258,6 +259,7 @@ class TenantExporter
             ResourceRequirement::class,
             Customer::class,
             Booking::class,
+            Participant::class,
             BookingLineItem::class,
             Hold::class,
             Allocation::class,

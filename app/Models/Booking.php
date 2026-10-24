@@ -100,6 +100,17 @@ class Booking extends Model
     }
 
     /**
+     * Named people on this booking. The relation is not called participants
+     * because that attribute is the party-size integer.
+     *
+     * @return HasMany<Participant, $this>
+     */
+    public function namedParticipants(): HasMany
+    {
+        return $this->hasMany(Participant::class);
+    }
+
+    /**
      * @return HasMany<RentalCheckout, $this>
      */
     public function checkouts(): HasMany

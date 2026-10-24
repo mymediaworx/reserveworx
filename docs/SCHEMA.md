@@ -88,6 +88,8 @@ Foundation migration: `database/migrations/2026_10_23_170000_create_foundation_t
 
 `customers`, `bookings`, `booking_line_items`, `allocations`, `holds`, and `capacity_ledger` are migrated in `database/migrations/2026_10_23_193000_create_booking_tables.php`. `POST /api/v1/bookings` stores `customer_phone` on the customer. A later booking with the same email fills `phone` only when it is still empty. Booking JSON includes `customer_id` and `customer`.
 
+`participants` is migrated in `database/migrations/2026_10_24_041500_create_participants_table.php`. It stores one named person on a booking (`tenant_id`, `booking_id`, `name`). `POST /api/v1/bookings/{booking}/participants` adds a name. The count of those rows is a floor: `POST /api/v1/bookings/{booking}/party-size` will not set the party size below it. A name is not added once the party is already full of names. Booking JSON includes `named_participant_count`. A response that loaded the names also includes `named_participants`.
+
 A booking stores the customer interval in UTC, party size, status, payment status, and operational status. `departure_id` is set when the booking is for a tour departure. `guide_user_id` is the staff user guiding that booking. `created_by` is the member who placed the hold, when the request was authenticated. Idempotency is a unique `(tenant_id, idempotency_key)` plus `payload_hash`. `waitlist_entries` store a party that asked to wait. `booking_id` is set when that entry is promoted. Their idempotency key is unique per tenant and nullable. MySQL treats null keys as distinct, so bookings without a key do not collide. `allocations` and `holds` store the buffered interval, including turnaround. A hold counts only while `expires_at` is still in the future. `rental_checkouts` record an unreturned rental; `due_at` is the customer end, and `returned_at` null means the checkout still extends the block. `notification_hooks` record queued events such as `waitlist.promoted`. `capacity_ledger` is unique on `(tenant_id, pool_id, bucket_start_utc)`. Its counters are rewritten after a successful write and are not the admission check.
 
 ## Disclosure versions
@@ -129,7 +131,6 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
 - service_variants
-- participants
 - rental_returns beyond `rental_checkouts`
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
