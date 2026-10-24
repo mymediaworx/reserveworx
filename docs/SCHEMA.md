@@ -116,7 +116,7 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 ## Refunds
 
-`refunds` stores one Section 7.7 outcome: the reason, the customer amount, the application fee amount, the subtotal and tax that were refunded, and the Stripe refund ids when a call was made. `idempotency_key` is unique per tenant when set. The row is written only after Stripe accepts the call, or immediately when the reason refunds nothing.
+`refunds` stores one Section 7.7 outcome: the reason, the customer amount, the application fee amount, the subtotal and tax that were refunded, and the Stripe refund ids when a call was made. `idempotency_key` is unique per tenant when set. The row is written only after Stripe accepts the call, or immediately when the reason refunds nothing. `platform_fee_refunds` stores a platform administrator's fee refund, separate from those reason codes: the fee, the amount, the free-text reason, the rule `platform_manual`, the actor, and the Stripe fee-refund id. Its `idempotency_key` is unique per tenant when set. The row is written only after Stripe accepts the call. It does not refund the customer.
 
 ## Tenant data exports
 
@@ -130,7 +130,6 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - participants
 - rental_returns beyond `rental_checkouts`
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
-- a platform-only manual fee refund separate from the Section 7.7 reason codes
 - a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
 - a mail transport and delivery webhooks
 - ghl_connections, ghl_mappings, integration_logs, and a live HighLevel client

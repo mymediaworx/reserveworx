@@ -149,5 +149,9 @@ class CrossTenantIsolationTest extends TestCase
         $this->getJson('http://localhost/api/v1/platform/tenants')->assertForbidden();
         $this->getJson('http://localhost/api/v1/platform/tenants/'.$workspace['tenant']->id)->assertForbidden();
         $this->getJson('http://localhost/api/v1/platform/fee-revenue')->assertForbidden();
+        $this->postJson('http://localhost/api/v1/platform/fees/01ARZ3NDEKTSV4RRFFQ69G5FAV/refunds', [
+            'amount_cents' => 100,
+            'reason' => 'A member cannot refund a booking fee.',
+        ])->assertForbidden();
     }
 }
