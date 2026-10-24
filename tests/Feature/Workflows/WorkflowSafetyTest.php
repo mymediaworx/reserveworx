@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Workflows;
 
+use Dotenv\Dotenv;
 use Tests\TestCase;
 
 class WorkflowSafetyTest extends TestCase
@@ -52,6 +53,35 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('reserveworx:grant-demo-owner michael@brandworx.ai harbor-demo', $remote);
         $this->assertStringContainsString('reserveworx:mail-status', $remote);
         $this->assertStringNotContainsString('artisan db:seed --force', $remote);
+        $mailConfigure = strpos($remote, 'if ! configure_production_mail; then');
+        $releaseSwitch = strpos($remote, "\ndrop_old_rollback\n");
+        $configCache = strpos($remote, 'artisan config:cache');
+        $mailStatus = strpos($remote, 'reserveworx:mail-status');
+        $this->assertNotFalse($mailConfigure);
+        $this->assertNotFalse($releaseSwitch);
+        $this->assertNotFalse($configCache);
+        $this->assertNotFalse($mailStatus);
+        $this->assertLessThan($releaseSwitch, $mailConfigure);
+        $this->assertLessThan($configCache, $releaseSwitch);
+        $this->assertLessThan($mailStatus, $configCache);
+        $this->assertStringContainsString('Mail settings were not written. Document root was not changed.', $remote);
+        $this->assertStringContainsString('mail_configured=no', $remote);
+        $this->assertStringContainsString("MAIL_HOST' => 'mail.reserveworx.com'", $remote);
+        $this->assertStringContainsString("MAIL_PORT' => '465'", $remote);
+        $this->assertStringContainsString("MAIL_SCHEME' => 'smtps'", $remote);
+        $this->assertStringContainsString("MAIL_USERNAME' => 'noreply@reserveworx.com'", $remote);
+        $this->assertStringContainsString("MAIL_FROM_ADDRESS' => 'noreply@reserveworx.com'", $remote);
+        $this->assertStringContainsString("MAIL_FROM_NAME' => 'ReserveWorx'", $remote);
+
+        $deploy = (string) file_get_contents(base_path('.github/workflows/deploy.yml'));
+        $this->assertStringContainsString('secrets.MAIL_PASSWORD', $deploy);
+        $this->assertStringContainsString('::add-mask::${MAIL_PASSWORD}', $deploy);
+        $this->assertStringContainsString('::add-mask::${RW_MAIL_PASSWORD}', $deploy);
+        $this->assertStringContainsString('www/app.reserveworx.com/laravel/shared', $deploy);
+        $this->assertStringContainsString('.mail-password', $deploy);
+        $this->assertStringNotContainsString('RW_MAIL_PASSWORD=%q', $deploy);
+        $this->assertStringNotContainsString('echo "$RW_MAIL_PASSWORD"', $deploy);
+        $this->assertStringNotContainsString('echo "${RW_MAIL_PASSWORD}"', $deploy);
 
         $ssh = (string) file_get_contents(base_path('scripts/ssh-siteground.sh'));
         $this->assertStringContainsString('ssh_connect_retry', $ssh);
@@ -266,6 +296,110 @@ BASH);
         $this->assertStringContainsString('harbor_docroot=missing', $missing['output']);
         $this->assertStringContainsString('www_entry=reserveworx.com', $missing['output']);
         $this->assertSame('main-site', (string) file_get_contents($main.'/index.html'));
+    }
+
+    public function test_a_mail_password_is_written_into_shared_env_and_is_not_printed(): void
+    {
+        $password = 'p@ss\'w\\ord$foo"x';
+        $ran = $this->configureMail($password."\n");
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('mail_configured=yes', $ran['output']);
+        $this->assertStringNotContainsString($password, $ran['output']);
+        $this->assertStringNotContainsString('old-mail-secret', $ran['output']);
+        $this->assertFileDoesNotExist($ran['password_file']);
+        $this->assertSame('600', substr(sprintf('%o', fileperms($ran['env'])), -3));
+        $this->assertSame('main-site', (string) file_get_contents($ran['main']));
+        $this->assertFileDoesNotExist(dirname($ran['main']).'/.env');
+
+        $values = Dotenv::parse((string) file_get_contents($ran['env']));
+        $this->assertSame('smtp', $values['MAIL_MAILER']);
+        $this->assertSame('mail.reserveworx.com', $values['MAIL_HOST']);
+        $this->assertSame('465', $values['MAIL_PORT']);
+        $this->assertSame('smtps', $values['MAIL_SCHEME']);
+        $this->assertSame('noreply@reserveworx.com', $values['MAIL_USERNAME']);
+        $this->assertSame('noreply@reserveworx.com', $values['MAIL_FROM_ADDRESS']);
+        $this->assertSame('ReserveWorx', $values['MAIL_FROM_NAME']);
+        $this->assertSame($password, $values['MAIL_PASSWORD']);
+        $this->assertSame('keep-db', $values['DB_PASSWORD']);
+    }
+
+    public function test_a_missing_mail_password_leaves_the_log_mailer_and_does_not_fail(): void
+    {
+        $ran = $this->configureMail(null);
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('mail_configured=no', $ran['output']);
+        $this->assertStringNotContainsString('old-mail-secret', $ran['output']);
+        $this->assertStringNotContainsString('mail_configured=yes', $ran['output']);
+        $this->assertSame('main-site', (string) file_get_contents($ran['main']));
+
+        $values = Dotenv::parse((string) file_get_contents($ran['env']));
+        $this->assertSame('log', $values['MAIL_MAILER']);
+        $this->assertSame('keep-db', $values['DB_PASSWORD']);
+        $this->assertSame('old-mail-secret', $values['MAIL_PASSWORD']);
+        $this->assertArrayNotHasKey('MAIL_HOST', $values);
+
+        $empty = $this->configureMail('');
+        $this->assertSame(0, $empty['exit'], $empty['output']);
+        $this->assertStringContainsString('mail_configured=no', $empty['output']);
+        $this->assertStringNotContainsString('old-mail-secret', $empty['output']);
+        $emptyValues = Dotenv::parse((string) file_get_contents($empty['env']));
+        $this->assertSame('log', $emptyValues['MAIL_MAILER']);
+    }
+
+    public function test_a_mail_password_with_a_newline_is_rejected_without_being_printed(): void
+    {
+        $ran = $this->configureMail("bad\nsecret");
+
+        $this->assertNotSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('mail_env=rejected', $ran['output']);
+        $this->assertStringNotContainsString('bad', $ran['output']);
+        $this->assertStringNotContainsString('secret', $ran['output']);
+        $this->assertFileDoesNotExist($ran['password_file']);
+
+        $values = Dotenv::parse((string) file_get_contents($ran['env']));
+        $this->assertSame('log', $values['MAIL_MAILER']);
+        $this->assertSame('keep-db', $values['DB_PASSWORD']);
+        $this->assertSame('main-site', (string) file_get_contents($ran['main']));
+    }
+
+    /**
+     * @return array{exit: int, output: string, env: string, password_file: string, main: string}
+     */
+    private function configureMail(?string $password): array
+    {
+        $home = sys_get_temp_dir().'/rw-mail-'.bin2hex(random_bytes(4));
+        $shared = $home.'/www/app.reserveworx.com/laravel/shared';
+        $main = $home.'/www/reserveworx.com/public_html';
+        mkdir($shared, 0777, true);
+        mkdir($main, 0777, true);
+        $env = $shared.'/.env';
+        $passwordFile = $shared.'/.mail-password';
+        file_put_contents($main.'/index.html', 'main-site');
+        file_put_contents($env, implode("\n", [
+            'APP_NAME="ReserveWorx"',
+            'MAIL_MAILER="log"',
+            'DB_PASSWORD="keep-db"',
+            'MAIL_PASSWORD="old-mail-secret"',
+        ])."\n");
+        if ($password !== null) {
+            file_put_contents($passwordFile, $password);
+        }
+
+        $script = base_path('scripts/remote-deploy.sh');
+        $command = 'export HOME='.escapeshellarg($home)
+            .' ACTION=deploy RW_DEPLOY_LIBRARY=1; source '.escapeshellarg($script)
+            .'; configure_production_mail';
+        $ran = $this->runShell($command);
+
+        return [
+            'exit' => $ran['exit'],
+            'output' => $ran['output'],
+            'env' => $env,
+            'password_file' => $passwordFile,
+            'main' => $main.'/index.html',
+        ];
     }
 
     /**

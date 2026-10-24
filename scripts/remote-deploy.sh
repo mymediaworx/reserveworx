@@ -59,6 +59,23 @@ mkdir -p \
   "${shared}/storage/logs" \
   "${shared}/storage/app/public"
 
+cleanup_mail_password_file() {
+  local password_file="${shared}/.mail-password"
+  case "$password_file" in
+    */www/app.reserveworx.com/laravel/shared/.mail-password) ;;
+    *)
+      return 0
+      ;;
+  esac
+  case "$password_file" in
+    *public_html*|*www/reserveworx.com/*)
+      return 0
+      ;;
+  esac
+  rm -f "$password_file" "${password_file}.tmp"
+}
+trap cleanup_mail_password_file EXIT
+
 find_php() {
   local candidate version major minor
   local candidates=()
@@ -131,6 +148,183 @@ drop_old_rollback() {
     echo "removed_old_rollback=${prev}"
   fi
   rm -f "$previous"
+}
+
+configure_production_mail() {
+  local env_file password_file php
+  env_file="${shared}/.env"
+  password_file="${shared}/.mail-password"
+  case "$env_file" in
+    */www/app.reserveworx.com/laravel/shared/.env) ;;
+    *)
+      echo "mail_env=rejected" >&2
+      return 1
+      ;;
+  esac
+  case "$env_file" in
+    *public_html*|*www/reserveworx.com/*)
+      echo "mail_env=rejected" >&2
+      return 1
+      ;;
+  esac
+  case "$password_file" in
+    */www/app.reserveworx.com/laravel/shared/.mail-password) ;;
+    *)
+      echo "mail_env=rejected" >&2
+      return 1
+      ;;
+  esac
+  case "$password_file" in
+    *public_html*|*www/reserveworx.com/*)
+      echo "mail_env=rejected" >&2
+      return 1
+      ;;
+  esac
+  if [[ ! -f "$env_file" ]]; then
+    echo "shared_env=missing" >&2
+    return 1
+  fi
+  php="${php_bin:-}"
+  if [[ -z "$php" ]]; then
+    php="$(find_php)" || {
+      echo "mail_env=php" >&2
+      return 1
+    }
+  fi
+  # The password file is read here and deleted. Nothing in this script prints it.
+  set +e
+  RW_ENV_FILE="$env_file" RW_MAIL_FILE="$password_file" "$php" << 'PHP'
+<?php
+
+$path = getenv('RW_ENV_FILE');
+$mailFile = getenv('RW_MAIL_FILE');
+if (! is_string($path) || ! is_string($mailFile)) {
+    fwrite(STDERR, "mail_env=rejected\n");
+    exit(1);
+}
+
+$real = realpath($path);
+if ($real === false || ! is_file($real)) {
+    fwrite(STDERR, "shared_env=missing\n");
+    exit(1);
+}
+
+$allowed = static function (string $candidate): bool {
+    if (str_contains($candidate, 'public_html')) {
+        return false;
+    }
+    if (! preg_match('#/www/app\.reserveworx\.com/laravel/shared/(?:\.env|\.mail-password)$#', $candidate)) {
+        return false;
+    }
+    if (preg_match('#/www/reserveworx\.com(/|$)#', $candidate)) {
+        return false;
+    }
+
+    return true;
+};
+
+$mailReal = $mailFile;
+if (file_exists($mailFile)) {
+    $resolved = realpath($mailFile);
+    if ($resolved === false) {
+        fwrite(STDERR, "mail_env=rejected\n");
+        exit(1);
+    }
+    $mailReal = $resolved;
+}
+
+if (! $allowed($real) || ! $allowed($mailReal)) {
+    fwrite(STDERR, "mail_env=rejected\n");
+    exit(1);
+}
+
+$password = '';
+if (is_file($mailFile)) {
+    $raw = file_get_contents($mailFile);
+    if ($raw === false) {
+        fwrite(STDERR, "mail_env=unreadable\n");
+        exit(1);
+    }
+    $password = $raw;
+    if (! unlink($mailFile)) {
+        fwrite(STDERR, "mail_env=cleanup\n");
+        exit(1);
+    }
+}
+
+$password = rtrim($password, "\r\n");
+if (str_contains($password, "\0") || str_contains($password, "\n") || str_contains($password, "\r")) {
+    fwrite(STDERR, "mail_env=rejected\n");
+    exit(1);
+}
+
+$configured = $password !== '';
+$updates = $configured ? [
+    'MAIL_MAILER' => 'smtp',
+    'MAIL_HOST' => 'mail.reserveworx.com',
+    'MAIL_PORT' => '465',
+    'MAIL_SCHEME' => 'smtps',
+    'MAIL_USERNAME' => 'noreply@reserveworx.com',
+    'MAIL_FROM_ADDRESS' => 'noreply@reserveworx.com',
+    'MAIL_FROM_NAME' => 'ReserveWorx',
+    'MAIL_PASSWORD' => $password,
+] : [
+    'MAIL_MAILER' => 'log',
+];
+
+$quote = static function (string $value): string {
+    // phpdotenv double quotes: \\ \" and \$ are literal. Other backslash escapes are rejected.
+    $value = str_replace(['\\', '"', '$'], ['\\\\', '\\"', '\\$'], $value);
+
+    return '"'.$value.'"';
+};
+
+$contents = file_get_contents($real);
+if ($contents === false) {
+    fwrite(STDERR, "mail_env=unreadable\n");
+    exit(1);
+}
+
+$lines = preg_split("/\r\n|\n|\r/", $contents);
+if ($lines === false) {
+    fwrite(STDERR, "mail_env=unreadable\n");
+    exit(1);
+}
+
+$seen = [];
+$out = [];
+foreach ($lines as $line) {
+    if (preg_match('/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/', $line, $matches) === 1
+        && array_key_exists($matches[1], $updates)) {
+        $key = $matches[1];
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $out[] = $key.'='.$quote($updates[$key]);
+        continue;
+    }
+    $out[] = $line;
+}
+if ($out !== [] && $out[count($out) - 1] === '') {
+    array_pop($out);
+}
+foreach ($updates as $key => $value) {
+    if (! isset($seen[$key])) {
+        $out[] = $key.'='.$quote($value);
+    }
+}
+
+if (file_put_contents($real, implode("\n", $out)."\n", LOCK_EX) === false) {
+    fwrite(STDERR, "mail_env=unwritable\n");
+    exit(1);
+}
+chmod($real, 0600);
+fwrite(STDOUT, $configured ? "mail_configured=yes\n" : "mail_configured=no\n");
+PHP
+  local status=$?
+  set -e
+  return "$status"
 }
 
 link_shared() {
@@ -780,6 +974,12 @@ if [[ ! -f "${shared}/.env" ]]; then
   echo "shared_env=missing"
   echo "document_root=not changed. Create ${shared}/.env from .env.example before the document root is switched." >&2
   rm -f "$archive"
+  exit 1
+fi
+
+if ! configure_production_mail; then
+  rm -f "$archive"
+  echo "Mail settings were not written. Document root was not changed." >&2
   exit 1
 fi
 

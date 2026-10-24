@@ -42,6 +42,8 @@ $values = [
     'QUEUE_CONNECTION' => 'database',
     'QUEUE_WORK_MAX_TIME' => '20',
     'CACHE_STORE' => 'database',
+    // Deploy refreshes SMTP from the MAIL_PASSWORD secret. This full rewrite
+    // stays on the log mailer so a bootstrap without that secret cannot send.
     'MAIL_MAILER' => 'log',
     'PLATFORM_DOMAINS' => 'app.reserveworx.com',
 ];
