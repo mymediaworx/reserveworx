@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Activate a release for app.reserveworx.com only, or roll back to the one
-# previous release. Migrations run only for action=deploy when
+# Activate a release for app.reserveworx.com, or roll back to the one
+# previous release. When www/harbor.reserveworx.com/public_html already
+# exists as a real directory, a deploy also writes that site's index.php
+# so it boots app.reserveworx.com/laravel/current. It never creates a site
+# and never writes under www/reserveworx.com. Migrations run only for action=deploy when
 # RUN_MIGRATIONS=true, shared .env exists, and this run already wrote a
 # verified gzip under laravel/shared/backups. The dump is checked before the
 # previous release directory is removed and before the document root changes.
@@ -499,6 +502,111 @@ try {
   rm -f "$list"
 }
 
+harbor_docroot_verified() {
+  local doc resolved list name
+  doc="${HOME}/www/harbor.reserveworx.com/public_html"
+  if [[ ! -d "$doc" || -L "$doc" ]]; then
+    echo "harbor_docroot=missing" >&2
+    echo "Expected a real directory at ${doc}. No site was created and reserveworx.com was not touched." >&2
+    if [[ -d "${HOME}/www" ]]; then
+      list="$(mktemp)"
+      find "${HOME}/www" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort > "$list"
+      echo "www_entries_begin" >&2
+      while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        echo "www_entry=${name}" >&2
+      done < "$list"
+      echo "www_entries_end" >&2
+      rm -f "$list"
+    fi
+    return 1
+  fi
+  resolved="$(readlink -f "$doc")"
+  case "$resolved" in
+    */www/harbor.reserveworx.com/public_html) ;;
+    *)
+      echo "harbor_docroot=rejected resolved=${resolved}" >&2
+      return 1
+      ;;
+  esac
+  case "$resolved" in
+    *www/reserveworx.com*)
+      echo "harbor_docroot=rejected because it is under reserveworx.com" >&2
+      return 1
+      ;;
+  esac
+  echo "harbor_docroot=${resolved}"
+}
+
+install_harbor_front_controller() {
+  local doc boot htaccess
+  doc="$(harbor_docroot_verified | sed -n 's/^harbor_docroot=//p' | tail -n 1)"
+  if [[ -z "$doc" ]]; then
+    return 1
+  fi
+  boot="${domain}/laravel/current"
+  case "$boot" in
+    */www/app.reserveworx.com/laravel/current) ;;
+    *)
+      echo "harbor_front_controller=rejected" >&2
+      return 1
+      ;;
+  esac
+  cat > "${doc}/index.php" << EOF
+<?php
+
+use Illuminate\\Foundation\\Application;
+use Illuminate\\Http\\Request;
+
+define('LARAVEL_START', microtime(true));
+
+\$root = '${boot}';
+
+if (file_exists(\$maintenance = \$root.'/storage/framework/maintenance.php')) {
+    require \$maintenance;
+}
+
+require \$root.'/vendor/autoload.php';
+
+/** @var Application \$app */
+\$app = require_once \$root.'/bootstrap/app.php';
+
+\$app->handleRequest(Request::capture());
+EOF
+  htaccess="${docroot}/.htaccess"
+  if [[ ! -f "$htaccess" ]]; then
+    htaccess="$(readlink -f "$current")/public/.htaccess"
+  fi
+  if [[ -f "$htaccess" ]]; then
+    cp "$htaccess" "${doc}/.htaccess"
+    chmod 644 "${doc}/.htaccess"
+  fi
+  chmod 644 "${doc}/index.php"
+  if ! grep -q "$boot" "${doc}/index.php"; then
+    echo "harbor_front_controller=missing boot path" >&2
+    return 1
+  fi
+  echo "harbor_front_controller=absolute ${boot}"
+}
+
+harbor_login_check() {
+  local body code
+  body="$(mktemp)"
+  code="$(curl -sS -o "$body" --max-time 20 -w '%{http_code}' \
+    -H "Cache-Control: no-cache" \
+    -H "Cookie: wpSGCacheBypass=1" \
+    "https://harbor.reserveworx.com/staff/login" || true)"
+  echo "harbor_login_http=${code:-none}"
+  if [[ "$code" == "200" ]] && grep -q "Team sign in" "$body"; then
+    echo "harbor_login=ok"
+    rm -f "$body"
+    return 0
+  fi
+  echo "harbor_login=failed" >&2
+  rm -f "$body"
+  return 1
+}
+
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
   return 0
 fi
@@ -578,6 +686,12 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   fi
 fi
 
+if ! harbor_docroot_verified >/dev/null; then
+  rm -f "$archive"
+  echo "Harbor document root was not verified. Migrations were not run. Document root was not changed." >&2
+  exit 1
+fi
+
 drop_old_rollback
 
 target="${releases}/${RELEASE}"
@@ -624,6 +738,9 @@ echo "caches=written"
 switch_docroot
 purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
 health_check
+install_harbor_front_controller
+(cd "$current" && "$php_bin" artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com --no-interaction)
+harbor_login_check
 echo "deploy=complete"
 echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
 echo "cron_command_body=<not installed by this script>"
