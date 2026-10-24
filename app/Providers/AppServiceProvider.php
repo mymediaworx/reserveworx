@@ -46,5 +46,34 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('widget', function (Request $request): Limit {
             return Limit::perMinute(30)->by((string) $request->ip());
         });
+
+        RateLimiter::for('availability', function (Request $request): Limit {
+            return Limit::perMinute(self::ratePerMinute('reserveworx.availability_rate_per_minute', 60))
+                ->by(self::rateLimitKey($request));
+        });
+
+        RateLimiter::for('checkout', function (Request $request): Limit {
+            return Limit::perMinute(self::ratePerMinute('reserveworx.checkout_rate_per_minute', 10))
+                ->by(self::rateLimitKey($request));
+        });
+    }
+
+    private static function ratePerMinute(string $key, int $default): int
+    {
+        $value = config($key, $default);
+
+        if (! is_int($value) && ! is_string($value) && ! is_float($value)) {
+            return $default;
+        }
+
+        return max(1, (int) $value);
+    }
+
+    private static function rateLimitKey(Request $request): string
+    {
+        $user = $request->user();
+        $id = $user !== null ? (string) $user->getAuthIdentifier() : 'guest';
+
+        return $id.'|'.$request->ip();
     }
 }

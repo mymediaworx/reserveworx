@@ -92,7 +92,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/services/{service}/durations', [ServiceController::class, 'storeDuration']);
             Route::post('/services/{service}/prices', [PricingController::class, 'storeRule']);
             Route::post('/promo-codes', [PricingController::class, 'storePromo']);
-            Route::get('/availability', [AvailabilityController::class, 'show']);
+            Route::get('/availability', [AvailabilityController::class, 'show'])->middleware('throttle:availability');
             Route::get('/calendar', [BookingController::class, 'calendar']);
             Route::get('/departures', [DepartureController::class, 'index']);
             Route::post('/departures', [DepartureController::class, 'store']);
@@ -113,7 +113,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
             Route::post('/bookings/{booking}/no-show', [BookingController::class, 'noShow']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);
-            Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout']);
+            Route::post('/bookings/{booking}/checkout', [BookingController::class, 'checkout'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/return', [BookingController::class, 'returnRental']);
             Route::post('/bookings/{booking}/incidents', [OperationsController::class, 'storeIncident']);
             Route::get('/bookings/{booking}/incidents', [OperationsController::class, 'indexIncidents']);
@@ -126,7 +126,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/notification-hooks', [NotificationHookController::class, 'index']);
             Route::post('/waiver-versions', [OperationsController::class, 'storeWaiver']);
             Route::post('/bookings/{booking}/pricing', [PricingController::class, 'priceBooking']);
-            Route::post('/bookings/{booking}/checkout-session', [PaymentController::class, 'checkout']);
+            Route::post('/bookings/{booking}/checkout-session', [PaymentController::class, 'checkout'])->middleware('throttle:checkout');
             Route::post('/bookings/{booking}/offline-payment', [PaymentController::class, 'offline']);
             Route::post('/bookings/{booking}/refunds', [RefundController::class, 'store']);
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
