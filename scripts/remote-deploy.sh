@@ -196,6 +196,15 @@ configure_production_mail() {
   RW_ENV_FILE="$env_file" RW_MAIL_FILE="$password_file" "$php" << 'PHP'
 <?php
 
+// STDIN is the script when php reads it from a pipe, so STDOUT and STDERR
+// are not defined. Open the streams directly.
+if (! defined('STDOUT')) {
+    define('STDOUT', fopen('php://stdout', 'wb'));
+}
+if (! defined('STDERR')) {
+    define('STDERR', fopen('php://stderr', 'wb'));
+}
+
 $path = getenv('RW_ENV_FILE');
 $mailFile = getenv('RW_MAIL_FILE');
 if (! is_string($path) || ! is_string($mailFile)) {
