@@ -7,6 +7,33 @@
 <div class="schedule-lane" style="--days: {{ count($days) }}; --lanes: {{ $row['lanes'] }}">
     @foreach ($days as $day)
         <div @class(['schedule-daylane', 'is-today' => $day['today']]) data-date="{{ $day['date'] }}" data-minutes="{{ $day['minutes'] }}">
+            @if (($canBook ?? false) && ! str_starts_with($row['key'], 'location:'))
+                @if ($view === 'day')
+                    @foreach ($day['hours'] as $hour)
+                        <button
+                            type="button"
+                            class="schedule-slot"
+                            wire:click="openSlot('{{ $row['key'] }}', '{{ $day['date'] }}', '{{ $hour['start'] }}')"
+                            style="left: {{ $hour['left'] }}%; width: {{ $hour['width'] }}%"
+                            data-resource="{{ $row['key'] }}"
+                            data-date="{{ $day['date'] }}"
+                            data-start="{{ $hour['start'] }}"
+                            aria-label="New booking, {{ $row['name'] }}, {{ $day['date'] }} {{ $hour['label'] }}"
+                        ></button>
+                    @endforeach
+                @else
+                    <button
+                        type="button"
+                        class="schedule-slot"
+                        wire:click="openSlot('{{ $row['key'] }}', '{{ $day['date'] }}', '09:00')"
+                        style="left: 0%; width: 100%"
+                        data-resource="{{ $row['key'] }}"
+                        data-date="{{ $day['date'] }}"
+                        data-start="09:00"
+                        aria-label="New booking, {{ $row['name'] }}, {{ $day['date'] }}"
+                    ></button>
+                @endif
+            @endif
             @foreach ($row['cells'][$day['date']]['blocks'] as $block)
                 <button
                     type="button"

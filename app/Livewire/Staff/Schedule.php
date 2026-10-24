@@ -5,6 +5,7 @@ namespace App\Livewire\Staff;
 use App\Enums\BookingStatus;
 use App\Enums\ResourceStatus;
 use App\Livewire\Concerns\WithinTenant;
+use App\Livewire\Staff\Concerns\BooksFromSchedule;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
@@ -29,6 +30,7 @@ use Livewire\Component;
 #[Title('Schedule')]
 class Schedule extends Component
 {
+    use BooksFromSchedule;
     use WithinTenant;
 
     #[Url]
@@ -91,6 +93,7 @@ class Schedule extends Component
 
     public function openMove(string $bookingId, string $row): void
     {
+        $this->closeBooking();
         $this->reset('flash', 'problem', 'suggestedTimes', 'suggestedAssets');
         $booking = $this->booking($bookingId);
         $this->authorize('view', $booking);
@@ -252,6 +255,8 @@ class Schedule extends Component
             'categories' => ResourceCategory::query()->orderBy('name')->get(['id', 'name']),
             'todayDate' => CarbonImmutable::now($zone)->toDateString(),
             'move' => $this->movePanel(),
+            'canBook' => $this->allows('bookings.manage'),
+            'booking' => $this->bookingPanel(),
         ]);
     }
 

@@ -9,6 +9,9 @@
                     {{ $first->format('M j') }} – {{ $last->format('M j, Y') }}
                 @endif
                 <span class="muted">Times are local to each location. Shaded edges are buffers.</span>
+                @if ($canBook)
+                    <span class="muted">{{ $view === 'day' ? 'Tap an empty hour on a boat or pool to start a booking.' : 'Tap a day on a boat or pool, then pick the start.' }}</span>
+                @endif
             </p>
         </div>
         <div class="toolbar">
@@ -109,6 +112,8 @@
             @endif
         </section>
     @endif
+
+    @include('livewire.staff.partials.schedule-booking')
 
     @if ($board['locations'] === [])
         <p class="empty">{{ $location !== '' ? 'That location is not in this workspace.' : 'Add a location to build the schedule.' }}</p>

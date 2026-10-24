@@ -1470,6 +1470,18 @@ class Allocator
 
     private function customerId(AllocationIntent $intent): ?string
     {
+        $chosen = $this->presentId($intent->customerId);
+
+        if ($chosen !== null) {
+            $customer = Customer::query()->whereNull('anonymized_at')->find($chosen);
+
+            if (! $customer instanceof Customer) {
+                throw new AllocationUnavailableException('That customer is not in this workspace.');
+            }
+
+            return $customer->id;
+        }
+
         if (($intent->customerName === null || $intent->customerName === '') && ($intent->customerEmail === null || $intent->customerEmail === '')) {
             return null;
         }

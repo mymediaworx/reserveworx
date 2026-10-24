@@ -607,9 +607,17 @@ final class ResourceSchedule
             for ($guard = 0; $guard < 30 && $cursor < $end; $guard++) {
                 $hours[] = [
                     'label' => $cursor->format('ga'),
+                    'start' => $cursor->format('H:i'),
                     'left' => $this->percent($this->minutes($start, $cursor), $minutes),
                 ];
                 $cursor = $cursor->addHour();
+            }
+
+            $lastHour = count($hours) - 1;
+
+            foreach ($hours as $hourIndex => $hour) {
+                $next = $hourIndex === $lastHour ? 100.0 : (float) $hours[$hourIndex + 1]['left'];
+                $hours[$hourIndex]['width'] = number_format($next - (float) $hour['left'], 3, '.', '');
             }
 
             $days[] = [

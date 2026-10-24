@@ -752,13 +752,36 @@ button.schedule-block {
     background: transparent;
 }
 button.schedule-block:focus-visible,
-.move-panel:focus { outline: 3px solid var(--brand); outline-offset: 2px; }
+.move-panel:focus,
+.schedule-slot:focus-visible,
+.schedule-booking:focus { outline: 3px solid var(--brand); outline-offset: 2px; }
 .move-panel { max-width: 100%; min-width: 0; margin: 0 0 1rem; }
+.schedule-booking { max-width: 100%; min-width: 0; margin: 0 0 1rem; }
 .move-suggestions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.schedule-slot {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    z-index: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-height: 2.75rem;
+    background: transparent;
+    cursor: pointer;
+}
+.schedule-slot:hover { background: color-mix(in srgb, var(--brand) 12%, transparent); }
+.choice-picks { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.hour-picks { display: flex; flex-wrap: nowrap; gap: 0.5rem; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.25rem; }
+.choice-pick, .hour-pick { min-height: 2.75rem; }
 @media (max-width: 420px) {
     .move-panel .stack > .button,
     .move-suggestions .button { width: 100%; justify-self: stretch; white-space: normal; text-align: center; }
     .move-suggestions { display: grid; }
+    .schedule-grid:not(.is-week) { min-width: 74.75rem; }
+    .schedule-booking .stack > .button,
+    .schedule-booking .choice-pick,
+    .schedule-booking .actions .button { width: 100%; justify-self: stretch; white-space: normal; text-align: center; }
 }
 .schedule-block.is-booking { background: var(--brand-soft); color: var(--brand-soft-ink); }
 .schedule-block.is-hold { background: var(--accent-soft); color: var(--accent-soft-ink); }
