@@ -44,6 +44,99 @@ final class PricingEngine
             throw new InvalidArgumentException('A deposit percent must be between 1 and 100.');
         }
 
+        [$services, $discount, $tax] = $this->components(
+            $rules,
+            $participants,
+            $durationMinutes,
+            $on,
+            $taxBasisPoints,
+            $percentOff,
+            $amountOffCents,
+        );
+        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, discountsCents: $discount), $tax);
+        $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
+
+        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode);
+    }
+
+    /**
+     * Price the booking as it stands and charge only the amount above the quoted snapshot.
+     *
+     * The fixed amount and the minimum were collected on the first payment, so
+     * the increase uses the percentage alone.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     */
+    public function increaseFromQuote(
+        FeeChannel $channel,
+        FeeRate $rate,
+        FeePayer $payer,
+        array $rules,
+        int $participants,
+        int $durationMinutes,
+        CarbonImmutable $on,
+        int $taxBasisPoints,
+        ?int $percentOff,
+        ?int $amountOffCents,
+        int $quotedServicesCents,
+        int $quotedDiscountCents,
+        int $quotedTaxCents,
+    ): PriceIncrease {
+        [$services, $discount, $tax] = $this->components(
+            $rules,
+            $participants,
+            $durationMinutes,
+            $on,
+            $taxBasisPoints,
+            $percentOff,
+            $amountOffCents,
+        );
+        $servicesDelta = $services - $quotedServicesCents;
+        $discountDelta = $discount - $quotedDiscountCents;
+        $basisDelta = $servicesDelta - $discountDelta;
+        $taxDelta = $tax - $quotedTaxCents;
+
+        if ($basisDelta <= 0) {
+            throw new InvalidArgumentException('This booking has no price increase.');
+        }
+
+        if ($taxDelta < 0) {
+            $taxDelta = 0;
+        }
+
+        $increase = $this->fees->quoteIncrease($channel, $rate, $payer, new FeeBasis($basisDelta), $taxDelta);
+
+        return new PriceIncrease(
+            $servicesDelta,
+            $discountDelta,
+            $basisDelta,
+            $taxDelta,
+            $increase,
+            $this->fees->priceIncreaseStripePayment($increase),
+        );
+    }
+
+    /**
+     * @param  list<PriceRuleInput>  $rules
+     * @return array{0: int, 1: int, 2: int}
+     */
+    private function components(
+        array $rules,
+        int $participants,
+        int $durationMinutes,
+        CarbonImmutable $on,
+        int $taxBasisPoints,
+        ?int $percentOff,
+        ?int $amountOffCents,
+    ): array {
+        if ($participants < 1) {
+            throw new InvalidArgumentException('A party needs at least one person.');
+        }
+
+        if ($taxBasisPoints < 0 || $taxBasisPoints > 10_000) {
+            throw new InvalidArgumentException('Tax basis points must be between 0 and 10000.');
+        }
+
         $services = 0;
         $matched = false;
 
@@ -71,11 +164,7 @@ final class PricingEngine
         }
 
         $discount = min($discount, $services);
-        $taxable = $services - $discount;
-        $tax = Rounding::basisPointsOf($taxable, $taxBasisPoints);
-        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis($services, discountsCents: $discount), $tax);
-        $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
-        return new PricedBooking($services, $discount, $tax, $quote, $this->fees->firstStripePayment($quote, $requested), $promoCode);
+        return [$services, $discount, Rounding::basisPointsOf($services - $discount, $taxBasisPoints)];
     }
 }

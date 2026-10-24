@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A confirmed booking that moves onto a higher price can be charged the difference. `POST /api/v1/bookings/{booking}/increase-checkout` adds a booking fee only on that increase. The original fee stays on the first payment.
 - A deposit leaves the booking `deposit_paid`. `POST /api/v1/bookings/{booking}/balance-checkout` charges the remaining customer total with no booking fee. The paid webhook marks the booking paid once the captured payments cover that total, and it does not record a second platform fee.
 - The public booking confirmation heading wraps a long booking reference so a 390px-wide page does not scroll sideways.
 - The SiteGround SSH wrapper also retries when the server closes the connection before the remote command prints anything.

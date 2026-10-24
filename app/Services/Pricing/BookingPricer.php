@@ -89,12 +89,19 @@ final class BookingPricer
             $depositPercent,
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
+        $payload = $priced->toSnapshot();
+        $payload['tax_basis_points'] = $taxBasisPoints;
+        $payload['priced_participants'] = $booking->participants;
+        $payload['priced_duration_minutes'] = $duration;
+        $payload['priced_on'] = $on->toDateString();
+        $payload['promo_percent_off'] = $percent;
+        $payload['promo_amount_off_cents'] = $amount;
 
         return PricingSnapshot::query()->create([
             'tenant_id' => $tenant->id,
             'booking_id' => $booking->id,
             'currency' => $setting instanceof TenantSetting ? $setting->currency : 'USD',
-            'payload' => $priced->toSnapshot(),
+            'payload' => $payload,
             'rules_version' => FeeCalculator::RULES_VERSION,
             'disclosure_version_id' => $disclosure?->id,
         ]);
