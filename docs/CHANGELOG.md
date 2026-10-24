@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- The public booking confirmation heading wraps a long booking reference so a 390px-wide page does not scroll sideways.
 - The SiteGround SSH wrapper also retries when the server closes the connection before the remote command prints anything.
 - A workspace can offer Pay at pickup on the public booking review page. The demo shops have it on. That payment is recorded offline and does not include the online booking fee.
 - Team sign-in and platform sign-in include a password reset. The emailed link expires in 60 minutes. An unknown or ineligible address gets the same reply as an address that can sign in. A deploy prints whether mail can leave the server and does not send a message.
