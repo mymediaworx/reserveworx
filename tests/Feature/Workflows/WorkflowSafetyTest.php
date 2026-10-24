@@ -110,6 +110,68 @@ class WorkflowSafetyTest extends TestCase
         $this->assertStringContainsString('Upload release archive', $deploy);
         $this->assertStringContainsString('Activate release', $deploy);
         $this->assertStringContainsString('SSH handshakes opened:', $deploy);
+        $activate = strpos($deploy, "name: Activate release\n");
+        $hosting = strpos($deploy, "name: Hosting check\n");
+        $this->assertNotFalse($activate);
+        $this->assertNotFalse($hosting);
+        $this->assertLessThan($hosting, $activate);
+        $this->assertStringContainsString('scripts/hosting-check-artisan.sh', $deploy);
+        $this->assertStringContainsString('if [[ "$status" -ne 0 || "$ACTION" != "deploy" ]]; then', $deploy);
+        $this->assertStringNotContainsString('ssh_connect_retry', $deploy);
+
+        $wrapper = (string) file_get_contents(base_path('scripts/hosting-check-artisan.sh'));
+        $this->assertStringContainsString('RW_DEPLOY_LIBRARY=1', $wrapper);
+        $this->assertStringContainsString('reserveworx:hosting-check --no-interaction', $wrapper);
+        $this->assertStringContainsString('find_php', $wrapper);
+        $this->assertStringContainsString('www/app.reserveworx.com/laravel/current', $wrapper);
+        $this->assertStringNotContainsString('ssh_connect_retry', $wrapper);
+        $this->assertStringNotContainsString('www/reserveworx.com', $wrapper);
+
+        $workflows = glob(base_path('.github/workflows/*'));
+        $this->assertIsArray($workflows);
+        $names = array_map('basename', $workflows);
+        sort($names);
+        $this->assertSame(['ci.yml', 'deploy.yml', 'hosting-check.yml'], $names);
+    }
+
+    public function test_the_hosting_check_runs_on_the_active_release_without_printing_secrets(): void
+    {
+        $home = sys_get_temp_dir().'/rw-hosting-'.bin2hex(random_bytes(4));
+        $bin = $home.'/bin';
+        $current = $home.'/www/app.reserveworx.com/laravel/current';
+        $main = $home.'/www/reserveworx.com/public_html';
+        mkdir($bin, 0777, true);
+        mkdir($current.'/scripts', 0777, true);
+        mkdir($main, 0777, true);
+        copy(base_path('scripts/remote-deploy.sh'), $current.'/scripts/remote-deploy.sh');
+        file_put_contents($main.'/index.html', 'main-site');
+        file_put_contents($bin.'/php', <<<'BASH'
+#!/bin/bash
+if [[ "${1:-}" == "-r" ]]; then
+  printf '8.2'
+  exit 0
+fi
+if [[ "${1:-}" == "artisan" && "${2:-}" == "reserveworx:hosting-check" && "${3:-}" == "--no-interaction" ]]; then
+  printf 'hosting_check_invoked=yes\n'
+  exit 0
+fi
+printf 'unexpected php invocation\n' >&2
+exit 1
+BASH);
+        chmod($bin.'/php', 0755);
+
+        $secret = 'rw-hosting-wrapper-secret';
+        $command = 'export HOME='.escapeshellarg($home)
+            .' PATH='.escapeshellarg($bin.':/usr/bin:/bin')
+            .' SG_SSH_KEY='.escapeshellarg($secret)
+            .' DB_PASSWORD='.escapeshellarg($secret)
+            .'; bash '.escapeshellarg(base_path('scripts/hosting-check-artisan.sh'));
+        $ran = $this->runShell($command);
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('hosting_check_invoked=yes', $ran['output']);
+        $this->assertStringNotContainsString($secret, $ran['output']);
+        $this->assertSame('main-site', (string) file_get_contents($main.'/index.html'));
     }
 
     public function test_backup_action_writes_a_private_gzip_and_rejects_an_empty_stream(): void
