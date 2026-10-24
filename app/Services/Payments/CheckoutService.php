@@ -2,22 +2,33 @@
 
 namespace App\Services\Payments;
 
+use App\Domain\Fees\FeeChannel;
+use App\Domain\Fees\FeeExceedsChargeException;
+use App\Domain\Fees\FeeRate;
 use App\Domain\Fees\PaymentKind;
 use App\Domain\Payments\CheckoutSessionSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
+use App\Domain\Pricing\PriceIncrease;
+use App\Domain\Pricing\PriceRuleInput;
+use App\Domain\Pricing\PricingEngine;
 use App\Enums\BookingStatus;
+use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
 use App\Models\Booking;
 use App\Models\Payment;
+use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\StripeAccount;
+use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Notifications\BookingEvents;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 
 final class CheckoutService
 {
@@ -25,6 +36,7 @@ final class CheckoutService
         private readonly StripeGateway $stripe,
         private readonly Allocator $allocator,
         private readonly BookingEvents $events,
+        private readonly PricingEngine $pricing,
     ) {}
 
     /**
@@ -176,6 +188,109 @@ final class CheckoutService
         return ['payment' => $payment, 'url' => $session['url']];
     }
 
+    /**
+     * A later Stripe payment for a price increase. Spec 7.4: the fee is the percentage on the increase only.
+     *
+     * @return array{payment: Payment, url: string|null}
+     */
+    public function startIncreaseCheckout(Booking $booking, string $successUrl, string $cancelUrl, ?string $idempotencyKey = null): array
+    {
+        $hash = $this->payloadHash('increase', $booking->id, $successUrl, $cancelUrl);
+        $existing = $this->storedPayment($idempotencyKey, $hash);
+
+        if ($existing instanceof Payment) {
+            return ['payment' => $existing, 'url' => null];
+        }
+
+        $booking->loadMissing(['service', 'location']);
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
+
+        if (! $snapshot instanceof PricingSnapshot) {
+            throw new AllocationUnavailableException('Price this booking before taking payment.');
+        }
+
+        if ($booking->status !== BookingStatus::Confirmed) {
+            throw new AllocationUnavailableException('Only a confirmed booking can be charged for a price increase.');
+        }
+
+        if (! in_array($booking->payment_status, [PaymentStatus::DepositPaid, PaymentStatus::Paid], true)) {
+            throw new AllocationUnavailableException('Pay this booking before charging a price increase.');
+        }
+
+        $payload = $snapshot->payload;
+        $increase = $this->priceIncrease($booking, $payload);
+        $open = Payment::query()
+            ->where('booking_id', $booking->id)
+            ->where('kind', PaymentKind::PriceIncreaseStripePayment->value)
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($open) {
+            throw new AllocationUnavailableException('A price increase checkout is already open.');
+        }
+
+        $account = StripeAccount::query()->where('tenant_id', $booking->tenant_id)->first();
+
+        if (! $account instanceof StripeAccount || ! $account->canCharge()) {
+            throw new AllocationUnavailableException('Online payments are not enabled for this workspace.');
+        }
+
+        $charge = $increase->payment->chargeCents;
+        $fee = $increase->payment->applicationFeeCents;
+        $serviceName = $booking->service->name ?? 'Booking';
+        $identifier = 'reserveworx_'.Str::lower(Str::random(8));
+        $params = CheckoutSessionSpec::directCharge(
+            $booking->tenant_id,
+            $booking->id,
+            $serviceName.' increase',
+            $snapshot->currency,
+            $charge,
+            $fee > 0 ? $fee : null,
+            $successUrl,
+            $cancelUrl,
+            $identifier,
+        );
+
+        try {
+            $session = $this->stripe->createDirectCheckoutSession($account->stripe_account_id, $params);
+        } catch (StripeNotConfiguredException $exception) {
+            throw new AllocationUnavailableException($exception->getMessage());
+        }
+
+        $payment = $this->createPayment([
+            'tenant_id' => $booking->tenant_id,
+            'booking_id' => $booking->id,
+            'method' => 'stripe',
+            'kind' => PaymentKind::PriceIncreaseStripePayment->value,
+            'status' => 'pending',
+            'amount_cents' => $charge,
+            'fee_cents' => $fee,
+            'stripe_checkout_session_id' => $session['id'],
+        ], $idempotencyKey, $hash);
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '' && ! $payment->wasRecentlyCreated) {
+            return ['payment' => $payment, 'url' => null];
+        }
+
+        $payload['pending_increase'] = [
+            'payment_id' => $payment->id,
+            'services_delta_cents' => $increase->servicesDeltaCents,
+            'discount_delta_cents' => $increase->discountDeltaCents,
+            'basis_cents' => $increase->basisCents,
+            'tax_cents' => $increase->taxCents,
+            'fee_cents' => $fee,
+            'customer_fee_line_cents' => $increase->quote->customerFeeLineCents(),
+            'charge_cents' => $charge,
+            'priced_participants' => $booking->participants,
+            'priced_duration_minutes' => $this->durationMinutes($booking),
+            'priced_on' => $this->pricedOn($booking),
+        ];
+        $snapshot->payload = $payload;
+        $snapshot->save();
+
+        return ['payment' => $payment, 'url' => $session['url']];
+    }
+
     public function recordOffline(Booking $booking, ?string $idempotencyKey = null): Payment
     {
         $hash = $this->payloadHash('offline', $booking->id);
@@ -251,6 +366,111 @@ final class CheckoutService
             ->where('booking_id', $booking->id)
             ->where('status', 'paid')
             ->sum('amount_cents');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function priceIncrease(Booking $booking, array $payload): PriceIncrease
+    {
+        $duration = $this->durationMinutes($booking);
+        $onDate = $this->pricedOn($booking);
+        $storedOn = $payload['priced_on'] ?? null;
+        $storedDuration = $payload['priced_duration_minutes'] ?? null;
+        $storedParticipants = $payload['priced_participants'] ?? null;
+        $scheduleKnown = is_string($storedOn) && $storedOn !== ''
+            && is_numeric($storedDuration)
+            && is_numeric($storedParticipants);
+
+        if ($scheduleKnown
+            && $storedOn === $onDate
+            && (int) $storedDuration === $duration
+            && (int) $storedParticipants === $booking->participants) {
+            throw new AllocationUnavailableException('This booking has no price increase.');
+        }
+
+        $channelValue = $payload['channel'] ?? FeeChannel::Direct->value;
+        $channel = is_string($channelValue) ? (FeeChannel::tryFrom($channelValue) ?? FeeChannel::Direct) : FeeChannel::Direct;
+        $payerValue = $payload['fee_payer'] ?? FeePayer::CustomerPaid->value;
+        $payer = is_string($payerValue) ? (FeePayer::tryFrom($payerValue) ?? FeePayer::CustomerPaid) : FeePayer::CustomerPaid;
+        $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
+        $rate = $setting instanceof TenantSetting
+            ? FeeRate::fromTenantSetting($setting, $channel)
+            : FeeRate::defaultFor($channel);
+        $rules = PriceRule::query()->where('service_id', $booking->service_id)->get()->map(function (PriceRule $rule): PriceRuleInput {
+            return new PriceRuleInput(
+                $rule->kind,
+                $rule->amount_cents,
+                $rule->window,
+                $rule->duration_minutes,
+                $rule->starts_on?->toDateString(),
+                $rule->ends_on?->toDateString(),
+            );
+        })->all();
+        $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
+        $on = CarbonImmutable::parse($onDate, $zone);
+
+        try {
+            return $this->pricing->increaseFromQuote(
+                $channel,
+                $rate,
+                $payer,
+                $rules,
+                $booking->participants,
+                $duration,
+                $on,
+                $this->cents($payload, 'tax_basis_points'),
+                $this->optionalInt($payload, 'promo_percent_off'),
+                $this->optionalInt($payload, 'promo_amount_off_cents'),
+                $this->cents($payload, 'services_cents'),
+                $this->cents($payload, 'discount_cents'),
+                $this->cents($payload, 'tax_cents'),
+            );
+        } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
+            throw new AllocationUnavailableException($exception->getMessage());
+        }
+    }
+
+    private function durationMinutes(Booking $booking): int
+    {
+        $seconds = CarbonImmutable::instance($booking->ends_at)->utc()->getTimestamp()
+            - CarbonImmutable::instance($booking->starts_at)->utc()->getTimestamp();
+        $duration = intdiv($seconds, 60);
+
+        if ($duration < 1) {
+            throw new AllocationUnavailableException('Choose a valid interval.');
+        }
+
+        return $duration;
+    }
+
+    private function pricedOn(Booking $booking): string
+    {
+        $zone = $booking->location !== null ? $booking->location->timezone : 'UTC';
+
+        return CarbonImmutable::instance($booking->starts_at)->timezone($zone)->toDateString();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function cents(array $payload, string $key): int
+    {
+        $value = $payload[$key] ?? 0;
+
+        return is_numeric($value) ? (int) $value : 0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function optionalInt(array $payload, string $key): ?int
+    {
+        if (! array_key_exists($key, $payload) || $payload[$key] === null) {
+            return null;
+        }
+
+        return is_numeric($payload[$key]) ? (int) $payload[$key] : null;
     }
 
     public function amountDueAtPickup(PricingSnapshot $snapshot): int

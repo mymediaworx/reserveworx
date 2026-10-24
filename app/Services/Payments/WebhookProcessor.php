@@ -2,6 +2,7 @@
 
 namespace App\Services\Payments;
 
+use App\Domain\Fees\PaymentKind;
 use App\Domain\Fees\Refunds\RefundReason;
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
@@ -131,6 +132,7 @@ final class WebhookProcessor
             $payment->status = 'paid';
             $payment->stripe_payment_intent_id = $intentId;
             $payment->save();
+            $snapshot = $this->applyPendingIncrease($payment, $snapshot);
 
             $fresh = Booking::query()->findOrFail($booking->id);
 
@@ -164,6 +166,61 @@ final class WebhookProcessor
         } finally {
             $this->tenants->forget();
         }
+    }
+
+    /**
+     * Fold a paid price increase into the snapshot once. A later delivery of the
+     * same payment finds no pending row and leaves the totals alone.
+     */
+    private function applyPendingIncrease(Payment $payment, ?PricingSnapshot $snapshot): ?PricingSnapshot
+    {
+        if (! $snapshot instanceof PricingSnapshot || $payment->kind !== PaymentKind::PriceIncreaseStripePayment->value) {
+            return $snapshot;
+        }
+
+        $payload = $snapshot->payload;
+        $pending = $payload['pending_increase'] ?? null;
+
+        if (! is_array($pending) || ($pending['payment_id'] ?? null) !== $payment->id) {
+            return $snapshot;
+        }
+
+        /** @var array<string, mixed> $pending */
+        $payload['services_cents'] = max(0, $this->cents($payload, 'services_cents') + $this->cents($pending, 'services_delta_cents'));
+        $payload['discount_cents'] = max(0, $this->cents($payload, 'discount_cents') + $this->cents($pending, 'discount_delta_cents'));
+        $payload['basis_cents'] = $this->cents($payload, 'basis_cents') + $this->cents($pending, 'basis_cents');
+        $payload['tax_cents'] = $this->cents($payload, 'tax_cents') + $this->cents($pending, 'tax_cents');
+        $payload['fee_cents'] = $this->cents($payload, 'fee_cents') + $this->cents($pending, 'fee_cents');
+        $payload['customer_total_cents'] = $this->cents($payload, 'customer_total_cents') + $this->cents($pending, 'charge_cents');
+
+        $line = $payload['customer_fee_line_cents'] ?? null;
+        $addedLine = $pending['customer_fee_line_cents'] ?? null;
+
+        if (is_numeric($line) && is_numeric($addedLine)) {
+            $payload['customer_fee_line_cents'] = (int) $line + (int) $addedLine;
+        }
+
+        foreach (['priced_participants', 'priced_duration_minutes', 'priced_on'] as $key) {
+            if (array_key_exists($key, $pending)) {
+                $payload[$key] = $pending[$key];
+            }
+        }
+
+        unset($payload['pending_increase']);
+        $snapshot->payload = $payload;
+        $snapshot->save();
+
+        return $snapshot;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function cents(array $payload, string $key): int
+    {
+        $value = $payload[$key] ?? 0;
+
+        return is_numeric($value) ? (int) $value : 0;
     }
 
     /**

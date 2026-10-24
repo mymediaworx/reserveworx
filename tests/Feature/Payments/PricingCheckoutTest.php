@@ -13,6 +13,7 @@ use App\Models\Membership;
 use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PricingSnapshot;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\StripeAccount;
@@ -601,6 +602,151 @@ class PricingCheckoutTest extends TestCase
         $this->assertSame(5_150, $balance->amount_cents);
         $this->assertSame('paid', $balance->status);
         $this->assertSame(1, AuditLog::query()->where('action', 'payment.balance_checkout_started')->count());
+        app(TenantManager::class)->forget();
+
+        Mail::assertNothingSent();
+        Http::assertNothingSent();
+    }
+
+    public function test_a_reschedule_onto_a_higher_rate_charges_the_increase_only(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekday',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+            'window' => 'weekday',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Weekend',
+            'kind' => 'base',
+            'amount_cents' => 20_000,
+            'window' => 'weekend',
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))
+            ->assertOk()
+            ->assertJsonPath('data.payload.services_cents', 10_000)
+            ->assertJsonPath('data.payload.customer_total_cents', 10_300)
+            ->assertJsonPath('data.payload.priced_on', '2026-06-15');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), [
+            'success_url' => 'https://dock.test/increase',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'Only a confirmed booking can be charged for a price increase.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+        $this->postWebhook('evt_paid_increase', 'checkout.session.completed', [
+            'id' => 'cs_test_123',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_original',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), [
+            'success_url' => 'https://dock.test/increase',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertStatus(409)->assertJsonPath('message', 'This booking has no price increase.');
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/reschedule'), [
+            'starts_at' => '2026-06-20T15:00:00Z',
+            'ends_at' => '2026-06-20T16:00:00Z',
+        ])->assertOk()->assertJsonPath('data.starts_at', '2026-06-20T15:00:00Z');
+
+        $fake->sessionId = 'cs_test_increase';
+        $fake->sessionUrl = 'https://checkout.stripe.test/pay/cs_test_increase';
+        $increaseBody = [
+            'success_url' => 'https://dock.test/increase',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'increase-1',
+        ];
+        $started = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), $increaseBody)
+            ->assertOk();
+        $this->assertSame(10_300, $started->json('data.amount_cents'));
+        $this->assertSame(300, $started->json('data.fee_cents'));
+        $this->assertSame('https://checkout.stripe.test/pay/cs_test_increase', $started->json('data.checkout_url'));
+        $this->assertSame(300, $fake->sessions[1]['params']['payment_intent_data']['application_fee_amount']);
+        $this->assertSame(10_300, $fake->sessions[1]['params']['line_items'][0]['price_data']['unit_amount']);
+
+        $replay = $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), $increaseBody)
+            ->assertOk();
+        $this->assertSame($started->json('data.payment_id'), $replay->json('data.payment_id'));
+        $this->assertNull($replay->json('data.checkout_url'));
+        $this->assertCount(2, $fake->sessions);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), [
+            'success_url' => 'https://dock.test/other',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'increase-1',
+        ])->assertStatus(409);
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), [
+            'success_url' => 'https://dock.test/increase',
+            'cancel_url' => 'https://dock.test/cancel',
+            'idempotency_key' => 'increase-2',
+        ])->assertStatus(409)->assertJsonPath('message', 'A price increase checkout is already open.');
+
+        $other = $this->workspace('other.test');
+        $this->actingAsWorkspace($other);
+        $this->postJson($this->tenantUrl('other.test', '/api/v1/bookings/'.$bookingId.'/increase-checkout'), $increaseBody)
+            ->assertNotFound();
+
+        $this->actingAsWorkspace($workspace);
+        $this->postWebhook('evt_increase', 'checkout.session.completed', [
+            'id' => 'cs_test_increase',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_increase',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_increase', 'checkout.session.completed', [
+            'id' => 'cs_test_increase',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_increase',
+            'metadata' => ['booking_id' => $bookingId, 'tenant_id' => $workspace['tenant']->id],
+        ], 'acct_test_123')->assertOk();
+
+        $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
+            ->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame(2, PlatformFee::query()->count());
+        $this->assertSame(600, (int) PlatformFee::query()->sum('amount_cents'));
+        $increase = Payment::query()->where('kind', 'price_increase_stripe_payment')->firstOrFail();
+        $this->assertSame(300, $increase->fee_cents);
+        $this->assertSame(10_300, $increase->amount_cents);
+        $this->assertSame('paid', $increase->status);
+        $snapshot = PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertSame(20_000, $snapshot->payload['services_cents']);
+        $this->assertSame(20_000, $snapshot->payload['basis_cents']);
+        $this->assertSame(600, $snapshot->payload['fee_cents']);
+        $this->assertSame(600, $snapshot->payload['customer_fee_line_cents']);
+        $this->assertSame(20_600, $snapshot->payload['customer_total_cents']);
+        $this->assertSame(300, $snapshot->payload['application_fee_cents']);
+        $this->assertSame('2026-06-20', $snapshot->payload['priced_on']);
+        $this->assertArrayNotHasKey('pending_increase', $snapshot->payload);
+        $this->assertSame(1, AuditLog::query()->where('action', 'payment.increase_checkout_started')->count());
         app(TenantManager::class)->forget();
 
         Mail::assertNothingSent();

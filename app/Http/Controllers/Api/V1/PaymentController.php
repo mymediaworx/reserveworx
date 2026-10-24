@@ -144,6 +144,42 @@ class PaymentController extends Controller
         ]]);
     }
 
+    public function increase(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'success_url' => ['required', 'url', 'max:255'],
+            'cancel_url' => ['required', 'url', 'max:255'],
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
+        ]);
+
+        try {
+            $started = $this->checkout->startIncreaseCheckout(
+                $booking,
+                $validated['success_url'],
+                $validated['cancel_url'],
+                $this->idempotencyKey($request, $validated['idempotency_key'] ?? null),
+            );
+        } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {
+            return response()->json(['message' => $exception->getMessage()], 409);
+        }
+
+        if ($started['url'] !== null) {
+            $this->audit->log('payment.increase_checkout_started', $started['payment'], [
+                'booking_id' => $booking->id,
+                'amount_cents' => $started['payment']->amount_cents,
+                'fee_cents' => $started['payment']->fee_cents,
+            ], request: $request);
+        }
+
+        return response()->json(['data' => [
+            'payment_id' => $started['payment']->id,
+            'checkout_url' => $started['url'],
+            'amount_cents' => $started['payment']->amount_cents,
+            'fee_cents' => $started['payment']->fee_cents,
+        ]]);
+    }
+
     public function offline(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);

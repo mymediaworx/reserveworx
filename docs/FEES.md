@@ -43,7 +43,7 @@ Then apply an optional fixed amount and an optional minimum, only when those col
 - Direct channel: `direct_fee_bps`. Third-party or API channel: `third_party_fee_bps`. Staff-initiated Stripe payments are direct under D8 until open question 6 says otherwise.
 - The full fee is charged on the first Stripe payment, including a deposit.
 - Later balance payments of the same booking add no fee.
-- A price increase paid through Stripe is fee'd on the increase only.
+- A price increase paid through Stripe is fee'd on the increase only. `POST /api/v1/bookings/{booking}/increase-checkout` prices the booking as it stands now, subtracts the quoted service total, and charges the difference. The percentage in effect at that moment applies. The fixed amount and the minimum do not. The booking must already be `deposit_paid` or `paid`, and the date, duration, or party size must differ from the quote. The paid webhook adds the increase onto the snapshot and records a second platform fee. `application_fee_cents` stays the first payment's fee.
 - Offline payments: no fee, status `offline_paid`, method `offline`.
 - `pay_at_pickup` adds Pay at pickup on the public review page. The recorded amount is the customer total minus the customer booking-fee line. The demo shops turn this on.
 - If the deposit is less than or equal to the fee, raise the deposit to the fee plus $1.00.
@@ -120,7 +120,7 @@ Proportional fee refunds are computed from the **cumulative** subtotal refunded 
 
 ## Checkout
 
-`BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the discount, the promo code, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis.
+`BookingPricer` stores one pricing snapshot per booking. A second quote returns the first snapshot. The snapshot includes the fee-engine fields, the service total, the discount, the promo code, the tax rate, the priced date, duration, and party size, `tax_includes_booking_fee: false`, the charge, and the application fee. Tax is calculated on the discounted service total and is not part of the fee basis.
 
 `POST /api/v1/bookings/{booking}/pricing` writes that snapshot and the current booking-fee disclosure version for a customer-paid tenant. `POST /api/v1/bookings/{booking}/offline-payment` records method `offline`, fee 0, and confirms a held booking as `offline_paid`. The recorded amount is the customer total minus the customer booking-fee line, so a customer-paid quote of $23.98 with a $0.66 booking fee is stored as $23.32. An operator-absorbed quote has no customer fee line, and the offline amount stays the customer total.
 

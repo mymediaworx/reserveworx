@@ -5,6 +5,7 @@ namespace Tests\Unit\Domain\Pricing;
 use App\Domain\Fees\FeeCalculator;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
+use App\Domain\Fees\PaymentKind;
 use App\Domain\Pricing\PriceRuleInput;
 use App\Domain\Pricing\PricingEngine;
 use App\Enums\FeePayer;
@@ -104,6 +105,61 @@ class PricingEngineTest extends TestCase
         $this->assertSame(300, $snapshot['application_fee_cents']);
         $this->assertSame(10_300, $snapshot['customer_total_cents']);
         $this->assertFalse($snapshot['deposit_was_raised']);
+    }
+
+    public function test_increase_uses_the_percentage_on_the_difference_only(): void
+    {
+        $rules = [
+            new PriceRuleInput('base', 10_000, 'weekday'),
+            new PriceRuleInput('base', 20_000, 'weekend'),
+        ];
+        $increase = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300, 50, 500),
+            FeePayer::CustomerPaid,
+            $rules,
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-20'),
+            0,
+            10,
+            null,
+            10_000,
+            1_000,
+            0,
+        );
+
+        $this->assertSame(10_000, $increase->servicesDeltaCents);
+        $this->assertSame(1_000, $increase->discountDeltaCents);
+        $this->assertSame(9_000, $increase->basisCents);
+        $this->assertSame(0, $increase->taxCents);
+        $this->assertSame(270, $increase->payment->applicationFeeCents);
+        $this->assertSame(9_270, $increase->payment->chargeCents);
+        $this->assertSame(PaymentKind::PriceIncreaseStripePayment, $increase->payment->kind);
+        $this->assertSame(0, $increase->quote->rate->fixedCents);
+        $this->assertNull($increase->quote->rate->minimumCents);
+    }
+
+    public function test_a_price_that_did_not_rise_is_not_an_increase(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('This booking has no price increase.');
+
+        $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            new FeeRate(300, 50, 500),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            2,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            0,
+        );
     }
 
     public function test_a_service_with_no_matching_rule_is_refused(): void
