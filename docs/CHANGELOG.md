@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- Staff who can view bookings can list and open customers at `GET /api/v1/customers`. A search matches the stored name, email, or phone. The list is limited to 50.
 - A platform administrator can read stored booking-fee totals by workspace and stored channel at `GET /api/v1/platform/fee-revenue`. The report does not call Stripe.
 - Today's report separates gross booking value, tax, booking fees, card payments, offline payments, and customer refunds.
 - A signed waiver can be downloaded as a PDF of the stored text, hash, and signature record. That file is not an electronic-signature certificate.

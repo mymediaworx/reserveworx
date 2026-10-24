@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AvailabilityScheduleController;
 use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
+use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\DepartureController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
@@ -100,6 +101,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/waitlist', [WaitlistController::class, 'index']);
             Route::post('/waitlist', [WaitlistController::class, 'store']);
             Route::post('/waitlist/{waitlist_entry}/cancel', [WaitlistController::class, 'cancel']);
+            Route::get('/customers', [CustomerController::class, 'index']);
+            Route::get('/customers/{customer}', [CustomerController::class, 'show']);
             Route::get('/bookings', [BookingController::class, 'index']);
             Route::post('/bookings', [BookingController::class, 'store']);
             Route::get('/bookings/{booking}', [BookingController::class, 'show']);
