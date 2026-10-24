@@ -145,6 +145,17 @@ class WorkflowSafetyTest extends TestCase
         mkdir($main, 0777, true);
         copy(base_path('scripts/remote-deploy.sh'), $current.'/scripts/remote-deploy.sh');
         file_put_contents($main.'/index.html', 'main-site');
+        file_put_contents($current.'/artisan', <<<'PHP'
+<?php
+
+if (($argv[1] ?? '') === 'reserveworx:hosting-check' && ($argv[2] ?? '') === '--no-interaction') {
+    echo "hosting_check_invoked=yes\n";
+    exit(0);
+}
+
+fwrite(STDERR, "unexpected artisan invocation\n");
+exit(1);
+PHP);
         file_put_contents($bin.'/php', <<<'BASH'
 #!/bin/bash
 if [[ "${1:-}" == "-r" ]]; then
