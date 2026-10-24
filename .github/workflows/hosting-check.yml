@@ -37,6 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          trap 'timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true' EXIT
           {
             echo "## SiteGround hosting check"
             echo

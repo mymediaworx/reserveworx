@@ -4,17 +4,15 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- A deploy opens one SiteGround SSH connection and reuses it for the database backup, the release upload, and activation. It does not scan the host key on a separate connection, and it does not retry a dropped handshake.
 - A confirmed booking that moves onto a lower price can be refunded the difference. `POST /api/v1/bookings/{booking}/decrease-refund` returns the subtotal and tax that fell, and a proportional share of the booking fee already charged.
-- A SiteGround SSH connect that is reset before the remote command starts is tried up to six times. A command that already printed output is not run again.
 - A platform administrator can refund part of one booking fee with a mandatory reason. The customer is not refunded. The reason is not a Section 7.7 code. The fee report lists that amount separately, and a later customer refund does not return the fee again.
 - A confirmed booking that moves onto a higher price can be charged the difference. `POST /api/v1/bookings/{booking}/increase-checkout` adds a booking fee only on that increase. The original fee stays on the first payment.
 - A deposit leaves the booking `deposit_paid`. `POST /api/v1/bookings/{booking}/balance-checkout` charges the remaining customer total with no booking fee. The paid webhook marks the booking paid once the captured payments cover that total, and it does not record a second platform fee.
 - The public booking confirmation heading wraps a long booking reference so a 390px-wide page does not scroll sideways.
-- The SiteGround SSH wrapper also retries when the server closes the connection before the remote command prints anything.
 - A workspace can offer Pay at pickup on the public booking review page. The demo shops have it on. That payment is recorded offline and does not include the online booking fee.
 - Team sign-in and platform sign-in include a password reset. The emailed link expires in 60 minutes. An unknown or ineligible address gets the same reply as an address that can sign in. A deploy prints whether mail can leave the server and does not send a message.
 - A deploy loads the Harbor Demo and Inland Demo sample shops when those workspaces exist, including kayaks, paddleboards, a sunset tour with departures for the next 60 days, prices, and opening hours. It does not change any other workspace. The same deploy adds `michael@brandworx.ai` as an owner of Harbor Demo when that account already exists.
-- The SiteGround SSH wrapper retries a connection reset during key exchange. A remote command that already started is not run again.
 - A verified tenant domain's `/` renders that workspace's public booking page. Staff sign-in stays at `/staff/login`.
 - Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.
 - A push to `main` deploys `app.reserveworx.com` and runs migrations. If `https://app.reserveworx.com/up` is not healthy, the code release is swapped back once. That check does not use localhost.

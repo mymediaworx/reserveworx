@@ -89,7 +89,11 @@ Do not raise `QUEUE_WORK_MAX_TIME` without recounting that table. Hold expiry, w
 
 ## Secrets
 
-Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`, and optional `MAIL_PASSWORD`. The workflow masks host, user, port, passphrase, and the mail password. It does not echo the private key or the mail password. An empty `MAIL_PASSWORD` leaves the log mailer in place and does not fail the job. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`. If the server resets the connection during key exchange, before the remote command prints anything, the wrapper tries that connection twice more. A command that already started is not repeated.
+Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`, and optional `MAIL_PASSWORD`. The workflow masks host, user, port, passphrase, and the mail password. It does not echo the private key or the mail password. An empty `MAIL_PASSWORD` leaves the log mailer in place and does not fail the job. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
+
+A push deploy used to open eight connections to the SSH port. Each of the four remote commands (`backup`, create the incoming directory, upload the archive, activate) ran `ssh-keyscan` and then a new SSH handshake. SiteGround resets the next key exchange once that burst is high enough, which is why activation died after the backup and the upload had already succeeded. Retrying the handshake added more connections and was reset the same way.
+
+The wrapper now opens one handshake for the job and reuses it for the backup, the upload, and activation (`ControlMaster` and `ControlPersist`). Later commands log `ssh_handshake=0`. There is no `ssh-keyscan` probe and no handshake retry. The master is closed when activation finishes, and also when an earlier SSH step fails. The host key is learned on that one connection.
 
 Application secrets belong only in `laravel/shared/.env`.
 
