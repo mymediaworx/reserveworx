@@ -202,7 +202,11 @@ jobs:
               opened="$(grep -c '^ssh_handshake=1$' "$log" || true)"
             fi
             echo "- SSH handshakes opened: ${opened}" >> "$GITHUB_STEP_SUMMARY"
-            close_ssh_master
+            # A successful deploy leaves the master up. The next step reuses it.
+            # Closing it here would open another handshake, which SiteGround rate-limits.
+            if [[ "$status" -ne 0 || "$ACTION" != "deploy" ]]; then
+              close_ssh_master
+            fi
             exit "$status"
           }
           trap on_exit EXIT
@@ -225,3 +229,38 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           unset RW_MAIL_PASSWORD
+
+      - name: Hosting check
+        if: github.event_name == 'push' || inputs.action == 'deploy'
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/hosting-check-artisan.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            log="${HOME}/.ssh/sg-handshakes.log"
+            opened=0
+            if [[ -f "$log" ]]; then
+              opened="$(grep -c '^ssh_handshake=1$' "$log" || true)"
+            fi
+            echo "- SSH handshakes opened: ${opened}" >> "$GITHUB_STEP_SUMMARY"
+            close_ssh_master
+            exit "$status"
+          }
+          trap on_exit EXIT
+          {
+            echo
+            echo "## Hosting check"
+            echo
+            echo '```'
+            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/hosting-check-artisan.sh
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
