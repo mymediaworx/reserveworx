@@ -9,6 +9,8 @@ use App\Models\Refund;
 use App\Models\Tenant;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Branding\WorkspaceProfiles;
+use App\Services\Integrations\GhlSync;
+use App\Services\Integrations\GoHighLevelClient;
 use App\Services\Payments\StripeSdkGateway;
 use App\Services\Payments\UnconfiguredStripeGateway;
 use App\Services\Webhooks\HostAddressLookup;
@@ -45,6 +47,16 @@ class AppServiceProvider extends ServiceProvider
                 is_string($version) && $version !== '' ? $version : ConnectAccountSpec::API_VERSION,
             );
         });
+
+        $this->app->singleton(GoHighLevelClient::class, function (): GoHighLevelClient {
+            $base = config('services.ghl.base_url');
+            $version = config('services.ghl.version');
+
+            return new GoHighLevelClient(
+                is_string($base) && $base !== '' ? rtrim($base, '/') : 'https://services.leadconnectorhq.com',
+                is_string($version) && $version !== '' ? $version : GoHighLevelClient::VERSION,
+            );
+        });
     }
 
     public function boot(): void
@@ -78,6 +90,8 @@ class AppServiceProvider extends ServiceProvider
 
             app(WebhookPublisher::class)->refundCreated($refund);
         });
+
+        app(GhlSync::class)->register();
 
         RateLimiter::for('login', function (Request $request): Limit {
             $email = strtolower((string) $request->input('email'));

@@ -1,8 +1,8 @@
 # Integrations
 
-Research for Stripe Connect and GoHighLevel, retrieved October 23, 2026 from the official docs linked below. No live API calls were made. Nothing in this file is implemented except empty `STRIPE_*` and `GHL_*` keys in `.env.example`. Do not copy sample client secrets from HighLevel's OAuth examples into this repository.
+Research for Stripe Connect and GoHighLevel, retrieved October 23, 2026 from the official docs linked below. No live HighLevel call was made for this research. Do not copy sample client secrets from HighLevel's OAuth examples into this repository.
 
-Payment state, when it exists, will come only from verified Stripe webhooks. A browser redirect is not payment proof. A GoHighLevel outage must not change bookings, payments, or inventory (spec Section 1.3 and D10). The outbox stores events and refuses a different workspace. It does not call HighLevel. Marketplace OAuth is still unapproved.
+Payment state, when it exists, will come only from verified Stripe webhooks. A browser redirect is not payment proof. A GoHighLevel outage must not change bookings, payments, or inventory (spec Section 1.3 and D10). The outbox stores events and refuses a different workspace. It does not call HighLevel. D12 links each workspace to one BrandWorx sub-account with a Private Integration Token. That link is what sends booking and payment contact updates.
 
 A workspace can also register its own HTTPS webhook endpoints. Those deliveries are signed and logged. They are not sent to HighLevel, and they do not choose an auth model for GoHighLevel.
 
@@ -63,6 +63,18 @@ Never store card numbers or CVCs. Idempotency keys belong on mutating payment an
 
 ## GoHighLevel
 
+### Decision
+
+Michael decided on October 24, 2026 (D12) that ReserveWorx will not publish a Marketplace app and will not use OAuth. A platform administrator links one workspace to one BrandWorx-managed sub-account. The stored fields are the sub-account Location ID and a Private Integration Token. The token uses Laravel's encrypted cast. API responses, audit properties, workspace exports, sync logs, and exception messages do not include it.
+
+`GET`, `PUT`, and `DELETE /api/v1/platform/tenants/{tenant}/ghl` read, replace, and remove that link. `POST .../ghl/test` calls `GET /locations/{locationId}`. `GET .../ghl/logs` lists the latest attempts. These routes require a platform administrator. Tenant owner, manager, and staff receive 403. `integrations.view` and `integrations.manage` exist in the permission catalog and are not attached to those roles.
+
+When a link exists, booking created, booking changed, booking cancelled, and payment succeeded dispatch `SyncBookingToGoHighLevel`. The job calls `POST /contacts/upsert` with `locationId`, email and/or phone, and `source: ReserveWorx`. It does not send `tags` on that call, because tags there replace the contact's tags. It then calls `POST /contacts/{id}/tags` and `POST /contacts/{id}/notes`. The note includes the service, status, payment status, location-local start, party size, and a `reserveworx:{kind}:{bookingId}:{paymentId}` marker. No customer email or phone means the attempt is skipped. No link means nothing is queued.
+
+Requests use `https://services.leadconnectorhq.com`, `Authorization: Bearer`, and `Version: 2021-07-28` unless `GHL_BASE_URL` or `GHL_VERSION` is set. A non-2xx response throws `GhlRequestFailed` with the status and the call kind. The message does not include the response body. The job allows 5 tries. Backoff is 60, 300, 900, 3600, then 10800 seconds. Each attempt is a `ghl_sync_logs` row for that workspace. The production queue is `database`, so the job row is not visible to the worker until the booking transaction commits, and a GoHighLevel failure stays in the worker. The generic outbox still does not call HighLevel. `webhook_delivery_attempts` is the tenant endpoint delivery log. It requires an endpoint, stores response bodies, and does not call GoHighLevel, so these attempts stay on `ghl_sync_logs`.
+
+The rest of this section is the research that led to the earlier OAuth proposal. It is not the implementation.
+
 Two supported auth types are documented: a Private Integration Token, and OAuth 2.0. v1 API keys are end of life. Do not build on them.
 
 Sources used:
@@ -75,7 +87,7 @@ Sources used:
 
 ### Private Integration Token
 
-A PIT is a static scoped token generated in the UI. It does not refresh. Official guidance describes it for internal use, when webhooks are not needed, and for one sub-account at a time. Requests send `Authorization: Bearer` and a `Version` header. That is a poor fit for one marketplace app installed into many tenant locations, so it is not the proposed primary model.
+A PIT is a static scoped token generated in the UI. It does not refresh. Official guidance describes it for internal use, when webhooks are not needed, and for one sub-account at a time. Requests send `Authorization: Bearer` and a `Version` header. That is a poor fit for one marketplace app installed into many tenant locations. D12 uses it anyway: one token per BrandWorx sub-account, entered by a platform administrator, not installed by tenant staff.
 
 ### OAuth
 
@@ -83,7 +95,7 @@ Authorization-code token exchange is `POST https://services.leadconnectorhq.com/
 
 Location tokens: an older guide shows `POST /oauth/locationToken`. The v3 reference shows `POST /oauth/location-token`. Both spellings were present on October 23, 2026. Do not pick one in code until a live call confirms which path the chosen app version accepts.
 
-Version header: examples on the OAuth pages still send `Version: 2021-07-28`. The versioning page says the current version is `v3`, released June 11, 2026, supported until a date that was still TBD, and that `2021-07-28` is no longer actively maintained. Record the disagreement. Implement against the v3 reference and confirm with a live call before Phase 6. Do not invent a reconciliation.
+Version header: examples on the OAuth pages still send `Version: 2021-07-28`. The versioning page says the current version is `v3`, released June 11, 2026, supported until a date that was still TBD, and that `2021-07-28` is no longer actively maintained. The sub-account sync sends `2021-07-28`. `GHL_VERSION` overrides that header. Open question 20 records that a live call has not confirmed the value.
 
 ### Rate limits
 
@@ -117,7 +129,7 @@ Non-2xx responses are retried up to 12 times excluding the original attempt, wit
 
 ### Proposal
 
-Marketplace OAuth app, distribution starting Private, target Sub-account, location-level tokens. Waiting on product-owner approval (open question 7).
+Superseded by D12. The earlier proposal was a Marketplace OAuth app, distribution starting Private, target Sub-account, location-level tokens. That app is not being built.
 
 ## Email
 

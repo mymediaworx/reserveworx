@@ -132,7 +132,7 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 ## Tenant data exports
 
-`tenant_data_exports` records a private JSON file for one workspace. `path` is on the local disk, which is not public. `row_counts` is the number of rows written per table. Termination is refused while no completed file for that tenant is still on disk. The file omits passwords. It does not delete the workspace.
+`tenant_data_exports` records a private JSON file for one workspace. `path` is on the local disk, which is not public. `row_counts` is the number of rows written per table. Termination is refused while no completed file for that tenant is still on disk. The file omits passwords and the GoHighLevel private integration token. It does not delete the workspace.
 
 ## Customer data export and deletion
 
@@ -142,14 +142,24 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 `webhook_endpoints`, `webhook_deliveries`, and `webhook_delivery_attempts` are tenant-owned. An owner or manager with `webhooks.manage` registers an HTTPS URL and the events it receives: `booking.created`, `booking.cancelled`, `booking.changed`, `payment.succeeded`, and `refund.created`. `webhooks.view` reads the endpoint and the delivery log. Staff have neither permission. The signing secret is encrypted and is returned only by `POST /api/v1/webhook-endpoints`. Later reads omit it. `url_hash` is the SHA-256 of the URL and is unique per workspace. A private, loopback, or link-local address is refused when the endpoint is saved and again before each delivery. `DeliverWebhook` is queued on the database connection. It signs the raw JSON body with HMAC-SHA256 and retries a failed attempt up to five times, with delays of 30 seconds, 2 minutes, 10 minutes, and 30 minutes. Each attempt stores the status, response code, duration in milliseconds, and at most 2,000 characters of the response body. `GET /api/v1/webhook-deliveries` lists that log. `POST /api/v1/webhook-deliveries/{webhook_delivery}/redeliver` queues a finished delivery again. A pending delivery is left alone. These tables do not call GoHighLevel.
 
+## GoHighLevel sub-account link
+
+`ghl_connections` stores one BrandWorx sub-account per workspace. `tenant_id` is unique. `location_id` is that sub-account's Location ID. `private_integration_token` is encrypted with the application key and is hidden from array and JSON serialization. Platform administrators link, replace, and remove it. Tenant staff cannot. The workspace export includes the location id and omits the token.
+
+`ghl_sync_logs` is one row per attempt: `booking.created`, `booking.changed`, `booking.cancelled`, `payment.succeeded`, or `connection.test`. It stores `attempt`, `status` (`succeeded`, `failed`, or `skipped`), `http_status`, `location_id`, and a short `error`. It does not store request or response bodies. Nothing is queued when the workspace has no link.
+
+The client calls `https://services.leadconnectorhq.com` with `Authorization: Bearer` and `Version: 2021-07-28` unless `GHL_VERSION` is set. It upserts `POST /contacts/upsert` without tags, then `POST /contacts/{id}/tags` and `POST /contacts/{id}/notes`. The generic `integration_outbox` still does not call HighLevel. `webhook_delivery_attempts` remains the tenant endpoint log and is not reused here, because each row requires an endpoint and stores a response body.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
-- a mail transport and delivery webhooks
-- ghl_connections, ghl_mappings, and a live HighLevel client. Generic outbound webhooks are migrated and are not a HighLevel connection
+- a mail transport. Outbound webhook endpoints are migrated
+- ghl_mappings. Upsert matches the contact by email or phone in the linked location. A stored HighLevel contact id is not migrated
+- a general integration_logs table. This sync records attempts on `ghl_sync_logs`
+- inbound HighLevel webhooks and the rest of the Section 8 event list: reminders, check-in, return, overdue, and payment failed
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
 

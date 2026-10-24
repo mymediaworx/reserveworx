@@ -21,6 +21,7 @@ class AuditLogger
         'secret',
         'authorization',
         'client_secret',
+        'private_integration_token',
         'remember_token',
         'ssh_key',
         'passphrase',
