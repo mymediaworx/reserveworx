@@ -168,22 +168,23 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
-          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
-          if [[ "$ACTION" == "deploy" ]]; then
-            mail_dir='www/app.reserveworx.com/laravel/shared'
-            mail_file="${mail_dir}/.mail-password"
-            if [[ -n "${RW_MAIL_PASSWORD}" ]]; then
-              printf '%s' "$RW_MAIL_PASSWORD" | scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "umask 077; mkdir -p ${mail_dir} && cat > ${mail_file}.tmp && mv -f ${mail_file}.tmp ${mail_file} && chmod 600 ${mail_file}"
-            else
-              scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "rm -f ${mail_file} ${mail_file}.tmp"
-            fi
-          fi
-          unset RW_MAIL_PASSWORD
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -s' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH")"
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh scripts/accept-mail-header.sh
+          bootstrap="$(cat scripts/accept-mail-header.sh)"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -c %q' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "$bootstrap")"
           {
             echo
             echo '```'
-            scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh
+            {
+              if [[ "$ACTION" == "deploy" && -n "${RW_MAIL_PASSWORD}" ]]; then
+                printf 'MAIL %s\n' "$(printf '%s' "$RW_MAIL_PASSWORD" | base64 -w0)"
+              elif [[ "$ACTION" == "deploy" ]]; then
+                printf 'MAIL -\n'
+              else
+                printf 'MAIL skip\n'
+              fi
+              cat scripts/remote-deploy.sh
+            } | scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd"
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          unset RW_MAIL_PASSWORD
