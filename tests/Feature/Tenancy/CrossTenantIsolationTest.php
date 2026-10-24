@@ -147,5 +147,6 @@ class CrossTenantIsolationTest extends TestCase
 
         $this->getJson('http://localhost/api/v1/platform/tenants')->assertForbidden();
         $this->getJson('http://localhost/api/v1/platform/tenants/'.$workspace['tenant']->id)->assertForbidden();
+        $this->getJson('http://localhost/api/v1/platform/fee-revenue')->assertForbidden();
     }
 }
