@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # Activate a release for app.reserveworx.com only, or roll back to the one
 # previous release. Migrations run only for action=deploy when
-# RUN_MIGRATIONS=true, MIGRATION_CONFIRMATION is exactly "I have a backup",
-# shared .env exists, and mysqldump has written a private gzip under
-# laravel/backups. The dump runs before the previous release is deleted and
-# before the document root changes. Rollback never runs migrate:rollback.
+# RUN_MIGRATIONS=true, shared .env exists, and this run already wrote a
+# verified gzip under laravel/shared/backups. The dump is checked before the
+# previous release directory is removed and before the document root changes.
+# Rollback never runs migrate:rollback. The previous release stays on disk
+# until the next deploy replaces that one rollback slot.
 #
 # Inode budget: at most the current release tree and one previous release tree.
 # The upload archive is deleted after extract. Vendor lives only inside those
 # release trees. Composer is not run on the server. Database dumps are at most
-# two gzip files under laravel/backups, outside public_html.
+# two gzip files under laravel/shared/backups, outside public_html.
 set -euo pipefail
 
 : "${ACTION:?ACTION is required}"
 
-if [[ "$ACTION" != "deploy" && "$ACTION" != "rollback" ]]; then
-  echo "ACTION must be deploy or rollback." >&2
+if [[ "$ACTION" != "deploy" && "$ACTION" != "rollback" && "$ACTION" != "backup" ]]; then
+  echo "ACTION must be deploy, rollback, or backup." >&2
   exit 1
 fi
 
@@ -285,17 +286,65 @@ find_dump() {
   return 1
 }
 
+# A dump is acceptable only when it is a private gzip of a database dump.
+# gunzip -t checks the archive. A header check rejects a gzip of an empty
+# stream. The password never enters this function.
+assert_dump_file() {
+  local file="$1" size marker mode
+  case "$file" in
+    */www/app.reserveworx.com/laravel/shared/backups/*.sql.gz) ;;
+    *)
+      echo "backup=failed path" >&2
+      return 1
+      ;;
+  esac
+  case "$file" in
+    *public_html*|*www/reserveworx.com/*)
+      echo "backup=failed path" >&2
+      return 1
+      ;;
+  esac
+  if [[ ! -f "$file" ]]; then
+    echo "backup=failed missing" >&2
+    return 1
+  fi
+  mode="$(stat -c '%a' "$file" 2>/dev/null || true)"
+  if [[ "$mode" != "600" ]]; then
+    echo "backup=failed mode" >&2
+    return 1
+  fi
+  if ! gunzip -t "$file"; then
+    echo "backup=failed archive" >&2
+    return 1
+  fi
+  size="$(wc -c < "$file" | tr -d ' ')"
+  if [[ ! "$size" =~ ^[0-9]+$ ]] || [[ "$size" -lt 1 ]]; then
+    echo "backup=failed archive" >&2
+    return 1
+  fi
+  marker="$(gzip -dc "$file" | head -n 40 || true)"
+  if ! grep -q -E 'MySQL dump|MariaDB dump|CREATE TABLE|Dump completed' <<<"$marker"; then
+    echo "backup=failed unrecognized" >&2
+    unset marker
+    return 1
+  fi
+  unset marker
+  echo "gunzip_test=ok"
+  echo "backup_bytes=${size}"
+  return 0
+}
+
 # Read DB_* from shared .env inside PHP so the password never enters this
 # script's arguments or its log. The client defaults file is mode 600 and is
-# removed before the function returns. The gzip stays under laravel/backups,
-# which is not public_html and is not another site.
+# removed before the function returns. The gzip stays under
+# laravel/shared/backups, which is not public_html and is not another site.
 backup_database() {
-  local backups outfile cnf namefile dump_bin size marker db_name
+  local backups outfile cnf namefile dump_bin db_name
   local -a dump_args=()
-  backups="${laravel}/backups"
+  backups="${shared}/backups"
   mkdir -p "$backups"
   chmod 700 "$backups"
-  outfile="${backups}/reserveworx-$(date -u +%Y%m%dT%H%M%SZ)-$$.sql.gz"
+  outfile="${backups}/$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
   cnf="$(mktemp "${backups}/.client.XXXXXX")"
   namefile="$(mktemp "${backups}/.dbname.XXXXXX")"
   chmod 600 "$cnf" "$namefile"
@@ -307,8 +356,12 @@ backup_database() {
   }
   trap rm_backup_secrets EXIT
 
+  if [[ -e "$outfile" ]]; then
+    echo "backup=failed path" >&2
+    return 1
+  fi
   case "$outfile" in
-    */www/app.reserveworx.com/laravel/backups/reserveworx-*.sql.gz) ;;
+    */www/app.reserveworx.com/laravel/shared/backups/*.sql.gz) ;;
     *)
       echo "backup=failed path" >&2
       return 1
@@ -422,38 +475,19 @@ try {
     return 1
   fi
 
-  if ! gzip -t "$outfile"; then
-    rm -f "$outfile"
-    echo "backup=failed archive" >&2
-    return 1
-  fi
-
-  size="$(wc -c < "$outfile" | tr -d ' ')"
-  if [[ ! "$size" =~ ^[0-9]+$ ]] || [[ "$size" -lt 100 ]]; then
-    rm -f "$outfile"
-    echo "backup=failed archive" >&2
-    return 1
-  fi
-
-  marker="$(gzip -dc "$outfile" | head -n 40 || true)"
-  if ! grep -q -E 'MySQL dump|MariaDB dump|CREATE TABLE|Dump completed' <<<"$marker"; then
-    rm -f "$outfile"
-    echo "backup=failed unrecognized" >&2
-    unset marker db_name
-    return 1
-  fi
-  unset marker db_name
-
   chmod 600 "$outfile"
   rm_backup_secrets
+  if ! assert_dump_file "$outfile"; then
+    rm -f "$outfile"
+    return 1
+  fi
   echo "backup_path=${outfile}"
-  echo "backup_bytes=${size}"
   echo "dump_client=${dump_bin}"
 
   # This host has no /dev/fd, so the file list cannot use process substitution.
   local count=0 file list
   list="$(mktemp)"
-  find "$backups" -maxdepth 1 -type f -name 'reserveworx-*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
+  find "$backups" -maxdepth 1 -type f -name '*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
   while IFS= read -r file; do
     [[ -n "$file" ]] || continue
     count=$((count + 1))
@@ -467,6 +501,19 @@ try {
 
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
   return 0
+fi
+
+if [[ "$ACTION" == "backup" ]]; then
+  if ! php_bin="$(find_php)"; then
+    echo "backup=failed php" >&2
+    exit 1
+  fi
+  if [[ ! -f "${shared}/.env" ]]; then
+    echo "shared_env=missing" >&2
+    exit 1
+  fi
+  backup_database
+  exit 0
 fi
 
 echo "https_enforcement=required for app.reserveworx.com only, in Site Tools, Security, HTTPS Enforce"
@@ -516,12 +563,6 @@ fi
 echo "php_binary=${php_bin}"
 echo "php_version=$("$php_bin" -r 'echo PHP_VERSION;')"
 
-if [[ "${RUN_MIGRATIONS:-false}" == "true" && "${MIGRATION_CONFIRMATION:-}" != "I have a backup" ]]; then
-  echo "Migrations were requested but the confirmation phrase did not match. Nothing was changed." >&2
-  rm -f "$archive"
-  exit 1
-fi
-
 if [[ ! -f "${shared}/.env" ]]; then
   echo "shared_env=missing"
   echo "document_root=not changed. Create ${shared}/.env from .env.example before the document root is switched." >&2
@@ -530,7 +571,7 @@ if [[ ! -f "${shared}/.env" ]]; then
 fi
 
 if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
-  if ! backup_database; then
+  if ! assert_dump_file "${BACKUP_PATH:-}"; then
     rm -f "$archive"
     echo "Migrations were not run. Document root was not changed." >&2
     exit 1

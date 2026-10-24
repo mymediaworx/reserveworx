@@ -74,7 +74,7 @@ Both workflows are manual and run only from `main` after this pull request is me
 5. Deploy only after the hosting report is acceptable and `$HOME/www/app.reserveworx.com/laravel/shared/.env` exists on the server. Actions → **Deploy** → **Run workflow** → branch `main` → action `deploy`. Leave **Run migrations** off. HTTPS must already be enforced for that subdomain in Site Tools.
 6. Rollback: the same workflow, action `rollback`. Rollback does not reverse schema changes.
 
-Migrations stay off unless the operator types `I have a backup`. The deploy then takes its own `mysqldump` under `laravel/backups` before `artisan migrate`. Details are in [`docs/DEPLOY.md`](docs/DEPLOY.md).
+Migrations stay off unless **Run migrations** is enabled. The deploy then writes a verified `mysqldump` gzip under `laravel/shared/backups` before `artisan migrate` and fails if that file is empty or `gunzip -t` fails. Details are in [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ## Status
 
