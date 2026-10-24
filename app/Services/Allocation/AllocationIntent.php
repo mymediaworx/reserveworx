@@ -23,6 +23,7 @@ readonly class AllocationIntent
         public ?string $customerPhone = null,
         public array $addOns = [],
         public ?string $variantId = null,
+        public ?string $customerId = null,
     ) {}
 
     public function payloadHash(): string
