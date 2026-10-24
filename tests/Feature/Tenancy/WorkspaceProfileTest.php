@@ -37,8 +37,8 @@ class WorkspaceProfileTest extends TestCase
         $this->getJson($this->tenantUrl('owner.test', '/api/v1/branding'))
             ->assertOk()
             ->assertJsonPath('data.display_name', 'Owner Co')
-            ->assertJsonPath('data.primary_color', '#0E7C86')
-            ->assertJsonPath('data.accent_color', '#F26B3A')
+            ->assertJsonPath('data.primary_color', TenantBranding::DEFAULT_PRIMARY)
+            ->assertJsonPath('data.accent_color', TenantBranding::DEFAULT_ACCENT)
             ->assertJsonPath('data.logo_url', null)
             ->assertJsonPath('data.support_email', null)
             ->assertJsonPath('data.tenant_id', $owner['tenant']->id);

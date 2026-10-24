@@ -27,7 +27,8 @@
         'refundTerms' => $terms,
     ])
     @if ($payUrl)
-        <form method="post" action="{{ $payUrl }}">
+        {{-- target=_top: Stripe's payment page cannot load inside an embedded frame. --}}
+        <form method="post" action="{{ $payUrl }}" target="_top">
             <button type="submit">Pay with card</button>
         </form>
         <p>The booking stays on hold until Stripe confirms the payment. Returning to this site is not proof of payment.</p>

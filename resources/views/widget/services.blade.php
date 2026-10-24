@@ -1,8 +1,20 @@
 @extends('widget.layout')
 @section('title', $tenantName.' bookings')
 
+@section('hide_bar', '1')
+
 @section('content')
-    <h1>{{ $tenantName }}</h1>
+    <div class="w-hero">
+        <span class="w-avatar w-avatar-lg">
+            @if ($workspaceBranding->logoUrl ?? null)
+                <img src="{{ $workspaceBranding->logoUrl }}" alt="">
+            @else
+                @php $parts = preg_split('/\s+/', trim($tenantName)) ?: []; @endphp
+                <span aria-hidden="true">{{ strtoupper(mb_substr($parts[0] ?? '', 0, 1).mb_substr($parts[1] ?? '', 0, 1)) }}</span>
+            @endif
+        </span>
+        <h1>{{ $tenantName }}</h1>
+    </div>
     <p>Choose a service. Prices shown here are the total, including the booking fee when the operator charges one.</p>
     <p><a href="{{ url('/book/'.$token.'/lookup') }}">Look up a booking</a></p>
     @forelse ($services as $row)

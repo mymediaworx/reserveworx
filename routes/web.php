@@ -12,17 +12,19 @@ use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
-use App\Livewire\Staff\BookingLinks;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
+use App\Livewire\Staff\Branding;
 use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\Dashboard;
+use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
 use App\Livewire\Staff\Settings;
 use App\Livewire\Staff\Setup\Locations;
 use App\Livewire\Staff\Setup\Resources;
 use App\Livewire\Staff\Setup\ServiceDetail;
 use App\Livewire\Staff\Setup\Services;
+use App\Livewire\Staff\Share;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -31,6 +33,8 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 Route::get('/', HomeController::class)
     ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, ValidateCsrfToken::class]);
 Route::get('/ui/app.css', [UiAssetController::class, 'stylesheet']);
+Route::get('/embed.js', [UiAssetController::class, 'embed'])
+    ->withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, ValidateCsrfToken::class]);
 
 /*
 | Platform administration, on the platform host only.
@@ -79,7 +83,10 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/settings', Settings::class);
-        Route::get('/booking-links', BookingLinks::class);
+        Route::get('/menu', Menu::class);
+        Route::get('/branding', Branding::class);
+        Route::get('/share', Share::class);
+        Route::redirect('/booking-links', '/staff/share');
     });
 });
 

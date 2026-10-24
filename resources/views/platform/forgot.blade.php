@@ -6,7 +6,10 @@
 </head>
 <body class="auth">
     <main class="auth-panel">
-        <p class="auth-tenant">ReserveWorx</p>
+        <div class="auth-brand">
+            <x-avatar name="Brand Worx" />
+            <p class="auth-tenant">ReserveWorx</p>
+        </div>
         <h1>Reset password</h1>
         <p>Enter the email you use for the platform. If it can sign in here, we email a link that expires in 60 minutes.</p>
         @if (session('status'))

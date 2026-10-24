@@ -1,6 +1,25 @@
 # Web UI
 
-Blade and Livewire 4, approved by the product owner on October 23, 2026 (open question 25). There is no Node build. The stylesheet is plain CSS in `resources/ui/app.css`, served by `GET /ui/app.css` with a content-hash query string. That route exists because SiteGround's `public_html` only receives `index.php` and a few fixed files at deploy. Livewire serves its own JavaScript from a PHP route.
+Blade and Livewire 4, approved by the product owner on October 23, 2026 (open question 25). There is no Node build. The stylesheet is plain CSS in `resources/ui/app.css`, served by `GET /ui/app.css` with a content-hash query string.
+
+## Look
+
+Mobile first, modeled on the BrandWorx mobile app (product owner, October 24, 2026). On phones there is a white app bar (logo or initials, workspace name, location, a bell for bookings waiting on payment, settings), a bottom tab bar (Home, Bookings, Calendar, Share, Menu) with a pill on the active tab, and a floating **+** for a new booking. From 1024px the tabs become a white side navigation. Home uses rounded stat cards with a grey time strip and round shortcut buttons. Type is Inter. Icons are Lucide line icons (ISC) in `resources/views/components/icon.blade.php`.
+
+## Branding
+
+`/staff/branding` edits Grok's `tenant_brandings` row (#88): business name, logo, main and highlight colors (with presets), and support contacts. It uses the same policy, `LogoStore`, and `branding.updated` audit action as `PATCH /api/v1/branding`. `App\Support\BrandPalette` turns the two colors into CSS variables for the staff app and the customer booking page, and guarantees readable contrast for any choice: 4.5:1 for text and button labels. It only ever prints validated hex values. The default look is BrandWorx green `#0F5C4D` with amber `#F59E0B`. Migration `2026_10_24_210000` moves workspaces that never chose colors to it.
+
+## Share & embed
+
+`/staff/share` replaces Booking links (`/staff/booking-links` redirects). Staff pick everything or one service, then a format:
+
+- **Link:** the workspace address, or a service link. Copy, open, text, or email.
+- **Button:** a plain HTML link styled in the workspace color. It needs no script.
+- **On your page:** an `<iframe data-reserveworx>` plus `/embed.js`, which sizes the frame to the booking page.
+- **Pop-up:** a button with `data-reserveworx-popup` plus `/embed.js`, which opens the booking page over the site (full screen on phones). Without the script the button still opens a new tab.
+
+Links use `WidgetTokens::hostedPlain`, which is stable, so codes can be copied again any time. Named links that can be turned off are under **More links**. The booking page posts its height to the parent frame when embedded. The **Pay with card** form targets `_top`, because Stripe's payment page cannot run inside a frame. `/embed.js` sets no cookies. That route exists because SiteGround's `public_html` only receives `index.php` and a few fixed files at deploy. Livewire serves its own JavaScript from a PHP route.
 
 ## Where pages live
 
@@ -19,7 +38,9 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
 | Tenant domain | `/staff/setup/*` | Locations with hours and closures, boats and gear, services with lengths, gear, prices, and departures |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
-| Tenant domain | `/staff/booking-links` | Make, copy, embed, and turn off links to the customer booking widget |
+| Tenant domain | `/staff/share` | Share & embed: link, button, on-page embed, pop-up, and named links |
+| Tenant domain | `/staff/branding` | Name, logo, colors, support contacts |
+| Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
 | Tenant domain | `/book/{token}` | Customer booking widget, styled to match. When `pay_at_pickup` is on, the review page also offers Pay at pickup. |
 
 ## Tenant isolation
