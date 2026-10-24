@@ -67,11 +67,11 @@ final class BalanceDue
             $payload = $snapshot->payload ?? [];
             $total = $this->cents($payload, 'customer_total_cents');
 
-            if ($booking->payment_status === PaymentStatus::OfflinePaid) {
+            if (in_array($booking->payment_status, [PaymentStatus::OfflinePaid, PaymentStatus::DueAtPickup], true)) {
                 $total = max(0, $total - $this->cents($payload, 'customer_fee_line_cents'));
             }
 
-            $paidCents = $this->sumColumn($paid->get($id), 'amount_cents');
+            $paidCents = $this->collectedCents($paid->get($id));
             $refunded = $this->sumColumn($refunds->get($id), 'customer_refund_cents');
             $currency = $snapshot->currency !== '' ? $snapshot->currency : 'USD';
             $result[$id] = [
@@ -90,6 +90,34 @@ final class BalanceDue
         }
 
         return (int) $rows->sum($column);
+    }
+
+    /**
+     * A pay-at-pickup commitment is not money collected at the counter.
+     */
+    private function collectedCents(mixed $rows): int
+    {
+        if (! $rows instanceof Collection) {
+            return 0;
+        }
+
+        $sum = 0;
+
+        foreach ($rows as $payment) {
+            if (! $payment instanceof Payment) {
+                continue;
+            }
+
+            $key = $payment->idempotency_key;
+
+            if (is_string($key) && str_starts_with($key, 'widget-pickup-')) {
+                continue;
+            }
+
+            $sum += $payment->amount_cents;
+        }
+
+        return $sum;
     }
 
     /**

@@ -1,10 +1,17 @@
 @extends('widget.layout')
+@use('App\Services\Booking\PublicBookingCopy')
 @section('title', 'Booking '.$booking->id)
 
 @section('content')
+    @php
+        $copy = app(PublicBookingCopy::class)->for($booking);
+    @endphp
     <h1>Booking {{ $booking->id }}</h1>
     <p>{{ $booking->service?->name }}</p>
-    <p>Status: {{ $booking->status->value }}. Payment: {{ $booking->payment_status->value }}.</p>
+    <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
+    @if ($copy['pickupFeeNote'] !== '')
+        <p>{{ $copy['pickupFeeNote'] }}</p>
+    @endif
     <p>Starts {{ $booking->starts_at->toIso8601String() }}.</p>
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>

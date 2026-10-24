@@ -333,16 +333,24 @@ class WorkspaceProfileTest extends TestCase
         $this->assertSame('Alpha Harbor', $captured->displayName);
         $this->assertSame('alpha@example.com', $captured->supportEmail);
 
-        $this->get($this->tenantUrl('alpha.test', '/'))
+        $home = $this->get($this->tenantUrl('alpha.test', '/'))
             ->assertOk()
-            ->assertSee('<h1>Alpha Co</h1>', false)
+            ->assertSee('<h1>Alpha Harbor</h1>', false)
+            ->assertDontSee('Alpha Co')
+            ->assertDontSee('Beta Dock');
+        $this->assertSame(1, preg_match('#/book/(hosted_[a-f0-9]{64})/#', (string) $home->getContent(), $token));
+        $this->get($this->tenantUrl('alpha.test', '/book/'.$token[1].'/lookup'))
+            ->assertOk()
+            ->assertSee('Alpha Harbor')
+            ->assertDontSee('Alpha Co')
             ->assertDontSee('Beta Dock');
         $this->get($this->tenantUrl('alpha.test', '/staff/login'))
             ->assertOk()
             ->assertSee('Team sign in');
         $this->get($this->tenantUrl('beta.test', '/'))
             ->assertOk()
-            ->assertSee('<h1>Beta Co</h1>', false)
-            ->assertDontSee('Alpha Harbor');
+            ->assertSee('<h1>Beta Dock</h1>', false)
+            ->assertDontSee('Alpha Harbor')
+            ->assertDontSee('Beta Co');
     }
 }

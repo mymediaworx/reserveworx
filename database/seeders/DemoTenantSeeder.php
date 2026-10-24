@@ -11,6 +11,7 @@ use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Models\User;
+use App\Services\Tenancy\DemoWorkspaceIdentity;
 use App\Tenancy\TenantScope;
 use Illuminate\Database\Seeder;
 
@@ -49,10 +50,11 @@ class DemoTenantSeeder extends Seeder
                 [
                     'tenant_id' => $tenant->id,
                     'type' => 'subdomain',
-                    'is_primary' => true,
                     'verified_at' => now(),
                 ],
             );
+
+            app(DemoWorkspaceIdentity::class)->align($tenant);
 
             $user = User::query()->where('email', $definition['email'])->first();
             $password = null;

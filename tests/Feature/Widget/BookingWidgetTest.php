@@ -185,19 +185,20 @@ class BookingWidgetTest extends TestCase
         $this->get((string) $confirmed->headers->get('Location'))
             ->assertOk()
             ->assertSee('Your booking is confirmed.')
-            ->assertSee('offline_paid');
+            ->assertSee('Balance due at pickup: $100.00')
+            ->assertSee('Pay at pickup does not include the online booking fee.')
+            ->assertDontSee('Balance due at pickup: $103.00')
+            ->assertSee('Status: Confirmed')
+            ->assertDontSee('offline_paid')
+            ->assertDontSee('due_at_pickup');
 
         $this->post($pickup)->assertRedirect();
 
         app(TenantManager::class)->set($workspace['tenant']);
         $booking = Booking::query()->findOrFail($bookingId);
         $this->assertSame('confirmed', $booking->status->value);
-        $this->assertSame('offline_paid', $booking->payment_status->value);
-        $this->assertSame(1, Payment::query()->where('booking_id', $booking->id)->count());
-        $payment = Payment::query()->where('booking_id', $booking->id)->firstOrFail();
-        $this->assertSame('offline', $payment->method);
-        $this->assertSame(10_000, $payment->amount_cents);
-        $this->assertSame(0, $payment->fee_cents);
+        $this->assertSame('due_at_pickup', $booking->payment_status->value);
+        $this->assertSame(0, Payment::query()->where('booking_id', $booking->id)->count());
         $this->assertSame(0, PlatformFee::query()->count());
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->firstOrFail();
         $this->assertSame(10_300, $snapshot->payload['customer_total_cents']);

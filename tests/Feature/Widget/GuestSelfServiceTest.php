@@ -52,7 +52,7 @@ class GuestSelfServiceTest extends TestCase
         $found->assertRedirect();
         $manage = (string) $found->headers->get('Location');
         $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/manage/'.$bookingId))->assertForbidden();
-        $this->get($manage)->assertOk()->assertSee('held')->assertSee('Online cancellation is not available');
+        $this->get($manage)->assertOk()->assertSee('On hold')->assertSee('Not paid yet')->assertDontSee('unpaid')->assertSee('Online cancellation is not available');
 
         app(TenantManager::class)->set($workspace['tenant']);
         TenantSetting::query()->update(['guest_cancel_before_minutes' => 60]);
@@ -60,7 +60,7 @@ class GuestSelfServiceTest extends TestCase
 
         $page = $this->get($manage)->assertOk();
         preg_match('/action="([^"]*cancel[^"]*)"/', (string) $page->getContent(), $cancel);
-        $this->post(html_entity_decode($cancel[1]))->assertOk()->assertSee('cancelled');
+        $this->post(html_entity_decode($cancel[1]))->assertOk()->assertSee('Status: Cancelled')->assertDontSee('Status: cancelled');
         $this->post(html_entity_decode($cancel[1]))->assertStatus(409)->assertSee('can no longer be cancelled');
 
         app(TenantManager::class)->set($workspace['tenant']);
