@@ -4,6 +4,7 @@ Semantic versions start at the first tagged release. This file records what land
 
 ## Unreleased
 
+- The SiteGround SSH wrapper retries a connection reset during key exchange. A remote command that already started is not run again.
 - A verified tenant domain's `/` renders that workspace's public booking page. Staff sign-in stays at `/staff/login`.
 - Staff availability and checkout API calls are rate limited per user and IP. The public booking widget keeps its own limit.
 - A push to `main` deploys `app.reserveworx.com` and runs migrations. If `https://app.reserveworx.com/up` is not healthy, the code release is swapped back once. That check does not use localhost.
