@@ -29,7 +29,7 @@
 
     @if ($missingAsset)
         <p class="muted">That {{ $industry->unit() }} is no longer on this booking.</p>
-    @elseif ($assets->isEmpty())
+    @elseif ($unassigned)
         <p class="muted">No {{ $industry->unit() }} is assigned to this booking yet.</p>
     @else
         <form wire:submit="file" class="stack">

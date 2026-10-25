@@ -8,6 +8,7 @@ use App\Enums\FeePayer;
 use App\Enums\IncidentStatus;
 use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
+use App\Enums\ResourceStatus;
 use App\Enums\ServiceKind;
 use App\Livewire\Staff\FileIncident;
 use App\Livewire\Staff\Incidents;
@@ -25,13 +26,16 @@ use App\Models\MembershipLocation;
 use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\PlatformFee;
+use App\Models\Pool;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\RentalCheckout;
+use App\Models\ResourceCategory;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Allocation\Allocator;
 use App\Services\CheckIn\BalanceDue;
 use App\Services\Customers\CustomerReceipts;
 use App\Tenancy\StaffLocationAccess;
@@ -431,6 +435,122 @@ class StaffIncidentReportTest extends TestCase
         $this->assertSame(0, Incident::query()->count());
     }
 
+    public function test_a_pool_allocation_can_be_reported_before_checkout(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-16 18:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $beta = $this->workspace('beta.test');
+        $north = $this->location($alpha['tenant'], 'North dock');
+        $south = $this->location($alpha['tenant'], 'South dock');
+        $betaDock = $this->location($beta['tenant'], 'Beta dock');
+        $fleet = $this->poolFleet($alpha['tenant'], $north, $south, assigned: true);
+        $plain = $this->uncategorizedPoolBooking($alpha['tenant'], $north, 'Harbor Guest');
+        $empty = $this->bareBooking($alpha['tenant'], $north, 'Empty Guest');
+        $foreign = Asset::factory()->create([
+            'tenant_id' => $beta['tenant']->id,
+            'location_id' => $betaDock->id,
+            'name' => 'Beta kayak',
+            'status' => ResourceStatus::Active,
+        ]);
+        $this->actingAs($alpha['user']);
+        app(TenantManager::class)->forget();
+
+        $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$fleet['booking']->id))
+            ->assertOk()
+            ->assertSee('Damage report')
+            ->assertSee('Single kayak × 1')
+            ->assertSee('Able kayak')
+            ->assertSee('Baker kayak')
+            ->assertSee('Zebra skiff')
+            ->assertDontSee('No boat is assigned to this booking yet.')
+            ->assertDontSee('Shop kayak')
+            ->assertDontSee('Tandem one')
+            ->assertDontSee('South kayak')
+            ->assertDontSee('Beta kayak');
+        $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$plain->id))
+            ->assertOk()
+            ->assertSee('Damage report')
+            ->assertSee('File report')
+            ->assertSee('Single kayak × 1')
+            ->assertDontSee('No boat is assigned to this booking yet.');
+        $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$empty->id))
+            ->assertOk()
+            ->assertSee('No boat is assigned to this booking yet.')
+            ->assertDontSee('File report');
+
+        $this->useTenant($alpha['tenant']);
+        $form = Livewire::test(FileIncident::class, ['bookingId' => $fleet['booking']->id]);
+        $this->assertOptionOrder($form->html(), [
+            $fleet['assigned']->id,
+            $fleet['able']->id,
+            $fleet['baker']->id,
+        ]);
+        $form
+            ->set('assetId', $fleet['shop']->id)
+            ->set('severity', 'minor')
+            ->set('notes', 'A scrape on a kayak that is in the shop.')
+            ->call('file')
+            ->assertHasErrors(['assetId'])
+            ->set('assetId', $foreign->id)
+            ->call('file')
+            ->assertHasErrors(['assetId']);
+        $this->assertSame(0, Incident::query()->count());
+
+        Livewire::test(FileIncident::class, ['bookingId' => $fleet['booking']->id])
+            ->set('assetId', $fleet['able']->id)
+            ->set('severity', 'minor')
+            ->set('notes', 'Scratch along the hull of the single kayak.')
+            ->call('file')
+            ->assertHasNoErrors()
+            ->assertSee('Report filed.');
+
+        $incident = Incident::query()->sole();
+        $this->assertSame($fleet['able']->id, $incident->asset_id);
+        $this->assertSame($fleet['booking']->id, $incident->booking_id);
+        $this->assertSame(0, RentalCheckout::query()->count());
+    }
+
+    public function test_a_pool_allocation_can_be_reported_after_checkout(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-16 18:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $north = $this->location($alpha['tenant'], 'North dock');
+        $south = $this->location($alpha['tenant'], 'South dock');
+        $fleet = $this->poolFleet($alpha['tenant'], $north, $south, assigned: false);
+        $this->actingAs($alpha['user']);
+        $this->useTenant($alpha['tenant']);
+
+        $checkedOut = app(Allocator::class)->checkout($fleet['booking']->fresh());
+        $checkout = $checkedOut->checkouts->first();
+        $this->assertInstanceOf(RentalCheckout::class, $checkout);
+        $this->assertNull($checkout->asset_id);
+        $this->assertSame($fleet['pool']->id, $checkout->pool_id);
+
+        $form = Livewire::test(FileIncident::class, ['bookingId' => $fleet['booking']->id]);
+        $this->assertOptionOrder($form->html(), [$fleet['able']->id, $fleet['baker']->id]);
+        $form->assertDontSee('No boat is assigned to this booking yet.')
+            ->assertDontSee('Shop kayak')
+            ->assertDontSee('Zebra skiff')
+            ->set('assetId', $fleet['baker']->id)
+            ->set('severity', 'moderate')
+            ->set('notes', 'The checked-out kayak has a cracked hatch.')
+            ->call('file')
+            ->assertHasNoErrors()
+            ->assertSee('Report filed.');
+        $this->assertSame($fleet['baker']->id, Incident::query()->sole()->asset_id);
+
+        $checkout->asset_id = $fleet['shop']->id;
+        $checkout->save();
+
+        $checked = Livewire::test(FileIncident::class, ['bookingId' => $fleet['booking']->id]);
+        $this->assertOptionOrder($checked->html(), [
+            $fleet['shop']->id,
+            $fleet['able']->id,
+            $fleet['baker']->id,
+        ]);
+        $checked->assertDontSee('value="'.$fleet['assigned']->id.'"', false);
+    }
+
     private function location(Tenant $tenant, string $name): Location
     {
         $this->useTenant($tenant);
@@ -632,5 +752,147 @@ class StaffIncidentReportTest extends TestCase
     private function useTenant(Tenant $tenant): void
     {
         app(TenantManager::class)->set($tenant);
+    }
+
+    /**
+     * @param  list<string>  $ids
+     */
+    private function assertOptionOrder(string $html, array $ids): void
+    {
+        $cursor = -1;
+
+        foreach ($ids as $id) {
+            $at = strpos($html, 'value="'.$id.'"');
+            $this->assertNotFalse($at);
+            $this->assertGreaterThan($cursor, $at);
+            $cursor = $at;
+        }
+    }
+
+    /**
+     * @return array{booking: Booking, pool: Pool, able: Asset, baker: Asset, shop: Asset, assigned: Asset}
+     */
+    private function poolFleet(Tenant $tenant, Location $location, Location $otherLocation, bool $assigned): array
+    {
+        $this->useTenant($tenant);
+        $category = ResourceCategory::factory()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Single kayaks',
+            'slug' => 'single-kayaks',
+        ]);
+        $tandems = ResourceCategory::factory()->create([
+            'tenant_id' => $tenant->id,
+            'name' => 'Tandems',
+            'slug' => 'tandems',
+        ]);
+        $pool = Pool::factory()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'resource_category_id' => $category->id,
+            'name' => 'Single kayak',
+            'quantity' => 10,
+            'status' => ResourceStatus::Active,
+        ]);
+        $able = $this->kayak($tenant, $location, $category, 'Able kayak', ResourceStatus::Active);
+        $baker = $this->kayak($tenant, $location, $category, 'Baker kayak', ResourceStatus::Active);
+        $shop = $this->kayak($tenant, $location, $category, 'Shop kayak', ResourceStatus::Maintenance);
+        $this->kayak($tenant, $location, $tandems, 'Tandem one', ResourceStatus::Active);
+        $this->kayak($tenant, $otherLocation, $category, 'South kayak', ResourceStatus::Active);
+        $zebra = $this->kayak($tenant, $location, $tandems, 'Zebra skiff', ResourceStatus::Active);
+        $booking = $this->poolBooking($tenant, $location, $pool, 'Pool Guest', $assigned ? $zebra : null);
+
+        return [
+            'booking' => $booking,
+            'pool' => $pool,
+            'able' => $able,
+            'baker' => $baker,
+            'shop' => $shop,
+            'assigned' => $zebra,
+        ];
+    }
+
+    private function kayak(Tenant $tenant, Location $location, ResourceCategory $category, string $name, ResourceStatus $status): Asset
+    {
+        $this->useTenant($tenant);
+
+        return Asset::factory()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'resource_category_id' => $category->id,
+            'name' => $name,
+            'status' => $status,
+        ]);
+    }
+
+    private function poolBooking(Tenant $tenant, Location $location, Pool $pool, string $customerName, ?Asset $assigned): Booking
+    {
+        $this->useTenant($tenant);
+        $booking = $this->bareBooking($tenant, $location, $customerName);
+        Allocation::query()->create([
+            'tenant_id' => $tenant->id,
+            'booking_id' => $booking->id,
+            'pool_id' => $pool->id,
+            'quantity' => 1,
+            'starts_at' => $booking->starts_at,
+            'ends_at' => $booking->ends_at,
+        ]);
+
+        if ($assigned instanceof Asset) {
+            Allocation::query()->create([
+                'tenant_id' => $tenant->id,
+                'booking_id' => $booking->id,
+                'asset_id' => $assigned->id,
+                'quantity' => 1,
+                'starts_at' => $booking->starts_at,
+                'ends_at' => $booking->ends_at,
+            ]);
+        }
+
+        return $booking;
+    }
+
+    private function uncategorizedPoolBooking(Tenant $tenant, Location $location, string $customerName): Booking
+    {
+        $this->useTenant($tenant);
+        $pool = Pool::factory()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'resource_category_id' => null,
+            'name' => 'Single kayak',
+            'quantity' => 1,
+            'status' => ResourceStatus::Active,
+        ]);
+
+        return $this->poolBooking($tenant, $location, $pool, $customerName, null);
+    }
+
+    private function bareBooking(Tenant $tenant, Location $location, string $customerName): Booking
+    {
+        $this->useTenant($tenant);
+        $service = Service::query()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'name' => 'Day rental '.$customerName,
+            'kind' => ServiceKind::Rental,
+        ]);
+        $customer = Customer::query()->create([
+            'tenant_id' => $tenant->id,
+            'name' => $customerName,
+            'email' => strtolower(str_replace(' ', '.', $customerName)).'@example.com',
+        ]);
+
+        return Booking::query()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'service_id' => $service->id,
+            'customer_id' => $customer->id,
+            'status' => BookingStatus::Confirmed,
+            'payment_status' => PaymentStatus::Paid,
+            'operational_status' => OperationalStatus::NotArrived,
+            'starts_at' => '2026-06-16 16:00:00',
+            'ends_at' => '2026-06-16 18:00:00',
+            'participants' => 1,
+            'payload_hash' => hash('sha256', $customerName.$location->id),
+        ]);
     }
 }
