@@ -2,8 +2,11 @@
 
 namespace App\Livewire\Staff\Setup;
 
+use App\Enums\StaffUndoKind;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\PromoCode;
+use App\Services\Staff\StaffUndo;
 use DateTimeInterface;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -15,7 +18,7 @@ use Livewire\Component;
 #[Title('Promo codes')]
 class PromoCodes extends Component
 {
-    use WithinTenant;
+    use PresentsUndoToast, WithinTenant;
 
     public string $code = '';
 
@@ -98,6 +101,34 @@ class PromoCodes extends Component
         }
 
         $this->flash = $promo->code.' is off.';
+    }
+
+    public function delete(string $id, StaffUndo $undo): void
+    {
+        $promo = $this->promo($id);
+        $this->authorize('delete', $promo);
+        $code = $promo->code;
+        $promo->delete();
+        $this->audit('promo_code.deleted', $promo, ['code' => $code]);
+
+        if ($this->editingId === $promo->id) {
+            $this->resetForm();
+        }
+
+        $this->rememberUndo($undo->offer(
+            $this->currentUser(),
+            StaffUndoKind::PromoDelete,
+            $code.' removed.',
+            null,
+            $promo,
+            [
+                'code' => $code,
+                'percent_off' => $promo->percent_off,
+                'amount_off_cents' => $promo->amount_off_cents,
+                'active' => $promo->active,
+            ],
+        ));
+        $this->flash = $code.' removed.';
     }
 
     public function cancel(): void

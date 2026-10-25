@@ -13,6 +13,7 @@ use App\Models\BookingListView;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Membership;
+use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\PlatformFee;
@@ -29,6 +30,7 @@ use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\Allocator;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -336,7 +338,21 @@ class StaffBookingsListTest extends TestCase
             ->call('askCancel')
             ->call('cancelSelected')
             ->assertSee('Cancelled 3.')
-            ->assertSee('Refunded 1 card payment.');
+            ->assertSee('Undo')
+            ->assertSee('@media (max-width: 390px)', false)
+            ->assertDontSee('Refunded');
+
+        $this->assertSame(BookingStatus::Held, $held->fresh()?->status);
+        $this->assertSame(BookingStatus::Confirmed, $paid->fresh()?->status);
+        $this->assertSame(BookingStatus::Held, $offline->fresh()?->status);
+        $this->assertSame(0, Refund::query()->count());
+        $this->assertSame(0, AuditLog::query()->where('action', 'booking.cancelled')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.cancelled')->count());
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.refunded')->count());
+
+        Carbon::setTestNow(now()->addSeconds(11));
+        $this->artisan('undo:commit')->assertSuccessful();
+        Carbon::setTestNow();
 
         $this->assertSame(BookingStatus::Cancelled, $held->fresh()?->status);
         $this->assertSame(BookingStatus::Cancelled, $paid->fresh()?->status);
@@ -412,7 +428,12 @@ class StaffBookingsListTest extends TestCase
             ->set('selected', [$booking->id, $betaBooking->id])
             ->call('askCancel')
             ->call('cancelSelected')
-            ->assertSee('Cancelled 1.');
+            ->assertSee('Cancelled 1.')
+            ->assertSee('Undo');
+        $this->assertSame(BookingStatus::Held, $booking->fresh()?->status);
+        Carbon::setTestNow(now()->addSeconds(11));
+        $this->artisan('undo:commit')->assertSuccessful();
+        Carbon::setTestNow();
         $this->assertSame(BookingStatus::Cancelled, $booking->fresh()?->status);
         app(TenantManager::class)->set($beta['tenant']);
         $this->assertSame(BookingStatus::Held, $betaBooking->fresh()?->status);

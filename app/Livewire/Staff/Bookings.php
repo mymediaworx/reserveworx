@@ -3,12 +3,14 @@
 namespace App\Livewire\Staff;
 
 use App\Enums\BookingStatus;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Livewire\Staff\Concerns\LoadsBookingRows;
 use App\Models\Booking;
 use App\Models\BookingListView;
 use App\Models\Location;
 use App\Models\Service;
+use App\Models\StaffUndoAction;
 use App\Services\Booking\BookingListActions;
 use App\Services\Booking\BookingListFilters;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,7 +26,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 #[Title('Bookings')]
 class Bookings extends Component
 {
-    use LoadsBookingRows, WithinTenant, WithPagination;
+    use LoadsBookingRows, PresentsUndoToast, WithinTenant, WithPagination;
 
     private const VIEW_LIMIT = 30;
 
@@ -344,6 +346,10 @@ class Bookings extends Component
 
         if ($parts !== []) {
             $this->flash = implode(' ', $parts);
+        }
+
+        if ($result['undo'] instanceof StaffUndoAction) {
+            $this->rememberUndo($result['undo']);
         }
 
         if ($result['problems'] !== []) {

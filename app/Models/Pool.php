@@ -11,12 +11,13 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Validation\ValidationException;
 
 class Pool extends Model
 {
     /** @use HasFactory<PoolFactory> */
-    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations, SoftDeletes;
 
     protected $fillable = [
         'tenant_id',

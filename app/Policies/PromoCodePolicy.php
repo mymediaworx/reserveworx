@@ -29,4 +29,9 @@ class PromoCodePolicy
     {
         return $this->sameTenant($promoCode->tenant_id) && $this->tenantAllows($user, 'inventory.manage');
     }
+
+    public function delete(User $user, PromoCode $promoCode): bool
+    {
+        return $this->update($user, $promoCode);
+    }
 }

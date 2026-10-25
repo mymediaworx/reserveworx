@@ -10,6 +10,7 @@ Schedule::command(sprintf(
 ))->everyMinute()->withoutOverlapping();
 
 Schedule::command('holds:purge-expired')->everyMinute()->withoutOverlapping();
+Schedule::command('undo:commit')->everyMinute()->withoutOverlapping();
 Schedule::command('integrations:dispatch')->everyMinute()->withoutOverlapping();
 Schedule::command('rentals:flag-overdue')->everyMinute()->withoutOverlapping();
 Schedule::command('bookings:dispatch-reminders')->everyFiveMinutes()->withoutOverlapping();

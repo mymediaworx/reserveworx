@@ -5,6 +5,8 @@ namespace App\Livewire\Staff;
 use App\Domain\Fees\FeeChannel;
 use App\Enums\BookingStatus;
 use App\Enums\OperationalStatus;
+use App\Enums\StaffUndoKind;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
 use App\Models\AuditLog;
@@ -18,9 +20,11 @@ use App\Models\PricingSnapshot;
 use App\Models\StripeAccount;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Booking\BookingCancellation;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
+use App\Services\Staff\StaffUndo;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
@@ -36,7 +40,7 @@ use Livewire\Component;
 #[Layout('layouts.staff')]
 class BookingShow extends Component
 {
-    use WithinTenant;
+    use PresentsUndoToast, WithinTenant;
 
     #[Locked]
     public string $bookingId = '';
@@ -203,13 +207,42 @@ class BookingShow extends Component
         $this->notice('Marked as a no-show.');
     }
 
-    public function cancelBooking(Allocator $allocator, WaitlistPromoter $promoter): void
+    public function cancelBooking(BookingCancellation $cancellation, StaffUndo $undo): void
     {
         $booking = $this->editable();
-        $cancelled = $allocator->cancel($booking);
-        $promoter->afterRelease($cancelled);
-        $this->audit('booking.cancelled', $cancelled);
-        $this->notice('Booking cancelled. Any refund is handled separately.');
+
+        if ($booking->status === BookingStatus::Cancelled) {
+            $this->warn('That booking is already cancelled.');
+
+            return;
+        }
+
+        if ($cancellation->refundIssued($booking) || $undo->coversBooking($booking->id)) {
+            if ($cancellation->refundIssued($booking) && ! $undo->coversBooking($booking->id)) {
+                $finished = $cancellation->finalize($booking, $this->currentUser(), false);
+
+                if ($finished['problem'] !== null) {
+                    $this->warn($finished['problem']);
+
+                    return;
+                }
+            }
+
+            $this->notice('Booking cancelled. Any refund is handled separately.');
+
+            return;
+        }
+
+        $action = $undo->offer(
+            $this->currentUser(),
+            StaffUndoKind::BookingCancel,
+            'Booking cancelled.',
+            $booking->location_id,
+            $booking,
+            ['bookings' => [['id' => $booking->id, 'refund_card' => false]]],
+        );
+        $this->rememberUndo($action);
+        $this->notice('Booking cancelled.');
     }
 
     public function setOperational(string $status): void

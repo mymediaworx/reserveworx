@@ -33,4 +33,9 @@ class PoolPolicy
             && $this->tenantAllows($user, 'inventory.manage')
             && $this->locationAllowed($user, $pool->location_id);
     }
+
+    public function delete(User $user, Pool $pool): bool
+    {
+        return $this->update($user, $pool);
+    }
 }

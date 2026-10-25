@@ -33,4 +33,9 @@ class AssetPolicy
             && $this->tenantAllows($user, 'inventory.manage')
             && $this->locationAllowed($user, $asset->location_id);
     }
+
+    public function delete(User $user, Asset $asset): bool
+    {
+        return $this->update($user, $asset);
+    }
 }

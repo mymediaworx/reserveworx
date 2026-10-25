@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Staff;
 
+use App\Enums\StaffUndoKind;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
 use App\Models\Location;
@@ -10,6 +12,7 @@ use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Services\Inventory\ClosureBookings;
 use App\Services\Inventory\ClosureWriter;
+use App\Services\Staff\StaffUndo;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -20,7 +23,7 @@ use Livewire\Component;
 #[Title('Closures')]
 class Closures extends Component
 {
-    use WithinTenant;
+    use PresentsUndoToast, WithinTenant;
 
     public string $locationId = '';
 
@@ -138,7 +141,7 @@ class Closures extends Component
             : 'Closure saved. '.$count.' confirmed '.($count === 1 ? 'booking overlaps' : 'bookings overlap').' it. Nothing was cancelled or refunded.';
     }
 
-    public function remove(string $id): void
+    public function remove(string $id, StaffUndo $undo): void
     {
         $closure = $this->closure($id);
         $this->authorize('delete', $closure);
@@ -149,6 +152,19 @@ class Closures extends Component
             $this->resetForm();
         }
 
+        $this->rememberUndo($undo->offer(
+            $this->currentUser(),
+            StaffUndoKind::ClosureDelete,
+            'Closure removed.',
+            $closure->location_id,
+            $closure,
+            [
+                'reason' => $closure->reason,
+                'location_id' => $closure->location_id,
+                'starts_on' => $closure->starts_on->toDateString(),
+                'ends_on' => $closure->ends_on->toDateString(),
+            ],
+        ));
         $this->flash = 'Closure removed. Bookings that were already confirmed stay as they are.';
     }
 

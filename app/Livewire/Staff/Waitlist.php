@@ -2,12 +2,15 @@
 
 namespace App\Livewire\Staff;
 
+use App\Enums\StaffUndoKind;
 use App\Enums\WaitlistStatus;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Location;
 use App\Models\Service;
 use App\Models\WaitlistEntry;
 use App\Services\Booking\WaitlistPromoter;
+use App\Services\Staff\StaffUndo;
 use App\Support\Display;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -21,7 +24,7 @@ use Livewire\Component;
 #[Title('Waitlist')]
 class Waitlist extends Component
 {
-    use WithinTenant;
+    use PresentsUndoToast, WithinTenant;
 
     #[Url]
     public string $date = '';
@@ -82,7 +85,7 @@ class Waitlist extends Component
         $this->flash = 'Promoted. The spot is held and the notification is queued.';
     }
 
-    public function cancel(string $entryId): void
+    public function cancel(string $entryId, StaffUndo $undo): void
     {
         $entry = $this->entry($entryId);
         $this->authorize('update', $entry);
@@ -93,9 +96,24 @@ class Waitlist extends Component
             return;
         }
 
+        $snapshot = [
+            'status' => $entry->status->value,
+            'customer_name' => $entry->customer_name,
+            'customer_email' => $entry->customer_email,
+            'customer_phone' => $entry->customer_phone,
+            'participants' => $entry->participants,
+        ];
         $entry->status = WaitlistStatus::Cancelled;
         $entry->save();
         $this->audit('waitlist.cancelled', $entry, []);
+        $this->rememberUndo($undo->offer(
+            $this->currentUser(),
+            StaffUndoKind::WaitlistRemove,
+            'Removed from the waitlist.',
+            $entry->location_id,
+            $entry,
+            $snapshot,
+        ));
         $this->flash = 'Removed from the waitlist.';
     }
 

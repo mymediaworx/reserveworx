@@ -26,6 +26,7 @@
             <p class="flash bad" role="alert">{{ $problem }}</p>
         @endif
     </div>
+    @include('livewire.staff.partials.undo-toast')
 
     @if ($status === 'held' && $holdExpires)
         <p class="notice attention">
