@@ -133,6 +133,8 @@ class StaffReturnsTest extends TestCase
             ->set('returnedAt.'.$damaged['checkout']->id, '2026-06-16T19:20')
             ->set('condition.'.$damaged['checkout']->id, 'damaged')
             ->set('note.'.$damaged['checkout']->id, 'Hull crack')
+            ->set('lateFeeAction.'.$damaged['checkout']->id, 'waived')
+            ->set('lateFeeReason.'.$damaged['checkout']->id, 'Already on the damage note')
             ->call('recordReturn', $damaged['checkout']->id)
             ->assertHasNoErrors()
             ->assertSee('20 minutes late');
@@ -177,6 +179,8 @@ class StaffReturnsTest extends TestCase
         Livewire::test(Returns::class)
             ->set('returnedAt.'.$pool['checkout']->id, '2026-06-16T19:05')
             ->set('condition.'.$pool['checkout']->id, 'needs_attention')
+            ->set('lateFeeAction.'.$pool['checkout']->id, 'waived')
+            ->set('lateFeeReason.'.$pool['checkout']->id, 'Shop policy')
             ->call('recordReturn', $pool['checkout']->id)
             ->assertHasNoErrors();
         $pool['pool']->refresh();

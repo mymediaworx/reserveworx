@@ -20,6 +20,7 @@ class TenantSettingResource extends JsonResource
             'hold_minutes' => $this->hold_minutes,
             'guest_cancel_before_minutes' => $this->guest_cancel_before_minutes,
             'late_fee_per_minute_cents' => $this->late_fee_per_minute_cents,
+            'late_grace_minutes' => $this->late_grace_minutes,
             'ledger_bucket_minutes' => $this->ledger_bucket_minutes,
             'fee_payer' => $this->fee_payer->value,
             'direct_fee_bps' => $this->direct_fee_bps,

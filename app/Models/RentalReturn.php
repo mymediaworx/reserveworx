@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\LateFeeDecision;
 use App\Enums\ReturnCondition;
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -21,12 +22,17 @@ class RentalReturn extends Model
         'condition',
         'notes',
         'minutes_late',
+        'late_fee_cents',
+        'late_fee_decision',
+        'late_fee_reason',
         'recorded_by',
     ];
 
     protected $casts = [
         'condition' => ReturnCondition::class,
         'minutes_late' => 'integer',
+        'late_fee_cents' => 'integer',
+        'late_fee_decision' => LateFeeDecision::class,
     ];
 
     /**

@@ -30,6 +30,7 @@ use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Catalog\BookingOperatorFeeLines;
+use App\Support\LateFee;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -744,6 +745,7 @@ class BookingController extends Controller
     {
         $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
         $rate = $setting instanceof TenantSetting ? $setting->late_fee_per_minute_cents : null;
+        $grace = LateFee::graceMinutes($setting instanceof TenantSetting ? $setting : null);
 
         if ($rate === null || $rate < 1) {
             return;
@@ -758,13 +760,13 @@ class BookingController extends Controller
                 continue;
             }
 
-            $seconds = $returnedAt->getTimestamp() - $checkout->due_at->getTimestamp();
+            $amount = LateFee::amountCents(LateFee::billableMinutes($checkout->due_at, $returnedAt, $grace), $rate);
 
-            if ($seconds <= 0) {
+            if ($amount < 1) {
                 continue;
             }
 
-            $checkout->late_fee_cents = intdiv($seconds, 60) * $rate;
+            $checkout->late_fee_cents = $amount;
             $checkout->save();
         }
     }
