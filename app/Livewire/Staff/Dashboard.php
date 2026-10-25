@@ -74,6 +74,12 @@ class Dashboard extends Component
         $access = app(StaffLocationAccess::class);
         $overdue = RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'));
         $access->constrainToVisibleBookings($overdue);
+        $overdueRentals = (clone $overdue)
+            ->with(['booking.customer', 'booking.service', 'asset', 'pool'])
+            ->orderBy('due_at')
+            ->orderBy('id')
+            ->limit(20)
+            ->get();
         $paid = Payment::query()
             ->where('status', 'paid')
             ->where('created_at', '>=', $now->subDays(30)->utc());
@@ -86,7 +92,9 @@ class Dashboard extends Component
             'today' => $today,
             'departures' => $departures,
             'todayCount' => $today->count(),
-            'overdueCount' => $overdue->count(),
+            'overdueCount' => (clone $overdue)->count(),
+            'overdueRentals' => $overdueRentals,
+            'overdueAsOf' => CarbonImmutable::now('UTC'),
             'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
             'upcomingCount' => Booking::query()
                 ->where('starts_at', '>', $end)

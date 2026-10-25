@@ -6,6 +6,7 @@
     @param int|null $bookingFeeCents  Customer-paid booking fee; null in operator-absorbed mode.
     @param int $taxCents
     @param list<array{name?: string, cents?: int|string}>|null $taxLines
+    @param int $lateFeeCents  Applied late-return fee. This is not the booking fee.
     @param int $totalCents
     @param int $paidCents
     @param int|null $refundedCents  Total refunded to the customer, for refund receipts.
@@ -22,6 +23,7 @@
     $refundTerms = $refundTerms ?? null;
     $refundedCents = $refundedCents ?? null;
     $refundedBookingFeeCents = $refundedBookingFeeCents ?? null;
+    $lateFeeCents = $lateFeeCents ?? 0;
 
     if ($bookingFeeCents !== null && $refundTerms === null) {
         throw new \LogicException('Customer-paid receipts must show the booking fee refund terms.');
@@ -41,6 +43,12 @@
                 </div>
             @endif
         @endforeach
+        @if ($lateFeeCents > 0)
+            <div class="line late-fee">
+                <dt>Late fee</dt>
+                <dd>{{ Money::format($lateFeeCents, $currency) }}</dd>
+            </div>
+        @endif
         @if ($bookingFeeCents !== null)
             <div class="line booking-fee">
                 <dt>{{ BookingFeeRefundTerms::LABEL }}</dt>

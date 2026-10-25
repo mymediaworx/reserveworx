@@ -1,8 +1,11 @@
 @php
     use App\Models\Booking;
+    use App\Enums\LateFeeDecision;
     use App\Enums\ReturnCondition;
     use App\Support\Display;
+    use App\Support\LateFee;
     use App\Support\Lateness;
+    use Carbon\CarbonImmutable;
 @endphp
 <div class="page returns-page">
     <style>
@@ -22,6 +25,8 @@
         .return-card .late { color: var(--danger); font-weight: 600; }
         .return-card .return-form { display: grid; gap: 0.75rem; margin-top: 0.35rem; }
         .return-card .return-form .button { width: 100%; }
+        .fee-choice { display: grid; gap: 0.35rem; margin: 0; padding: 0; border: 0; }
+        .fee-choice label { display: flex; gap: 0.5rem; align-items: center; }
         @media (max-width: 390px) {
             .returns-page { min-width: 0; }
             .returns-page .return-card,
@@ -74,6 +79,18 @@
                     $minutes = $due !== null ? Lateness::minutes($due, $now) : 0;
                     $resource = $checkout->asset?->name ?? $checkout->pool?->name ?? 'Resource';
                     $customer = $booking?->customer;
+                    $entered = $returnedAt[$checkout->id] ?? '';
+                    $feeMinutes = 0;
+                    $feeCents = 0;
+                    $pastDue = false;
+                    if ($due !== null && is_string($entered) && $entered !== '') {
+                        $parsedReturn = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $entered, $zone);
+                        if ($parsedReturn instanceof CarbonImmutable) {
+                            $pastDue = Lateness::overdue($due, $parsedReturn);
+                            $feeMinutes = LateFee::billableMinutes($due, $parsedReturn, $graceMinutes);
+                            $feeCents = LateFee::amountCents($feeMinutes, $lateFeeRate);
+                        }
+                    }
                 @endphp
                 <li @class(['return-card', 'is-late' => $overdue]) data-checkout="{{ $checkout->id }}" data-overdue="{{ $overdue ? 'yes' : 'no' }}" data-minutes="{{ $minutes }}" wire:key="return-{{ $checkout->id }}">
                     <strong>{{ $resource }}</strong>
@@ -89,7 +106,7 @@
                     <div class="return-form">
                         <label class="field">
                             <span>Return time</span>
-                            <input type="datetime-local" wire:model="returnedAt.{{ $checkout->id }}" required>
+                            <input type="datetime-local" wire:model.live="returnedAt.{{ $checkout->id }}" required>
                         </label>
                         @error('returnedAt.'.$checkout->id)<p class="error">{{ $message }}</p>@enderror
                         <label class="field">
@@ -106,6 +123,30 @@
                             <textarea wire:model="note.{{ $checkout->id }}" rows="2" maxlength="500" placeholder="Optional"></textarea>
                         </label>
                         @error('note.'.$checkout->id)<p class="error">{{ $message }}</p>@enderror
+                        @if ($feeCents > 0)
+                            <p class="late" data-late-fee="{{ $feeCents }}" data-late-minutes="{{ $feeMinutes }}">Late fee {{ Display::money($feeCents, $currency) }} for {{ $feeMinutes }} {{ $feeMinutes === 1 ? 'minute' : 'minutes' }}</p>
+                            <fieldset class="fee-choice">
+                                <legend class="sr-only">Late fee</legend>
+                                <label>
+                                    <input type="radio" wire:model.live="lateFeeAction.{{ $checkout->id }}" value="{{ LateFeeDecision::Applied->value }}">
+                                    <span>Apply fee</span>
+                                </label>
+                                <label>
+                                    <input type="radio" wire:model.live="lateFeeAction.{{ $checkout->id }}" value="{{ LateFeeDecision::Waived->value }}">
+                                    <span>Waive fee</span>
+                                </label>
+                            </fieldset>
+                            @error('lateFeeAction.'.$checkout->id)<p class="error">{{ $message }}</p>@enderror
+                            @if (($lateFeeAction[$checkout->id] ?? '') === LateFeeDecision::Waived->value)
+                                <label class="field">
+                                    <span>Reason for waiving</span>
+                                    <textarea wire:model="lateFeeReason.{{ $checkout->id }}" rows="2" maxlength="500" required></textarea>
+                                </label>
+                                @error('lateFeeReason.'.$checkout->id)<p class="error">{{ $message }}</p>@enderror
+                            @endif
+                        @elseif ($graceMinutes > 0 && $pastDue)
+                            <p data-grace="yes">Inside the grace period. No late fee.</p>
+                        @endif
                         <button type="button" class="button primary" wire:click="recordReturn('{{ $checkout->id }}')" wire:loading.attr="disabled" wire:target="recordReturn">Return</button>
                     </div>
                 </li>

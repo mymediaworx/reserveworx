@@ -401,9 +401,11 @@ class CustomerDataEraser
     {
         foreach (RentalReturn::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->get() as $return) {
             $notes = $this->scrubText($return->notes, $names, $fragments);
+            $reason = $this->scrubText($return->late_fee_reason, $names, $fragments);
 
-            if ($notes !== $return->notes) {
+            if ($notes !== $return->notes || $reason !== $return->late_fee_reason) {
                 $return->notes = $notes;
+                $return->late_fee_reason = $reason;
                 $return->save();
             }
         }

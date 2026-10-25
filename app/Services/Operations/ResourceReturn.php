@@ -2,6 +2,7 @@
 
 namespace App\Services\Operations;
 
+use App\Enums\LateFeeDecision;
 use App\Enums\OperationalStatus;
 use App\Enums\ResourceFlag;
 use App\Enums\ResourceStatus;
@@ -19,6 +20,7 @@ use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\BucketPlanner;
 use App\Services\Notifications\BookingEvents;
+use App\Support\LateFee;
 use App\Support\Lateness;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -27,7 +29,8 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Records one checked-out resource as back.
- * Stores whole minutes late. Does not write a late fee and does not move money.
+ * Minutes late start after the workspace grace period. An applied late fee is
+ * added to the customer total. A waived fee is not. Neither writes a payment.
  */
 final class ResourceReturn
 {
@@ -35,6 +38,7 @@ final class ResourceReturn
         private readonly AffectedBookings $affected,
         private readonly BookingEvents $events,
         private readonly BucketPlanner $buckets,
+        private readonly LateFeeCharge $lateFees,
     ) {}
 
     /**
@@ -43,6 +47,9 @@ final class ResourceReturn
      *     return: RentalReturn,
      *     booking: Booking,
      *     minutes_late: int,
+     *     late_fee_cents: ?int,
+     *     late_fee_decision: ?string,
+     *     within_grace: bool,
      *     released_start: ?CarbonImmutable,
      *     released_end: ?CarbonImmutable,
      *     maintained_asset_id: ?string,
@@ -56,6 +63,8 @@ final class ResourceReturn
         ReturnCondition $condition,
         ?string $notes,
         string $recordedBy,
+        ?LateFeeDecision $lateFeeDecision = null,
+        ?string $lateFeeReason = null,
     ): array {
         if (! in_array($condition, [ReturnCondition::Good, ReturnCondition::NeedsAttention, ReturnCondition::Damaged], true)) {
             throw ValidationException::withMessages([
@@ -66,7 +75,7 @@ final class ResourceReturn
         $notes = $this->note($notes);
         $returnedAt = $returnedAt->utc();
 
-        $result = DB::transaction(function () use ($checkout, $returnedAt, $condition, $notes, $recordedBy): array {
+        $result = DB::transaction(function () use ($checkout, $returnedAt, $condition, $notes, $recordedBy, $lateFeeDecision, $lateFeeReason): array {
             DB::statement('SET innodb_lock_wait_timeout = 3');
 
             $booking = Booking::query()->lockForUpdate()->find($checkout->booking_id);
@@ -81,9 +90,31 @@ final class ResourceReturn
             }
 
             $this->guardReturnTime($locked, $returnedAt);
-            $minutesLate = Lateness::minutes($locked->due_at, $returnedAt);
+            $setting = TenantSetting::query()->where('tenant_id', $booking->tenant_id)->first();
+            $grace = LateFee::graceMinutes($setting instanceof TenantSetting ? $setting : null);
+            $minutesLate = LateFee::billableMinutes($locked->due_at, $returnedAt, $grace);
+            $assessed = LateFee::amountCents($minutesLate, $setting instanceof TenantSetting ? $setting->late_fee_per_minute_cents : null);
+            $decision = $assessed > 0 ? $lateFeeDecision : null;
+            $reason = null;
+
+            if ($assessed > 0 && ! $decision instanceof LateFeeDecision) {
+                throw ValidationException::withMessages([
+                    'late_fee' => 'Apply the late fee or waive it.',
+                ]);
+            }
+
+            if ($decision === LateFeeDecision::Waived) {
+                $reason = $this->waiveReason($lateFeeReason);
+            } elseif ($decision === LateFeeDecision::Applied) {
+                $reason = $this->optionalReason($lateFeeReason);
+            }
+
             $locked->returned_at = Carbon::instance($returnedAt);
             $locked->save();
+
+            if ($decision === LateFeeDecision::Applied) {
+                $this->lateFees->apply($booking, $locked, $assessed, $minutesLate);
+            }
 
             $row = RentalReturn::query()->create([
                 'tenant_id' => $booking->tenant_id,
@@ -94,6 +125,9 @@ final class ResourceReturn
                 'condition' => $condition,
                 'notes' => $notes,
                 'minutes_late' => $minutesLate,
+                'late_fee_cents' => $assessed > 0 ? $assessed : null,
+                'late_fee_decision' => $decision,
+                'late_fee_reason' => $reason,
                 'recorded_by' => $recordedBy,
             ]);
 
@@ -116,6 +150,9 @@ final class ResourceReturn
                 'return' => $row,
                 'booking' => $booking,
                 'minutes_late' => $minutesLate,
+                'late_fee_cents' => $assessed > 0 ? $assessed : null,
+                'late_fee_decision' => $decision?->value,
+                'within_grace' => $grace > 0 && Lateness::overdue($locked->due_at, $returnedAt) && $minutesLate === 0,
                 'released_start' => $release['start'],
                 'released_end' => $release['end'],
                 'maintained_asset_id' => $maintained,
@@ -150,6 +187,40 @@ final class ResourceReturn
         }
 
         return $notes;
+    }
+
+    private function waiveReason(?string $reason): string
+    {
+        $reason = $this->optionalReason($reason);
+
+        if ($reason === null || mb_strlen($reason) < 3) {
+            throw ValidationException::withMessages([
+                'late_fee_reason' => 'Say why the late fee is waived.',
+            ]);
+        }
+
+        return $reason;
+    }
+
+    private function optionalReason(?string $reason): ?string
+    {
+        if ($reason === null) {
+            return null;
+        }
+
+        $reason = trim($reason);
+
+        if ($reason === '') {
+            return null;
+        }
+
+        if (mb_strlen($reason) > 500) {
+            throw ValidationException::withMessages([
+                'late_fee_reason' => 'The reason may not be greater than 500 characters.',
+            ]);
+        }
+
+        return $reason;
     }
 
     private function guardReturnTime(RentalCheckout $checkout, CarbonImmutable $returnedAt): void

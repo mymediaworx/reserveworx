@@ -1,4 +1,8 @@
-@php use App\Support\Display; @endphp
+@php
+    use App\Models\Booking;
+    use App\Support\Display;
+    use App\Support\Lateness;
+@endphp
 <div class="page">
     <div class="welcome">
         <h1>Welcome{{ $firstName !== '' ? ', '.$firstName : '' }}</h1>
@@ -71,6 +75,37 @@
             </span>
         </a>
     </div>
+
+    @if ($overdueCount > 0)
+        <section class="panel" aria-labelledby="overdue-heading" data-overdue-list="{{ $overdueCount }}">
+            <div class="panel-head">
+                <h2 id="overdue-heading">Still out</h2>
+                <a href="/staff/returns" wire:navigate>Returns</a>
+            </div>
+            <ul class="plain-list">
+                @foreach ($overdueRentals as $checkout)
+                    @php
+                        $booking = $checkout->booking;
+                        $due = $checkout->due_at;
+                        $resource = $checkout->asset?->name ?? $checkout->pool?->name ?? 'Resource';
+                        $customer = $booking?->customer;
+                        $who = $customer?->name ?: ($customer?->email ?: 'Walk-in');
+                        $minutes = $due !== null ? Lateness::minutes($due, $overdueAsOf) : 0;
+                    @endphp
+                    <li data-overdue-checkout="{{ $checkout->id }}" data-minutes="{{ $minutes }}">
+                        <strong>{{ $resource }}</strong>
+                        <span>{{ $who }}</span>
+                        @if ($due !== null)
+                            <span class="late">{{ Lateness::label($due, $overdueAsOf) }}</span>
+                        @endif
+                        @if ($booking instanceof Booking)
+                            <a href="/staff/bookings/{{ $booking->id }}">Open booking</a>
+                        @endif
+                    </li>
+                @endforeach
+            </ul>
+        </section>
+    @endif
 
     <section class="panel" aria-labelledby="shortcuts-heading">
         <div class="panel-head">
