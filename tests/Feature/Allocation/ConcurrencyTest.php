@@ -5,6 +5,7 @@ namespace Tests\Feature\Allocation;
 use App\Models\Asset;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Services\Allocation\BucketPlanner;
@@ -210,6 +211,111 @@ class ConcurrencyTest extends TestCase
             ->where('starts_at', '<', '2026-06-15 16:00:00')
             ->where('ends_at', '>', '2026-06-15 15:00:00')
             ->count());
+        $this->assertSame(0, DB::table('holds')->count());
+        $this->assertSame(0, DB::table('capacity_ledger')->where('allocated_units', '<', 0)->orWhere('held_units', '<', 0)->count());
+    }
+
+    public function test_two_extensions_cannot_double_book_the_same_asset(): void
+    {
+        [$service, $first] = $this->serviceOnAsset();
+        $category = ResourceCategory::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $service->tenant_id,
+            'name' => 'Boats',
+            'slug' => 'boats',
+        ]);
+        $first->resource_category_id = $category->id;
+        $first->save();
+        $secondAsset = Asset::factory()->create([
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'resource_category_id' => $category->id,
+            'name' => 'Boat B',
+        ]);
+        $target = Asset::factory()->create([
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'resource_category_id' => $category->id,
+            'name' => 'Boat C',
+        ]);
+        $secondService = Service::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'name' => 'Second rental',
+            'kind' => 'rental',
+        ]);
+        ResourceRequirement::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $service->tenant_id,
+            'service_id' => $secondService->id,
+            'resource_type' => 'asset',
+            'resource_id' => $secondAsset->id,
+            'quantity' => 1,
+        ]);
+        $firstId = $this->seedConfirmed($service, $first->id, '2026-06-15 14:00:00', '2026-06-15 15:00:00');
+        $secondId = $this->seedConfirmed($secondService, $secondAsset->id, '2026-06-15 14:00:00', '2026-06-15 15:00:00');
+
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        DB::beginTransaction();
+        DB::statement('set innodb_lock_wait_timeout = 15');
+        DB::select('select id from assets where id = ? for update', [$target->id]);
+
+        $processes = [];
+        $payloads = [];
+
+        foreach ([$firstId, $secondId] as $bookingId) {
+            $payload = tempnam(sys_get_temp_dir(), 'extend-');
+            $this->assertNotFalse($payload);
+            file_put_contents($payload, json_encode([
+                'booking_id' => $bookingId,
+                'ends_at' => '2026-06-15T16:00:00Z',
+                'asset_id' => $target->id,
+            ], JSON_THROW_ON_ERROR));
+            $process = new Process(
+                [PHP_BINARY, base_path('tests/Support/concurrent_extend.php'), $payload],
+                base_path(),
+                $this->childEnvironment(),
+            );
+            $process->setTimeout(30);
+            $process->start();
+            $processes[] = $process;
+            $payloads[] = $payload;
+        }
+
+        $started = microtime(true);
+        $waiting = false;
+
+        while (microtime(true) - $started < 2) {
+            $locks = (int) (DB::select("select count(*) as n from information_schema.processlist where id <> connection_id() and (state like '%lock%' or state like '%wait%' or info like '%for update%')")[0]->n ?? 0);
+
+            if ($locks >= 2) {
+                $waiting = true;
+                break;
+            }
+
+            usleep(20000);
+        }
+
+        DB::commit();
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+
+        $codes = [];
+        $output = '';
+
+        foreach ($processes as $process) {
+            $process->wait();
+            $codes[] = $process->getExitCode();
+            $output .= $process->getOutput().$process->getErrorOutput();
+        }
+
+        foreach ($payloads as $payload) {
+            @unlink($payload);
+        }
+
+        sort($codes);
+        $this->assertTrue($waiting, $output);
+        $this->assertSame([0, 2], $codes, $output);
+        $this->assertStringNotContainsString('lock-wait-exhausted', $output);
+        $this->assertSame(1, DB::table('allocations')->where('asset_id', $target->id)->count());
+        $this->assertSame(1, DB::table('bookings')->whereIn('id', [$firstId, $secondId])->where('ends_at', '2026-06-15 16:00:00')->count());
         $this->assertSame(0, DB::table('holds')->count());
         $this->assertSame(0, DB::table('capacity_ledger')->where('allocated_units', '<', 0)->orWhere('held_units', '<', 0)->count());
     }

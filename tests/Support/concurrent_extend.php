@@ -16,7 +16,10 @@ $payload = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THR
 
 try {
     $booking = Booking::withoutGlobalScope(TenantScope::class)->findOrFail($payload['booking_id']);
-    $result = app(Allocator::class)->extend($booking, CarbonImmutable::parse($payload['ends_at']));
+    $assetId = isset($payload['asset_id']) && is_string($payload['asset_id']) && $payload['asset_id'] !== ''
+        ? $payload['asset_id']
+        : null;
+    $result = app(Allocator::class)->extend($booking, CarbonImmutable::parse($payload['ends_at']), $assetId);
 
     if ($result['offers'] !== []) {
         fwrite(STDERR, 'extension-rejected '.json_encode($result['offers'], JSON_THROW_ON_ERROR)."\n");

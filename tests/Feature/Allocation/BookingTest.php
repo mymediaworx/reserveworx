@@ -168,7 +168,7 @@ class BookingTest extends TestCase
         $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$first['id'].'/extend'), [
             'ends_at' => '2026-06-15T17:30:00Z',
         ])->assertStatus(409)
-            ->assertJsonPath('offers.shorter_ends_at', '2026-06-15T16:45:00Z')
+            ->assertJsonPath('offers.shorter_ends_at', '2026-06-15T17:00:00Z')
             ->assertJsonPath('data.ends_at', '2026-06-15T16:00:00Z');
     }
 

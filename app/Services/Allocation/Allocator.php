@@ -203,17 +203,32 @@ class Allocator
     }
 
     /**
+     * Lengthen a confirmed rental and, when asked, move it onto another asset
+     * of the same type. One transaction takes the allocation locks for the
+     * extra interval. A conflict leaves the booking where it was and offers
+     * the longest shorter end that fits, plus any other free asset of the same type.
+     *
      * @return array{booking: Booking, offers: array<string, mixed>}
      */
-    public function extend(Booking $booking, CarbonImmutable $newEnd): array
+    public function extend(Booking $booking, CarbonImmutable $newEnd, ?string $toAssetId = null): array
     {
         try {
-            $saved = $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newEnd): Booking {
+            $saved = $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newEnd, $toAssetId): Booking {
                 $this->enterTenant($booking->tenant_id);
                 $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
 
                 if ($booking->status !== BookingStatus::Confirmed) {
                     throw new AllocationUnavailableException('Only a confirmed booking can be extended.');
+                }
+
+                if (in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true)) {
+                    throw new AllocationUnavailableException('This rental is already finished.');
+                }
+
+                $service = Service::query()->find($booking->service_id);
+
+                if (! $service instanceof Service || $service->kind !== ServiceKind::Rental) {
+                    throw new AllocationUnavailableException('Only a rental can be extended.');
                 }
 
                 if ($booking->departure_id !== null) {
@@ -224,6 +239,13 @@ class Allocator
 
                 if ($newEnd->lessThanOrEqualTo($booking->ends_at)) {
                     throw new AllocationUnavailableException('The new end must be after the current end.');
+                }
+
+                $fromAssetId = $this->allocatedAssetId($booking, null);
+                $target = $this->presentId($toAssetId);
+
+                if ($target !== null && $fromAssetId === null) {
+                    throw new AllocationUnavailableException('That asset is not on this booking.');
                 }
 
                 $intent = new AllocationIntent(
@@ -239,8 +261,7 @@ class Allocator
                     $booking->guide_user_id,
                     variantId: $booking->service_variant_id,
                 );
-                $this->assertDuration($intent);
-                $plan = $this->plan($intent);
+                $plan = $this->plannedMove($booking, $intent, $fromAssetId, $target ?? $fromAssetId);
                 $this->lock($plan);
 
                 try {
@@ -2097,46 +2118,82 @@ class Allocator
     }
 
     /**
+     * The longest whole minute strictly before the requested end that still
+     * passes the same recheck, and any other asset of the same type that is
+     * free for the full requested interval. Both are hints.
+     *
      * @param  Plan  $plan
      * @return array<string, mixed>
      */
     private function offers(Booking $booking, array $plan, CarbonImmutable $requestedEnd): array
     {
         $currentEnd = CarbonImmutable::instance($booking->ends_at)->utc();
-        $halfSeconds = (int) floor($currentEnd->diffInSeconds($requestedEnd) / 2);
-        $shorter = $halfSeconds > 0 ? $currentEnd->addSeconds($halfSeconds) : null;
-        $shorterEndsAt = null;
-
-        if ($shorter instanceof CarbonImmutable) {
-            $shorterPlan = $plan;
-            foreach ($shorterPlan['demands'] as $index => $demand) {
-                $resource = $demand['type'] === ResourceType::Asset
-                    ? Asset::query()->find($demand['id'])
-                    : Pool::query()->find($demand['id']);
-                $buffer = $resource === null ? 0 : $this->tailMinutes($resource);
-                $shorterPlan['demands'][$index]['buffer_end'] = $shorter->addMinutes($buffer);
-                if ($demand['type'] === ResourceType::Pool) {
-                    $shorterPlan['demands'][$index]['buckets'] = $this->buckets->covering(
-                        $demand['buffer_start'],
-                        $shorterPlan['demands'][$index]['buffer_end'],
-                        $plan['bucket_minutes'],
-                    );
-                }
-            }
-
-            try {
-                $this->recheck($shorterPlan, $booking->id);
-                $shorterEndsAt = $shorter->format('Y-m-d\TH:i:s\Z');
-            } catch (AllocationUnavailableException) {
-                $shorterEndsAt = null;
-            }
-        }
+        $shorter = $this->longestShorterEnd($booking, $plan, $currentEnd, $requestedEnd);
 
         return [
             'authoritative' => false,
-            'shorter_ends_at' => $shorterEndsAt,
+            'shorter_ends_at' => $shorter?->format('Y-m-d\TH:i:s\Z'),
             'other_asset_ids' => $this->otherAssets($booking->id, $plan),
         ];
+    }
+
+    /**
+     * @param  Plan  $plan
+     */
+    private function longestShorterEnd(Booking $booking, array $plan, CarbonImmutable $currentEnd, CarbonImmutable $requestedEnd): ?CarbonImmutable
+    {
+        $span = $requestedEnd->getTimestamp() - $currentEnd->getTimestamp();
+        $wholeMinutes = intdiv($span, 60);
+        $high = ($span % 60 === 0) ? $wholeMinutes - 1 : $wholeMinutes;
+        $low = 1;
+        $best = null;
+
+        while ($low <= $high) {
+            $mid = intdiv($low + $high, 2);
+            $candidate = $currentEnd->addMinutes($mid);
+
+            if ($this->endFits($booking, $plan, $candidate)) {
+                $best = $candidate;
+                $low = $mid + 1;
+            } else {
+                $high = $mid - 1;
+            }
+        }
+
+        return $best;
+    }
+
+    /**
+     * @param  Plan  $plan
+     */
+    private function endFits(Booking $booking, array $plan, CarbonImmutable $end): bool
+    {
+        $candidate = $plan;
+        $candidate['ends_at'] = $end;
+
+        foreach ($candidate['demands'] as $index => $demand) {
+            $resource = $demand['type'] === ResourceType::Asset
+                ? Asset::query()->find($demand['id'])
+                : Pool::query()->find($demand['id']);
+            $buffer = $resource === null ? 0 : $this->tailMinutes($resource);
+            $candidate['demands'][$index]['buffer_end'] = $end->addMinutes($buffer);
+
+            if ($demand['type'] === ResourceType::Pool) {
+                $candidate['demands'][$index]['buckets'] = $this->buckets->covering(
+                    $demand['buffer_start'],
+                    $candidate['demands'][$index]['buffer_end'],
+                    $plan['bucket_minutes'],
+                );
+            }
+        }
+
+        try {
+            $this->recheck($candidate, $booking->id);
+        } catch (AllocationUnavailableException) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

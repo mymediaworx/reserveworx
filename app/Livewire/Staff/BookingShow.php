@@ -21,10 +21,12 @@ use App\Models\StripeAccount;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Booking\BookingCancellation;
+use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Staff\StaffUndo;
+use App\Support\Display;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
@@ -56,6 +58,15 @@ class BookingShow extends Component
     public string $rescheduleEnd = '';
 
     public string $extendEnd = '';
+
+    public ?string $extendAssetId = null;
+
+    public ?string $extensionShorterEnd = null;
+
+    public ?string $extensionShorterLabel = null;
+
+    /** @var list<array{id: string, name: string}> */
+    public array $extensionAssets = [];
 
     public ?string $paymentUrl = null;
 
@@ -291,28 +302,80 @@ class BookingShow extends Component
         $this->notice('Rescheduled.');
     }
 
-    public function extend(Allocator $allocator): void
+    public function extend(RentalExtensions $extensions): void
     {
         $booking = $this->editable();
         $this->validate(['extendEnd' => ['required', 'date_format:Y-m-d\TH:i']]);
-        $end = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->extendEnd, $this->zoneFor($booking))->utc();
+        $parsed = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->extendEnd, $this->zoneFor($booking));
+
+        if (! $parsed instanceof CarbonImmutable) {
+            $this->addError('extendEnd', 'Choose a valid return time.');
+
+            return;
+        }
+
+        $back = url('/staff/bookings/'.$booking->id);
 
         try {
-            $result = $allocator->extend($booking, $end);
+            $result = $extensions->request(
+                $booking,
+                $parsed->utc(),
+                $this->extendAssetId !== null && $this->extendAssetId !== '' ? $this->extendAssetId : null,
+                $back.'?paid=1',
+                $back,
+                false,
+                request(),
+            );
         } catch (AllocationUnavailableException $exception) {
+            $this->clearExtensionOffers();
             $this->warn($exception->getMessage());
 
             return;
         }
 
         if ($result['offers'] !== []) {
-            $this->warn('That time is no longer available. Try a shorter extension.');
+            $this->rememberExtensionOffers($booking, $result['offers']);
+            $this->warn('That time is no longer available.');
 
             return;
         }
 
+        $this->clearExtensionOffers();
+        $this->extendAssetId = null;
         $this->audit('booking.extended', $result['booking']);
-        $this->notice('Extended.');
+        $checkout = $result['checkout'];
+
+        if ($checkout !== null && $checkout['url'] !== null) {
+            $this->paymentUrl = $checkout['url'];
+            $this->notice('Extended. Charge '.Display::money($checkout['amount_cents']).' for the extra time. The booking fee on that increase is '.Display::money($checkout['fee_cents']).'.');
+
+            return;
+        }
+
+        $this->flash = 'Extended.';
+        $this->problem = $result['charge_message'];
+    }
+
+    public function acceptShorterExtension(RentalExtensions $extensions): void
+    {
+        $booking = $this->editable();
+
+        if ($this->extensionShorterEnd === null) {
+            $this->warn('That shorter time is no longer offered.');
+
+            return;
+        }
+
+        $this->extendEnd = CarbonImmutable::parse($this->extensionShorterEnd)->timezone($this->zoneFor($booking))->format('Y-m-d\TH:i');
+        $this->extendAssetId = null;
+        $this->extend($extensions);
+    }
+
+    public function acceptAssetExtension(RentalExtensions $extensions, string $assetId): void
+    {
+        $this->editable();
+        $this->extendAssetId = $assetId;
+        $this->extend($extensions);
     }
 
     public function render(): View
@@ -348,7 +411,47 @@ class BookingShow extends Component
                 ->get(),
             'operationalStatuses' => OperationalStatus::cases(),
             'hasLocationTax' => $this->locationHasTax($booking),
+            'canExtend' => $booking->status === BookingStatus::Confirmed
+                && $booking->service?->kind?->value === 'rental'
+                && ! in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true),
         ])->title(($booking->service->name ?? 'Booking').' – '.$booking->starts_at->timezone($zone)->format('M j'));
+    }
+
+    /**
+     * @param  array<string, mixed>  $offers
+     */
+    private function rememberExtensionOffers(Booking $booking, array $offers): void
+    {
+        $shorter = $offers['shorter_ends_at'] ?? null;
+        $this->extensionShorterEnd = is_string($shorter) && $shorter !== '' ? $shorter : null;
+        $this->extensionShorterLabel = $this->extensionShorterEnd === null
+            ? null
+            : CarbonImmutable::parse($this->extensionShorterEnd)->timezone($this->zoneFor($booking))->format('M j, g:i A');
+        $ids = $offers['other_asset_ids'] ?? [];
+        $names = is_array($ids) ? Asset::query()->whereIn('id', $ids)->pluck('name', 'id') : collect();
+        $this->extensionAssets = [];
+
+        if (! is_array($ids)) {
+            return;
+        }
+
+        foreach ($ids as $id) {
+            if (! is_string($id) || $id === '') {
+                continue;
+            }
+
+            $this->extensionAssets[] = [
+                'id' => $id,
+                'name' => (string) ($names[$id] ?? 'Asset'),
+            ];
+        }
+    }
+
+    private function clearExtensionOffers(): void
+    {
+        $this->extensionShorterEnd = null;
+        $this->extensionShorterLabel = null;
+        $this->extensionAssets = [];
     }
 
     private function locationHasTax(Booking $booking): bool

@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\OperationalStatus;
+use App\Enums\ServiceKind;
+use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Location;
@@ -10,6 +13,7 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Booking\RentalExtensions;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
 use Carbon\CarbonImmutable;
@@ -26,6 +30,7 @@ class GuestBookingController extends Controller
         private readonly WidgetTokens $tokens,
         private readonly Allocator $allocator,
         private readonly NotificationHooks $hooks,
+        private readonly RentalExtensions $extensions,
     ) {}
 
     public function lookupForm(Request $request, string $token): View
@@ -139,6 +144,69 @@ class GuestBookingController extends Controller
         return $this->manageResponse($token, $updated, null, 200);
     }
 
+    public function extend(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $tenant = $this->tenant($request);
+        $this->tokens->findActive($token) ?? abort(404);
+        $booking->load('service.location');
+        $validator = Validator::make($request->all(), [
+            'extra_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:10080'],
+            'ends_at' => ['sometimes', 'nullable', 'date'],
+            'asset_id' => ['sometimes', 'nullable', 'string', 'max:26'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->manageResponse($token, $booking, (string) $validator->errors()->first(), 422);
+        }
+
+        $data = $validator->validated();
+        $extra = $data['extra_minutes'] ?? null;
+        $endsAt = $data['ends_at'] ?? null;
+
+        if (is_numeric($extra)) {
+            $newEnd = CarbonImmutable::instance($booking->ends_at)->utc()->addMinutes((int) $extra)->utc();
+        } elseif (is_string($endsAt) && $endsAt !== '') {
+            $newEnd = CarbonImmutable::parse($endsAt)->utc();
+        } else {
+            return $this->manageResponse($token, $booking, 'Choose how much longer you need the rental.', 422);
+        }
+
+        $assetId = is_string($data['asset_id'] ?? null) && $data['asset_id'] !== '' ? $data['asset_id'] : null;
+        $back = URL::temporarySignedRoute('widget.manage', now()->addMinutes(30), [
+            'token' => $token,
+            'booking' => $booking->id,
+        ]);
+
+        try {
+            $result = $this->extensions->request($booking, $newEnd, $assetId, $back, $back, true, $request);
+        } catch (AllocationUnavailableException $exception) {
+            return $this->manageResponse($token, $booking, $exception->getMessage(), 409);
+        }
+
+        if ($result['offers'] !== []) {
+            return $this->manageResponse($token, $booking, 'That time is no longer available.', 409, $result['offers'], $newEnd);
+        }
+
+        $updated = $result['booking'];
+        $checkoutUrl = $result['checkout']['url'] ?? null;
+
+        if (is_string($checkoutUrl) && $checkoutUrl !== '') {
+            return redirect()->away($checkoutUrl);
+        }
+
+        $this->hooks->record(
+            $tenant->id,
+            $updated->id,
+            'booking.guest_extended',
+            'booking.guest_extended:'.$updated->id.':'.$updated->ends_at->utc()->format('YmdHi'),
+            ['booking_id' => $updated->id],
+        );
+
+        $message = $result['charge_message'];
+
+        return $this->manageResponse($token, $updated, $message, $message === null ? 200 : 409);
+    }
+
     private function match(string $reference, string $email): ?Booking
     {
         $booking = Booking::query()->with('customer')->find($reference);
@@ -176,21 +244,40 @@ class GuestBookingController extends Controller
         return null;
     }
 
-    private function manageResponse(string $token, Booking $booking, ?string $error, int $status): Response
+    /**
+     * @param  array<string, mixed>|null  $offers
+     */
+    private function manageResponse(string $token, Booking $booking, ?string $error, int $status, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): Response
     {
-        return response()->view('widget.manage', $this->manageData($token, $booking, $error), $status);
+        return response()->view('widget.manage', $this->manageData($token, $booking, $error, $offers, $requestedEnd), $status);
     }
 
     /**
-     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, canCancel: bool, cancelMessage: ?string, error: ?string}
+     * @param  array<string, mixed>|null  $offers
+     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string}
      */
-    private function manageData(string $token, Booking $booking, ?string $error): array
+    private function manageData(string $token, Booking $booking, ?string $error, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): array
     {
         $block = $this->cancelBlock($booking);
+        $booking->load('service');
+        $ids = is_array($offers['other_asset_ids'] ?? null) ? $offers['other_asset_ids'] : [];
+        $names = $ids === [] ? collect() : Asset::query()->whereIn('id', $ids)->pluck('name', 'id');
+        $offerAssets = [];
+
+        foreach ($ids as $id) {
+            if (! is_string($id) || $id === '') {
+                continue;
+            }
+
+            $offerAssets[] = [
+                'id' => $id,
+                'name' => (string) ($names[$id] ?? 'Asset'),
+            ];
+        }
 
         return [
             'token' => $token,
-            'booking' => $booking->load('service'),
+            'booking' => $booking,
             'cancelUrl' => URL::temporarySignedRoute('widget.guest-cancel', now()->addMinutes(30), [
                 'token' => $token,
                 'booking' => $booking->id,
@@ -199,10 +286,28 @@ class GuestBookingController extends Controller
                 'token' => $token,
                 'booking' => $booking->id,
             ]),
+            'extendUrl' => URL::temporarySignedRoute('widget.guest-extend', now()->addMinutes(30), [
+                'token' => $token,
+                'booking' => $booking->id,
+            ]),
             'canCancel' => $block === null,
+            'canExtend' => $this->canExtend($booking),
             'cancelMessage' => $block,
             'error' => $error,
+            'offers' => $offers,
+            'offerAssets' => $offerAssets,
+            'requestedEnd' => $requestedEnd?->utc()->format('Y-m-d\TH:i:s\Z'),
         ];
+    }
+
+    private function canExtend(Booking $booking): bool
+    {
+        $service = $booking->service;
+
+        return $booking->status->value === 'confirmed'
+            && $service instanceof Service
+            && $service->kind === ServiceKind::Rental
+            && ! in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true);
     }
 
     private function tenant(Request $request): Tenant
