@@ -13,6 +13,7 @@ use App\Http\Controllers\Web\SignupController;
 use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\StaffCheckInController;
+use App\Http\Controllers\Web\StaffImportTemplateController;
 use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
@@ -28,6 +29,7 @@ use App\Livewire\Staff\CheckIn;
 use App\Livewire\Staff\Closures;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
+use App\Livewire\Staff\Import;
 use App\Livewire\Staff\LocationTax;
 use App\Livewire\Staff\Manifest;
 use App\Livewire\Staff\Menu;
@@ -132,6 +134,9 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/promo-codes', PromoCodes::class);
+        Route::get('/import/templates/{type}', StaffImportTemplateController::class)
+            ->where('type', 'customers|inventory');
+        Route::get('/import', Import::class);
         Route::get('/settings', Settings::class);
         Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);
