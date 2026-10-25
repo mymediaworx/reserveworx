@@ -146,7 +146,7 @@ final class ClosureWriter
             }
 
             if ($data['scope'] === 'resource' && $this->resource($tenant, (string) $data['location_id'], (string) ($data['resource_key'] ?? '')) === null) {
-                $validator->errors()->add('resource_key', 'Choose a boat or pool at this location.');
+                $validator->errors()->add('resource_key', $tenant->industry->closurePickError());
                 $invalid = true;
             }
 

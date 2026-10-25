@@ -122,12 +122,12 @@
                 </div>
 
                 <div class="actions">
-                    <button type="submit" class="button primary" wire:loading.attr="disabled">Hold these boats</button>
+                    <button type="submit" class="button primary" wire:loading.attr="disabled">{{ $industry->holdButton() }}</button>
                     @if ($offerWaitlist)
                         <button type="button" class="button" wire:click="joinWaitlist">Add to waitlist instead</button>
                     @endif
                 </div>
-                <p class="muted small">Holding reserves the boats while you take payment. Price and payment are on the next screen.</p>
+                <p class="muted small">{{ $industry->holdNote() }}</p>
             @endif
         </form>
     @endif

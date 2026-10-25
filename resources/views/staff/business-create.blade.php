@@ -15,6 +15,13 @@
             </label>
             @error('name')<p class="error" role="alert">{{ $message }}</p>@enderror
             <label class="field">
+                <span>Industry</span>
+                <select name="industry">
+                    @include('partials.industry-options', ['selected' => old('industry', $industry->value)])
+                </select>
+            </label>
+            @error('industry')<p class="error" role="alert">{{ $message }}</p>@enderror
+            <label class="field">
                 <span>Short address</span>
                 <input type="text" name="slug" value="{{ old('slug') }}" maxlength="63" required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" autocapitalize="off" spellcheck="false">
             </label>

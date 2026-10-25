@@ -2,6 +2,7 @@
 
 namespace App\Services\Platform;
 
+use App\Enums\Industry;
 use App\Enums\MembershipStatus;
 use App\Enums\TenantStatus;
 use App\Models\Membership;
@@ -23,13 +24,14 @@ final class WorkspaceProvisioner
 {
     public function __construct(private readonly AuditLogger $audit) {}
 
-    public function create(string $name, string $slug, ?User $actor, ?Request $request): Tenant
+    public function create(string $name, string $slug, ?User $actor, ?Request $request, Industry $industry = Industry::BoatRentals): Tenant
     {
-        return DB::transaction(function () use ($name, $slug, $actor, $request): Tenant {
+        return DB::transaction(function () use ($name, $slug, $actor, $request, $industry): Tenant {
             $tenant = Tenant::query()->create([
                 'name' => $name,
                 'slug' => $slug,
                 'status' => TenantStatus::Onboarding,
+                'industry' => $industry,
             ]);
 
             TenantSetting::withoutGlobalScope(TenantScope::class)->create([
@@ -39,7 +41,7 @@ final class WorkspaceProvisioner
             $this->audit->log(
                 action: 'tenant.created',
                 subject: $tenant,
-                properties: ['name' => $tenant->name, 'slug' => $tenant->slug],
+                properties: ['name' => $tenant->name, 'slug' => $tenant->slug, 'industry' => $industry->value],
                 tenantId: $tenant->id,
                 actor: $actor,
                 request: $request,

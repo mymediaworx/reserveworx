@@ -28,6 +28,7 @@ erDiagram
     ulid id PK
     string slug UK
     string status
+    string industry
   }
   tenant_settings {
     ulid id PK
@@ -73,6 +74,8 @@ erDiagram
 ```
 
 `users.id` is a ULID. `sessions.user_id` and Sanctum's `personal_access_tokens.tokenable` use ULIDs as well. `audit_logs.tenant_id` is nullable because platform actions are not tenant-owned. Roles and permissions are system rows, not per tenant.
+
+`tenants.industry` is one of the eighteen industry keys, default `boat_rentals`. It chooses staff vocabulary. It does not change inventory, pricing, or fees. Migration `database/migrations/2026_10_25_000438_add_industry_to_tenants_table.php`.
 
 `memberships` is already the link between a user and a workspace. `users` has no `tenant_id`. The unique key is `(tenant_id, user_id)`, and `role_id` is that person's role in that one workspace. One login can own one business and be staff in another. No second membership table was added, and no existing membership rows were moved. A pending invitation uses the same row with status `invited`, plus `invite_token_hash` (SHA-256, nullable) and `invite_expires_at`. The plain token is not stored. `users.password_set_at` is set when a person chooses a password. It stays empty for an account created only to hold an invitation. Migration `database/migrations/2026_10_25_120000_add_team_invite_columns.php`.
 

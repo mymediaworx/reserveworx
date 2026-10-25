@@ -12,7 +12,7 @@
     @elseif ($isEmptyWorkspace)
         <section class="notice">
             <h2>Let’s get you taking bookings</h2>
-            <p>Add a location, the boats and gear you rent, and one service with a price. It takes about five minutes.</p>
+            <p>{{ $industry->dashboardSetup() }}</p>
             <a class="button primary" href="/staff/setup/locations" wire:navigate>Start setup</a>
         </section>
     @endif

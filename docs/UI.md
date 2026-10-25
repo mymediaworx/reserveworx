@@ -27,11 +27,11 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 
 | Host | Path | What |
 |---|---|---|
-| Platform (`app.reserveworx.com`) | `/` | Product page with platform sign in and a link to start a workspace |
-| Platform | `/signup` | Public signup: business name, subdomain, owner name, email, and password. The address is checked as it is typed. Booking fees stay at the standard rates |
-| Platform | `/platform/login`, `/platform` | Platform admins only: list and add workspaces |
+| Platform (`app.reserveworx.com`) | `/` | Product page with the eighteen industries, platform sign in, and a link to start a workspace |
+| Platform | `/signup` | Public signup: business name, industry, subdomain, owner name, email, and password. The address is checked as it is typed. Booking fees stay at the standard rates. Industry defaults to boat rentals |
+| Platform | `/platform/login`, `/platform` | Master admin, platform admins only: counts, filters, list, and add workspaces |
 | Platform | `/platform/forgot-password`, `/platform/reset-password/{token}` | Request a reset link and choose a new password. The link expires in 60 minutes. |
-| Platform | `/platform/tenants/{id}` | Domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, a private data export, status |
+| Platform | `/platform/tenants/{id}` | Industry, domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, a private data export, status |
 | Tenant domain | `/` | Public booking page for that workspace |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
 | Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
@@ -83,7 +83,7 @@ A new booking from an empty slot uses `Allocator::hold` with the same locks. The
 
 ## Platform admin
 
-Platform pages exist only on platform hosts (`platform.host`) and require `auth` plus `platform.admin`, which also re-runs on every Livewire update. Each action writes the same audit action as the platform API. Closing a workspace for good is refused until a private JSON export of that workspace has been saved. The download route is platform-admin only. A new owner's temporary password is shown once, and only its hash is stored.
+Platform pages exist only on platform hosts (`platform.host`) and require `auth` plus `platform.admin`, which also re-runs on every Livewire update. `/platform` is the master admin for every workspace: status counts, industry counts, search, and status and industry filters. Each action writes the same audit action as the platform API. Changing industry writes `tenant.industry_updated` and does not write a row when the industry is already that value. Closing a workspace for good is refused until a private JSON export of that workspace has been saved. The download route is platform-admin only. A new owner's temporary password is shown once, and only its hash is stored. Staff pages use the workspace industry for the resource name and the sentences that used to say boat. Boat rentals and marinas keep those sentences. A platform administrator still cannot open a workspace's staff pages without a membership.
 
 ## Booking links
 

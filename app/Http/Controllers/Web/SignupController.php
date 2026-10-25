@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Industry;
 use App\Enums\TenantStatus;
 use App\Http\Controllers\Controller;
 use App\Models\SignupAcceptance;
@@ -19,6 +20,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -31,11 +33,14 @@ class SignupController extends Controller
 {
     public function __construct(private readonly AuditLogger $audit) {}
 
-    public function create(Subdomain $subdomains): View
+    public function create(Request $request, Subdomain $subdomains): View
     {
+        $selected = Industry::tryFrom((string) $request->query('industry', ''));
+
         return view('signup.create', [
             'apex' => $subdomains->apex(),
             'terms' => SignupTerms::body(),
+            'selectedIndustry' => $selected instanceof Industry ? $selected->value : Industry::BoatRentals->value,
         ]);
     }
 
@@ -64,6 +69,7 @@ class SignupController extends Controller
             'email' => ['required', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'confirmed', PasswordRule::min(12), 'max:255'],
             'accepted_terms' => ['accepted'],
+            'industry' => ['nullable', 'string', Rule::enum(Industry::class)],
         ], [
             'email.unique' => 'That email already has an account. Sign in to a workspace you own and add a business from there.',
             'accepted_terms.accepted' => 'Accept the terms to create a workspace.',
@@ -97,6 +103,7 @@ class SignupController extends Controller
                 email: strtolower($validated['email']),
                 password: $validated['password'],
                 request: $request,
+                industry: Industry::fromOptional($validated['industry'] ?? null),
             );
         } catch (QueryException $exception) {
             if (! $this->isDuplicate($exception)) {

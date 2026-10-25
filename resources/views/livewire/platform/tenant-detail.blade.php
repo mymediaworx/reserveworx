@@ -22,6 +22,21 @@
         </section>
     @endif
 
+    <section class="panel">
+        <h2>Industry</h2>
+        <p class="muted">This chooses the words staff see for the things they book. Prices, inventory, and fees stay as they are.</p>
+        <form wire:submit="saveIndustry" class="stack">
+            <label class="field">
+                <span>Industry</span>
+                <select wire:model="industry">
+                    @include('partials.industry-options', ['selected' => $industry])
+                </select>
+            </label>
+            @error('industry')<p class="error">{{ $message }}</p>@enderror
+            <button type="submit" class="button">Save industry</button>
+        </form>
+    </section>
+
     <div class="split even">
         <section class="panel">
             <h2>Domains</h2>

@@ -12,7 +12,7 @@
                 <x-avatar name="Reserve Worx" />
                 <span class="identity-text">
                     <span class="identity-name">ReserveWorx</span>
-                    <span class="identity-sub">Platform</span>
+                    <span class="identity-sub">Master admin</span>
                 </span>
             </a>
             <nav class="side-nav" aria-label="Main">
@@ -32,7 +32,7 @@
                     <x-avatar name="Reserve Worx" />
                     <span class="identity-text">
                         <span class="identity-name">ReserveWorx</span>
-                        <span class="identity-sub">Platform</span>
+                        <span class="identity-sub">Master admin</span>
                     </span>
                 </a>
                 <form method="POST" action="/platform/logout" class="app-bar-actions">

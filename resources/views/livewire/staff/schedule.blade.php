@@ -10,7 +10,7 @@
                 @endif
                 <span class="muted">Times are local to each location. Shaded edges are buffers.</span>
                 @if ($canBook)
-                    <span class="muted">{{ $view === 'day' ? 'Tap an empty hour on a boat or pool to start a booking.' : 'Tap a day on a boat or pool, then pick the start.' }}</span>
+                    <span class="muted">{{ $industry->scheduleHint($view) }}</span>
                 @endif
             </p>
         </div>
@@ -93,7 +93,7 @@
                     @endif
                     @if ($suggestedTimes !== [] || $suggestedAssets !== [])
                         <div class="move-suggestions">
-                            <p class="muted small">Suggestions from the same nearby-time search. Choosing one fills this form. Moving still checks the boats.</p>
+                            <p class="muted small">Suggestions from the same nearby-time search. Choosing one fills this form. {{ $industry->moveCheck() }}</p>
                             @foreach ($suggestedTimes as $time)
                                 <button type="button" class="button small suggestion-time" wire:click="useTime('{{ $time['starts_at'] }}')" data-start="{{ $time['starts_at'] }}">{{ $time['label'] }}</button>
                             @endforeach
@@ -125,7 +125,7 @@
                     <span class="muted small">{{ $place['abbreviation'] }} · {{ $place['timezone'] }}</span>
                 </header>
                 @if ($place['groups'] === [] && ! $place['summary']['has_blocks'])
-                    <p class="empty small">{{ $category !== '' ? 'Nothing in this category.' : 'No boats or gear at this location yet.' }}</p>
+                    <p class="empty small">{{ $category !== '' ? 'Nothing in this category.' : $industry->emptyLocation() }}</p>
                 @endif
                 <div @class(['schedule-grid', 'is-week' => $view === 'week']) style="--days: {{ count($place['days']) }}">
                     <div class="schedule-corner"></div>

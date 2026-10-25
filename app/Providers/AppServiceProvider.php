@@ -21,6 +21,7 @@ use App\Services\Webhooks\HostAddressLookup;
 use App\Services\Webhooks\SystemHostAddressLookup;
 use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\TenantManager;
+use App\View\Composers\IndustryComposer;
 use App\View\Composers\WorkspaceBrandingComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
@@ -68,6 +69,7 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         View::composer('*', WorkspaceBrandingComposer::class);
+        View::composer(['layouts.staff', 'livewire.staff.*', 'staff.*'], IndustryComposer::class);
 
         Tenant::created(function (Tenant $tenant): void {
             app(WorkspaceProfiles::class)->provision($tenant);

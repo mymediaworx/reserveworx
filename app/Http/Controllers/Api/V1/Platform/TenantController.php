@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Platform;
 
+use App\Enums\Industry;
 use App\Enums\TenantStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\StoreTenantRequest;
@@ -49,6 +50,7 @@ class TenantController extends Controller
             $request->string('slug')->toString(),
             $actor instanceof User ? $actor : null,
             $request,
+            Industry::fromOptional($request->input('industry')),
         );
 
         return (new TenantResource($tenant))->response()->setStatusCode(201);

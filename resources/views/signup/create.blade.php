@@ -23,6 +23,13 @@
             </label>
             @error('business_name')<p class="error" role="alert">{{ $message }}</p>@enderror
             <label class="field">
+                <span>Industry</span>
+                <select name="industry">
+                    @include('partials.industry-options', ['selected' => old('industry', $selectedIndustry)])
+                </select>
+            </label>
+            @error('industry')<p class="error" role="alert">{{ $message }}</p>@enderror
+            <label class="field">
                 <span>Desired address</span>
                 <input id="signup-slug" type="text" name="slug" value="{{ old('slug') }}" maxlength="63" required autocapitalize="off" spellcheck="false" autocomplete="off" pattern="[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*">
             </label>

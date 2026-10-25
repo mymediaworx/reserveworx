@@ -29,7 +29,7 @@
 
     @if ($status === 'held' && $holdExpires)
         <p class="notice attention">
-            Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or the boats are released.
+            Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.
         </p>
     @endif
 
@@ -186,8 +186,8 @@
                     <section class="panel">
                         <h2>Close out</h2>
                         <div class="actions">
-                            <button type="button" class="button" wire:click="markNoShow" wire:confirm="Mark this booking as a no-show? The boats are released.">No-show</button>
-                            <button type="button" class="button danger" wire:click="cancelBooking" wire:confirm="Cancel this booking? The boats are released. Refunds are handled separately.">Cancel booking</button>
+                            <button type="button" class="button" wire:click="markNoShow" wire:confirm="{{ $industry->noShowConfirm() }}">No-show</button>
+                            <button type="button" class="button danger" wire:click="cancelBooking" wire:confirm="{{ $industry->cancelConfirm() }}">Cancel booking</button>
                         </div>
                     </section>
                 @endif

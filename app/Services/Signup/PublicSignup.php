@@ -2,6 +2,7 @@
 
 namespace App\Services\Signup;
 
+use App\Enums\Industry;
 use App\Models\Domain;
 use App\Models\SignupAcceptance;
 use App\Models\Tenant;
@@ -34,15 +35,16 @@ final class PublicSignup
         string $email,
         string $password,
         Request $request,
+        Industry $industry = Industry::BoatRentals,
     ): Tenant {
-        $tenant = DB::transaction(function () use ($businessName, $slug, $ownerName, $email, $password, $request): Tenant {
+        $tenant = DB::transaction(function () use ($businessName, $slug, $ownerName, $email, $password, $request, $industry): Tenant {
             $user = User::query()->create([
                 'name' => $ownerName,
                 'email' => $email,
                 'password' => $password,
             ]);
 
-            $tenant = $this->provisioner->create($businessName, $slug, $user, $request);
+            $tenant = $this->provisioner->create($businessName, $slug, $user, $request, $industry);
             $this->provisioner->addOwner($tenant, $user, $user, $request);
 
             $hostname = $this->subdomains->hostname($slug);
