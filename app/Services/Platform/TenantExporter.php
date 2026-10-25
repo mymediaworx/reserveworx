@@ -14,6 +14,7 @@ use App\Models\BookingLineItem;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
+use App\Models\CsvImport;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\Departure;
@@ -285,6 +286,7 @@ class TenantExporter
             ResourceRequirement::class,
             Customer::class,
             CustomerAccount::class,
+            CsvImport::class,
             Booking::class,
             Participant::class,
             BookingLineItem::class,

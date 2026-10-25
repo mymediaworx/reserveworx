@@ -4,6 +4,7 @@ namespace App\Livewire\Staff;
 
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
+use App\Models\CsvImport;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -29,6 +30,7 @@ class Menu extends Component
         return view('livewire.staff.menu', [
             'user' => $this->currentUser(),
             'canManageTeam' => $this->allows('members.manage'),
+            'canImport' => $this->currentUser()->can('viewAny', CsvImport::class),
         ]);
     }
 }

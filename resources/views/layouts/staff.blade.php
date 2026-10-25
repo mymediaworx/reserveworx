@@ -1,6 +1,7 @@
 @php
     use App\Enums\BookingStatus;
     use App\Models\Booking;
+    use App\Models\CsvImport;
     use App\Models\Location;
     use App\Models\User;
     use App\Tenancy\Access;
@@ -10,6 +11,7 @@
     $canManageTeam = $staffUser instanceof User
         && $tenantModel !== null
         && app(Access::class)->allows($staffUser, $tenantModel->id, 'members.manage');
+    $canImport = $staffUser instanceof User && $staffUser->can('viewAny', CsvImport::class);
     $brandName = ($workspaceBranding->displayName ?? '') !== '' ? $workspaceBranding->displayName : ($tenantModel?->name ?? 'ReserveWorx');
     $logo = $workspaceBranding->logoUrl ?? null;
     $switchLocations = $tenantModel ? Location::query()->orderBy('name')->get(['id', 'name']) : collect();
@@ -27,7 +29,7 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/promo-codes', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/manifest', 'staff/waitlist')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/promo-codes', 'staff/import', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/manifest', 'staff/waitlist')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*', 'staff/locations/*/tax')],
@@ -38,6 +40,9 @@
         ['href' => '/staff/branding', 'label' => 'Branding', 'icon' => 'palette', 'active' => request()->is('staff/branding')],
         ['href' => '/staff/settings', 'label' => 'Settings', 'icon' => 'settings', 'active' => request()->is('staff/settings')],
     ];
+    if ($canImport) {
+        $setup[] = ['href' => '/staff/import', 'label' => 'Import', 'icon' => 'upload', 'active' => request()->is('staff/import')];
+    }
     if ($canManageTeam) {
         $setup[] = ['href' => '/staff/team', 'label' => 'Team', 'icon' => 'users', 'active' => request()->is('staff/team')];
     }

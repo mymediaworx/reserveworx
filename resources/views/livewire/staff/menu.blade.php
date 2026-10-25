@@ -27,6 +27,9 @@
             <a href="/staff/setup/resources" wire:navigate><span class="app-circle"><x-icon :name="$industry->icon()" size="26" /></span>{{ $industry->catalog() }}</a>
             <a href="/staff/setup/services" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Services & prices</a>
             <a href="/staff/promo-codes" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Promo codes</a>
+            @if ($canImport)
+                <a href="/staff/import" wire:navigate><span class="app-circle"><x-icon name="upload" size="26" /></span>Import</a>
+            @endif
             <a href="/staff/branding" wire:navigate><span class="app-circle"><x-icon name="palette" size="26" /></span>Branding</a>
         </div>
     </section>
