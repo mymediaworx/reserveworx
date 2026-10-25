@@ -17,7 +17,9 @@ class PoolPolicy
 
     public function view(User $user, Pool $pool): bool
     {
-        return $this->sameTenant($pool->tenant_id) && $this->tenantAllows($user, 'inventory.view');
+        return $this->sameTenant($pool->tenant_id)
+            && $this->tenantAllows($user, 'inventory.view')
+            && $this->locationAllowed($user, $pool->location_id);
     }
 
     public function create(User $user): bool
@@ -27,6 +29,8 @@ class PoolPolicy
 
     public function update(User $user, Pool $pool): bool
     {
-        return $this->sameTenant($pool->tenant_id) && $this->tenantAllows($user, 'inventory.manage');
+        return $this->sameTenant($pool->tenant_id)
+            && $this->tenantAllows($user, 'inventory.manage')
+            && $this->locationAllowed($user, $pool->location_id);
     }
 }

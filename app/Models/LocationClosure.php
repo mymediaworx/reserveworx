@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\LimitsStaffLocations;
 use Database\Factories\LocationClosureFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -12,7 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class LocationClosure extends Model
 {
     /** @use HasFactory<LocationClosureFactory> */
-    use BelongsToTenant, HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
 
     protected $table = 'closures';
 

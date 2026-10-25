@@ -4,6 +4,7 @@ namespace App\Livewire\Staff;
 
 use App\Enums\MembershipStatus;
 use App\Livewire\Concerns\WithinTenant;
+use App\Models\Location;
 use App\Models\Membership;
 use App\Models\Role;
 use App\Services\Team\RoleGuard;
@@ -27,12 +28,23 @@ class Team extends Component
 
     public string $role = 'staff';
 
+    public bool $allLocations = true;
+
+    /** @var list<string> */
+    public array $locationIds = [];
+
     public ?string $flash = null;
 
     public ?string $problem = null;
 
     /** @var array<string, string> */
     public array $drafts = [];
+
+    /** @var array<string, bool> */
+    public array $memberAll = [];
+
+    /** @var array<string, list<string>> */
+    public array $memberLocations = [];
 
     public function mount(RoleGuard $guard): void
     {
@@ -56,9 +68,18 @@ class Team extends Component
             return;
         }
 
-        $result = $team->invite($this->currentUser(), $this->email, $this->role, request());
+        $result = $team->invite(
+            $this->currentUser(),
+            $this->email,
+            $this->role,
+            request(),
+            $this->allLocations,
+            $this->locationIds,
+        );
         $this->hitInviteLimit();
         $this->reset('email');
+        $this->allLocations = true;
+        $this->locationIds = [];
         $this->role = in_array('staff', $assignable, true) ? 'staff' : ($assignable[0] ?? 'staff');
         $this->flash = $result->mailed
             ? 'Invitation sent. The link expires in 7 days.'
@@ -125,6 +146,17 @@ class Team extends Component
         $this->syncDrafts();
     }
 
+    public function saveLocations(string $membershipId, WorkspaceTeam $team): void
+    {
+        $this->clearMessages();
+        $membership = $this->findMembership($membershipId);
+        $all = (bool) ($this->memberAll[$membershipId] ?? true);
+        $ids = $this->memberLocations[$membershipId] ?? [];
+        $team->assignLocations($this->currentUser(), $membership, $all, $ids, request());
+        $this->flash = $all ? 'They can work at every location.' : 'Location access updated.';
+        $this->syncDrafts();
+    }
+
     public function render(RoleGuard $guard): View
     {
         $people = Membership::query()
@@ -138,6 +170,7 @@ class Team extends Component
             'members' => $people->where('status', MembershipStatus::Active)->values(),
             'invites' => $people->where('status', MembershipStatus::Invited)->values(),
             'roleOptions' => $this->roleOptions($slugs),
+            'locations' => Location::query()->orderBy('name')->get(['id', 'name']),
             'zone' => $this->defaultTimezone(),
             'actorId' => $this->currentUser()->id,
         ]);
@@ -156,12 +189,26 @@ class Team extends Component
     private function syncDrafts(): void
     {
         $drafts = [];
+        $memberAll = [];
+        $memberLocations = [];
+        $people = Membership::query()
+            ->with(['role', 'assignedLocations'])
+            ->whereIn('status', [MembershipStatus::Active->value, MembershipStatus::Invited->value])
+            ->get();
 
-        foreach (Membership::query()->with('role')->whereIn('status', [MembershipStatus::Active->value, MembershipStatus::Invited->value])->get() as $membership) {
+        foreach ($people as $membership) {
             $drafts[$membership->id] = $membership->role->slug;
+            $memberAll[$membership->id] = ! $membership->locations_restricted;
+            $memberLocations[$membership->id] = $membership->assignedLocations
+                ->pluck('location_id')
+                ->map(fn (mixed $id): string => (string) $id)
+                ->values()
+                ->all();
         }
 
         $this->drafts = $drafts;
+        $this->memberAll = $memberAll;
+        $this->memberLocations = $memberLocations;
     }
 
     /**

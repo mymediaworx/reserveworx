@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\CustomerDataDeletion;
 use App\Models\User;
 use App\Services\Privacy\CustomerDataEraser;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -19,6 +20,7 @@ class CustomerDataDeletionController extends Controller
         $this->authorize('erase', $customer);
         $actor = $request->user();
         abort_unless($actor instanceof User, 403);
+        abort_if(app(StaffLocationAccess::class)->isRestricted($actor), 403);
 
         $validated = $request->validate([
             'confirm' => ['sometimes', 'boolean'],

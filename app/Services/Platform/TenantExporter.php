@@ -29,6 +29,7 @@ use App\Models\LocationTaxRule;
 use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
+use App\Models\MembershipLocation;
 use App\Models\NotificationHook;
 use App\Models\OperatorFee;
 use App\Models\Participant;
@@ -61,6 +62,7 @@ use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Models\WidgetToken;
 use App\Services\AuditLogger;
+use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Database\Eloquent\Model;
@@ -185,25 +187,27 @@ class TenantExporter
      */
     private function tables(Tenant $tenant): array
     {
-        $tables = [];
+        return app(StaffLocationAccess::class)->suspend(function () use ($tenant): array {
+            $tables = [];
 
-        foreach ($this->models() as $class) {
-            $rows = [];
+            foreach ($this->models() as $class) {
+                $rows = [];
 
-            foreach ($class::query()->orderBy('id')->get() as $model) {
-                $owner = $model->getAttribute('tenant_id');
+                foreach ($class::query()->orderBy('id')->get() as $model) {
+                    $owner = $model->getAttribute('tenant_id');
 
-                if ($owner !== $tenant->id) {
-                    throw new TenantExportException('A row from another workspace was read.');
+                    if ($owner !== $tenant->id) {
+                        throw new TenantExportException('A row from another workspace was read.');
+                    }
+
+                    $rows[] = $this->publicAttributes($model);
                 }
 
-                $rows[] = $this->publicAttributes($model);
+                $tables[$class::query()->getModel()->getTable()] = $rows;
             }
 
-            $tables[$class::query()->getModel()->getTable()] = $rows;
-        }
-
-        return $tables;
+            return $tables;
+        });
     }
 
     /**
@@ -265,6 +269,7 @@ class TenantExporter
             TenantNotificationSetting::class,
             Domain::class,
             Membership::class,
+            MembershipLocation::class,
             SignupAcceptance::class,
             Location::class,
             LocationTaxRule::class,

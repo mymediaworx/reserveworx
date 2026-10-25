@@ -18,6 +18,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Payments\CheckoutService;
 use App\Services\Schedule\ResourceSchedule;
+use App\Tenancy\StaffLocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -237,6 +238,17 @@ class Schedule extends Component
 
     public function render(): View
     {
+        if ($this->location !== '') {
+            $inWorkspace = Location::query()
+                ->withoutGlobalScope(StaffLocationScope::class)
+                ->whereKey($this->location)
+                ->exists();
+
+            if ($inWorkspace && ! Location::query()->whereKey($this->location)->exists()) {
+                abort(404);
+            }
+        }
+
         $zone = $this->activeTimezone();
         $first = $this->view === 'day' ? $this->day() : $this->day()->startOfWeek(CarbonImmutable::MONDAY);
         $days = $this->view === 'day' ? 1 : 7;

@@ -11,9 +11,12 @@ use App\Models\PlatformFee;
 use App\Models\PlatformFeeRefund;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
+use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use DateTimeZone;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 
 /**
  * Cancellation rate, no-show rate, captured card payments, offline payments,
@@ -179,8 +182,9 @@ final class OperationsReport
             ->where('status', 'paid')
             ->whereIn('method', ['stripe', 'offline'])
             ->where('created_at', '>=', $start)
-            ->where('created_at', '<', $end)
-            ->get();
+            ->where('created_at', '<', $end);
+        $this->limitToVisibleBookings($payments);
+        $payments = $payments->get();
 
         foreach ($payments as $payment) {
             $booking = $payment->booking instanceof Booking ? $payment->booking : null;
@@ -205,8 +209,9 @@ final class OperationsReport
         $refunds = Refund::query()
             ->with('booking.location')
             ->where('created_at', '>=', $start)
-            ->where('created_at', '<', $end)
-            ->get();
+            ->where('created_at', '<', $end);
+        $this->limitToVisibleBookings($refunds);
+        $refunds = $refunds->get();
 
         foreach ($refunds as $refund) {
             $booking = $refund->booking instanceof Booking ? $refund->booking : null;
@@ -226,8 +231,9 @@ final class OperationsReport
         $fees = PlatformFee::query()
             ->with('booking.location')
             ->where('created_at', '>=', $start)
-            ->where('created_at', '<', $end)
-            ->get();
+            ->where('created_at', '<', $end);
+        $this->limitToVisibleBookings($fees);
+        $fees = $fees->get();
 
         foreach ($fees as $fee) {
             $booking = $fee->booking instanceof Booking ? $fee->booking : null;
@@ -246,8 +252,9 @@ final class OperationsReport
         $refunds = PlatformFeeRefund::query()
             ->with('platformFee.booking.location')
             ->where('created_at', '>=', $start)
-            ->where('created_at', '<', $end)
-            ->get();
+            ->where('created_at', '<', $end);
+        $this->limitToVisibleBookings($refunds, 'platformFee.booking');
+        $refunds = $refunds->get();
 
         foreach ($refunds as $refund) {
             $fee = $refund->platformFee;
@@ -307,6 +314,16 @@ final class OperationsReport
         });
 
         return $rows;
+    }
+
+    /**
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     */
+    private function limitToVisibleBookings(Builder $query, string $relation = 'booking'): void
+    {
+        app(StaffLocationAccess::class)->constrainToVisibleBookings($query, $relation);
     }
 
     private function place(?Booking $booking, mixed $instant, string $from, string $to): ?string

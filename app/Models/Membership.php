@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -18,6 +19,7 @@ use Illuminate\Support\Carbon;
  * @property string $tenant_id
  * @property string $user_id
  * @property string $role_id
+ * @property bool $locations_restricted
  */
 class Membership extends Model
 {
@@ -29,6 +31,7 @@ class Membership extends Model
         'user_id',
         'role_id',
         'status',
+        'locations_restricted',
         'invite_token_hash',
         'invite_expires_at',
     ];
@@ -39,6 +42,7 @@ class Membership extends Model
 
     protected $casts = [
         'status' => MembershipStatus::class,
+        'locations_restricted' => 'boolean',
         'invite_expires_at' => 'datetime',
     ];
 
@@ -56,5 +60,13 @@ class Membership extends Model
     public function role(): BelongsTo
     {
         return $this->belongsTo(Role::class);
+    }
+
+    /**
+     * @return HasMany<MembershipLocation, $this>
+     */
+    public function assignedLocations(): HasMany
+    {
+        return $this->hasMany(MembershipLocation::class);
     }
 }

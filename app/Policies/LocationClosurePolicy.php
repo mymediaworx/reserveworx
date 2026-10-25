@@ -17,7 +17,9 @@ class LocationClosurePolicy
 
     public function view(User $user, LocationClosure $closure): bool
     {
-        return $this->sameTenant($closure->tenant_id) && $this->tenantAllows($user, 'settings.view');
+        return $this->sameTenant($closure->tenant_id)
+            && $this->tenantAllows($user, 'settings.view')
+            && $this->locationAllowed($user, $closure->location_id);
     }
 
     public function create(User $user): bool
@@ -27,11 +29,15 @@ class LocationClosurePolicy
 
     public function update(User $user, LocationClosure $closure): bool
     {
-        return $this->sameTenant($closure->tenant_id) && $this->tenantAllows($user, 'settings.update');
+        return $this->sameTenant($closure->tenant_id)
+            && $this->tenantAllows($user, 'settings.update')
+            && $this->locationAllowed($user, $closure->location_id);
     }
 
     public function delete(User $user, LocationClosure $closure): bool
     {
-        return $this->sameTenant($closure->tenant_id) && $this->tenantAllows($user, 'settings.update');
+        return $this->sameTenant($closure->tenant_id)
+            && $this->tenantAllows($user, 'settings.update')
+            && $this->locationAllowed($user, $closure->location_id);
     }
 }

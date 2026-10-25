@@ -12,7 +12,8 @@
         && app(Access::class)->allows($staffUser, $tenantModel->id, 'members.manage');
     $brandName = ($workspaceBranding->displayName ?? '') !== '' ? $workspaceBranding->displayName : ($tenantModel?->name ?? 'ReserveWorx');
     $logo = $workspaceBranding->logoUrl ?? null;
-    $locationNames = $tenantModel ? Location::query()->orderBy('name')->pluck('name') : collect();
+    $switchLocations = $tenantModel ? Location::query()->orderBy('name')->get(['id', 'name']) : collect();
+    $locationNames = $switchLocations->pluck('name');
     $subtitle = match (true) {
         $locationNames->count() === 1 => $locationNames->first(),
         $locationNames->count() > 1 => $locationNames->count().' locations',
@@ -120,6 +121,14 @@
                     </a>
                 </div>
             </header>
+            @if ($switchLocations->isNotEmpty())
+                <nav class="location-switcher" aria-label="Locations">
+                    <a href="/staff/calendar" @class(['is-current' => request()->is('staff/calendar') && request('location', '') === ''])>All locations</a>
+                    @foreach ($switchLocations as $switchLocation)
+                        <a href="/staff/calendar?location={{ $switchLocation->id }}" @class(['is-current' => request('location') === $switchLocation->id])>{{ $switchLocation->name }}</a>
+                    @endforeach
+                </nav>
+            @endif
             <main id="main" class="app-content" tabindex="-1">
                 {{ $slot }}
             </main>

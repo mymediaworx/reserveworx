@@ -20,6 +20,7 @@ use App\Services\Payments\UnconfiguredStripeGateway;
 use App\Services\Webhooks\HostAddressLookup;
 use App\Services\Webhooks\SystemHostAddressLookup;
 use App\Services\Webhooks\WebhookPublisher;
+use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
 use App\View\Composers\IndustryComposer;
 use App\View\Composers\WorkspaceBrandingComposer;
@@ -36,6 +37,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(TenantManager::class);
+        $this->app->singleton(StaffLocationAccess::class);
         $this->app->singleton(CurrentWorkspaceBranding::class);
         $this->app->singleton(HostAddressLookup::class, SystemHostAddressLookup::class);
         $this->app->singleton(StripeGateway::class, function (): StripeGateway {

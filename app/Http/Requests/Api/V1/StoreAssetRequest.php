@@ -6,6 +6,7 @@ use App\Enums\ResourceStatus;
 use App\Models\Asset;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
@@ -27,7 +28,7 @@ class StoreAssetRequest extends FormRequest
         $tenantId = $this->tenantId();
 
         return [
-            'location_id' => ['required', 'string', $this->owned('locations', $tenantId)],
+            'location_id' => ['required', 'string', app(StaffLocationAccess::class)->locationExistsRule($tenantId)],
             'resource_category_id' => ['nullable', 'string', $this->owned('resource_categories', $tenantId)],
             'name' => ['required', 'string', 'max:120'],
             'status' => ['sometimes', Rule::in(ResourceStatus::writable())],

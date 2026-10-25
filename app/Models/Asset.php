@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ResourceFlag;
 use App\Enums\ResourceStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\LimitsStaffLocations;
 use Database\Factories\AssetFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class Asset extends Model
 {
     /** @use HasFactory<AssetFactory> */
-    use BelongsToTenant, HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
 
     protected $fillable = [
         'tenant_id',

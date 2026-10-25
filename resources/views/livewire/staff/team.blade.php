@@ -2,7 +2,7 @@
 <div class="page narrow">
     <header class="page-head">
         <h1>Team</h1>
-        <p>Invite someone by email and give them a role. The link expires in 7 days.</p>
+        <p>Invite someone by email and give them a role. The link expires in 7 days. Locations stay on every site until you limit them.</p>
     </header>
 
     <div aria-live="polite">
@@ -10,6 +10,7 @@
         @if ($problem)<p class="flash bad" role="alert">{{ $problem }}</p>@endif
         @error('email')<p class="error" role="alert">{{ $message }}</p>@enderror
         @error('role')<p class="error" role="alert">{{ $message }}</p>@enderror
+        @error('locations')<p class="error" role="alert">{{ $message }}</p>@enderror
         @error('team')<p class="error" role="alert">{{ $message }}</p>@enderror
     </div>
 
@@ -28,6 +29,12 @@
                     @endforeach
                 </select>
             </label>
+            @include('livewire.staff.partials.location-access', [
+                'allModel' => 'allLocations',
+                'idsModel' => 'locationIds',
+                'all' => $allLocations,
+                'selected' => $locationIds,
+            ])
             <button type="submit" class="button primary">Send invitation</button>
         </form>
     </section>
@@ -47,6 +54,7 @@
                             <span class="badge">You</span>
                         @endif
                     </div>
+                    @include('livewire.staff.partials.location-access-form', ['person' => $member])
                     <form wire:submit="saveRole('{{ $member->id }}')" class="form-row">
                         <label class="field grow">
                             <span class="sr-only">Role for {{ $member->user?->name }}</span>
@@ -80,6 +88,7 @@
                             @endif
                         </span>
                     </div>
+                    @include('livewire.staff.partials.location-access-form', ['person' => $invite])
                     <form wire:submit="saveRole('{{ $invite->id }}')" class="form-row">
                         <label class="field grow">
                             <span class="sr-only">Role for {{ $invite->user?->email }}</span>

@@ -6,9 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Blackout;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class BlackoutController extends Controller
 {
@@ -29,12 +30,20 @@ class BlackoutController extends Controller
         $tenant = $request->attributes->get('tenant');
         abort_unless($tenant instanceof Tenant, 403);
 
+        $access = app(StaffLocationAccess::class);
         $validated = $request->validate([
-            'location_id' => ['nullable', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenant->id))],
+            'location_id' => ['nullable', 'string', $access->locationExistsRule($tenant->id)],
             'starts_on' => ['required', 'date'],
             'ends_on' => ['required', 'date', 'after_or_equal:starts_on'],
             'reason' => ['nullable', 'string', 'max:200'],
         ]);
+        $locationId = isset($validated['location_id']) && is_string($validated['location_id']) ? $validated['location_id'] : null;
+
+        if (! $access->allows($locationId)) {
+            throw ValidationException::withMessages([
+                'location_id' => 'Choose a location you can use.',
+            ]);
+        }
 
         $blackout = Blackout::query()->create([
             'tenant_id' => $tenant->id,

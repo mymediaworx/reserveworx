@@ -22,6 +22,8 @@ class BlackoutPolicy
 
     public function delete(User $user, Blackout $blackout): bool
     {
-        return $this->sameTenant($blackout->tenant_id) && $this->tenantAllows($user, 'inventory.manage');
+        return $this->sameTenant($blackout->tenant_id)
+            && $this->tenantAllows($user, 'inventory.manage')
+            && $this->locationAllowed($user, $blackout->location_id);
     }
 }

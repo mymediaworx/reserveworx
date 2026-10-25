@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\LocationStatus;
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\LimitsStaffLocations;
 use Database\Factories\LocationFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +14,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Location extends Model
 {
     /** @use HasFactory<LocationFactory> */
-    use BelongsToTenant, HasFactory, HasUlids;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
+
+    public static function staffLocationColumn(): string
+    {
+        return 'id';
+    }
 
     protected $fillable = [
         'tenant_id',
