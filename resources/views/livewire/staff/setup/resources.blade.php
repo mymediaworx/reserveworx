@@ -31,7 +31,7 @@
                             <h3>Counted gear</h3>
                             <ul class="rows">
                                 @foreach ($locPools as $pool)
-                                    <li class="row">
+                                    <li class="row" id="pool-{{ $pool->id }}">
                                         <span class="grow"><strong>{{ $pool->name }}</strong></span>
                                         @if ($canManage)
                                             <label class="field inline"><span class="sr-only">Count of {{ $pool->name }}</span>
@@ -54,7 +54,7 @@
                             <h3>Individual items and guides</h3>
                             <ul class="rows">
                                 @foreach ($locAssets as $asset)
-                                    <li class="row">
+                                    <li class="row" id="asset-{{ $asset->id }}">
                                         <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span></span>
                                         @if ($canManage)
                                             <select aria-label="Status of {{ $asset->name }}" wire:change="setStatus('asset', '{{ $asset->id }}', $event.target.value)">

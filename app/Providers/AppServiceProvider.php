@@ -6,10 +6,14 @@ use App\Auth\CustomerTokenGuard;
 use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Enums\OperationalStatus;
+use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\Customer;
 use App\Models\Payment;
+use App\Models\Pool;
 use App\Models\Refund;
 use App\Models\Tenant;
+use App\Observers\StaffSearchObserver;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Branding\WorkspaceProfiles;
 use App\Services\Feedback\FeedbackRequests;
@@ -72,6 +76,12 @@ class AppServiceProvider extends ServiceProvider
     {
         View::composer('*', WorkspaceBrandingComposer::class);
         View::composer(['layouts.staff', 'livewire.staff.*', 'staff.*'], IndustryComposer::class);
+
+        $search = StaffSearchObserver::class;
+        Customer::observe($search);
+        Booking::observe($search);
+        Asset::observe($search);
+        Pool::observe($search);
 
         Tenant::created(function (Tenant $tenant): void {
             app(WorkspaceProfiles::class)->provision($tenant);

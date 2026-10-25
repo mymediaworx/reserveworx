@@ -12,6 +12,9 @@
         && $tenantModel !== null
         && app(Access::class)->allows($staffUser, $tenantModel->id, 'members.manage');
     $canImport = $staffUser instanceof User && $staffUser->can('viewAny', CsvImport::class);
+    $canCreateBooking = $staffUser instanceof User
+        && $tenantModel !== null
+        && app(Access::class)->allows($staffUser, $tenantModel->id, 'bookings.manage');
     $brandName = ($workspaceBranding->displayName ?? '') !== '' ? $workspaceBranding->displayName : ($tenantModel?->name ?? 'ReserveWorx');
     $logo = $workspaceBranding->logoUrl ?? null;
     $switchLocations = $tenantModel ? Location::query()->orderBy('name')->get(['id', 'name']) : collect();
@@ -54,7 +57,7 @@
     <title>{{ isset($title) ? $title.' – ' : '' }}{{ $brandName }}</title>
     <script src="/embed.js" defer data-navigate-once></script>
 </head>
-<body class="app">
+<body class="app" @if ($canCreateBooking) data-new-booking="1" @endif>
     <a class="skip-link" href="#main">Skip to content</a>
     <div class="app-shell">
         <aside class="app-side" aria-label="Workspace">
@@ -115,6 +118,9 @@
                     </span>
                 </a>
                 <div class="app-bar-actions">
+                    <button type="button" class="icon-button" data-staff-search aria-label="Search" aria-keyshortcuts="Control+K Meta+K">
+                        <x-icon name="search" size="26" />
+                    </button>
                     <a class="icon-button" href="/staff/bookings?status=held" wire:navigate aria-label="{{ $waiting }} {{ $waiting === 1 ? 'booking' : 'bookings' }} waiting on payment">
                         <x-icon name="bell" size="26" />
                         @if ($waiting > 0)
@@ -155,6 +161,80 @@
             @endforeach
         </nav>
     </div>
+    <livewire:staff.quick-search />
     @livewireScripts
+    <script data-navigate-once>
+        (function () {
+            if (window.__staffShortcuts) {
+                return;
+            }
+            window.__staffShortcuts = true;
+            var pending = null;
+            var timer = null;
+
+            function typing(target) {
+                if (!target || !target.tagName) {
+                    return false;
+                }
+                if (target.isContentEditable) {
+                    return true;
+                }
+                var tag = target.tagName;
+                return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+            }
+
+            document.addEventListener('click', function (event) {
+                var button = event.target && event.target.closest ? event.target.closest('[data-staff-search]') : null;
+                if (!button || !window.Livewire) {
+                    return;
+                }
+                window.Livewire.dispatch('staff-search-toggle');
+            });
+
+            document.addEventListener('keydown', function (event) {
+                var key = event.key;
+                if (event.metaKey || event.ctrlKey) {
+                    if (key.toLowerCase() === 'k' && window.Livewire) {
+                        event.preventDefault();
+                        window.Livewire.dispatch('staff-search-toggle');
+                    }
+                    return;
+                }
+                if (event.altKey || event.repeat || typing(event.target) || document.querySelector('[data-staff-overlay]')) {
+                    pending = null;
+                    return;
+                }
+                if (key === '?') {
+                    event.preventDefault();
+                    if (window.Livewire) {
+                        window.Livewire.dispatch('staff-shortcuts-help');
+                    }
+                    return;
+                }
+                if (key === 'n' && document.body.dataset.newBooking === '1') {
+                    event.preventDefault();
+                    if (window.Livewire && window.Livewire.navigate) {
+                        window.Livewire.navigate('/staff/bookings/new');
+                    }
+                    return;
+                }
+                if (pending === 'g' && (key === 'b' || key === 'd')) {
+                    event.preventDefault();
+                    pending = null;
+                    if (window.Livewire && window.Livewire.navigate) {
+                        window.Livewire.navigate(key === 'b' ? '/staff/bookings' : '/staff');
+                    }
+                    return;
+                }
+                if (key === 'g') {
+                    pending = 'g';
+                    window.clearTimeout(timer);
+                    timer = window.setTimeout(function () { pending = null; }, 800);
+                    return;
+                }
+                pending = null;
+            });
+        })();
+    </script>
 </body>
 </html>
