@@ -4,7 +4,15 @@ Blade and Livewire 4, approved by the product owner on October 23, 2026 (open qu
 
 ## Look
 
-Mobile first, modeled on the BrandWorx mobile app (product owner, October 24, 2026). On phones there is a white app bar (logo or initials, workspace name, location, a bell for bookings waiting on payment, settings), a bottom tab bar (Home, Bookings, Calendar, Share, Menu) with a pill on the active tab, and a floating **+** for a new booking. From 1024px the tabs become a white side navigation. Home uses rounded stat cards with a grey time strip and round shortcut buttons. Type is Inter. Icons are Lucide line icons (ISC) in `resources/views/components/icon.blade.php`.
+Mobile first, modeled on the BrandWorx mobile app (product owner, October 24, 2026). On phones there is a white app bar (logo or initials, workspace name, location, a search icon, a bell for bookings waiting on payment, settings), a bottom tab bar (Home, Bookings, Calendar, Share, Menu) with a pill on the active tab, and a floating **+** for a new booking. From 1024px the tabs become a white side navigation. Home uses rounded stat cards with a grey time strip and round shortcut buttons. Type is Inter. Icons are Lucide line icons (ISC) in `resources/views/components/icon.blade.php`.
+
+## Quick search
+
+The search icon in the staff header, and Ctrl K or Cmd K, open search on every staff page. On a phone the panel fills the screen. From 720px it is a dialog. Search runs on the server. A word of at least two letters or numbers matches the start of a stored token, using `staff_search_token_idx` or, when the member is limited to locations, `staff_search_location_token_idx`. Each word keeps at most 300 matches, and each group shows 8 at a time.
+
+Results are grouped into Bookings, Customers, and Inventory. Bookings match the reference (the booking id), or the customer name, email, or phone. Customers match name, email, or phone. Inventory matches a boat, guide, or pool name. Enter or a click opens the row: a booking opens that booking, a customer opens the bookings list for that email or name, and an item opens it on the inventory page. After a customer is anonymized, that booking still matches its reference and the result shows the reference. A member without `bookings.view` does not see bookings or customers. A member without `inventory.view` does not see inventory. Another workspace is never listed. A member limited to locations only sees bookings and inventory at those locations, and only customers who have a booking there.
+
+G then B opens bookings. G then D opens the dashboard. N opens a new booking when that person can create one. ? lists the shortcuts. Those keys do nothing while the cursor is in a field, or while search or the shortcut list is open.
 
 ## Branding
 
