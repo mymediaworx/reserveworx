@@ -24,6 +24,7 @@ use App\Models\GhlConnection;
 use App\Models\GhlSyncLog;
 use App\Models\Hold;
 use App\Models\Incident;
+use App\Models\IncidentPhoto;
 use App\Models\InspectionSchedule;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
@@ -315,6 +316,7 @@ class TenantExporter
             MaintenanceRecord::class,
             InspectionSchedule::class,
             Incident::class,
+            IncidentPhoto::class,
             RentalCheckout::class,
             RentalReturn::class,
             WidgetToken::class,

@@ -402,6 +402,7 @@ class BookingShow extends Component
             'holdExpires' => $holdExpires,
             'canCharge' => StripeAccount::query()->where('tenant_id', $booking->tenant_id)->first()?->canCharge() ?? false,
             'canManage' => $this->allows('bookings.manage'),
+            'canReport' => $this->currentUser()->can('checkIn', $booking),
             'history' => AuditLog::withoutGlobalScope(TenantScope::class)
                 ->where('tenant_id', $this->tenant()->id)
                 ->where('subject_type', Booking::class)

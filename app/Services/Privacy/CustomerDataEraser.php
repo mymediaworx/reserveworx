@@ -343,9 +343,11 @@ class CustomerDataEraser
     {
         foreach (Incident::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->get() as $incident) {
             $summary = $this->scrubText($incident->summary, $names, $fragments);
+            $notes = $this->scrubText($incident->notes, $names, $fragments);
 
-            if ($summary !== $incident->summary) {
+            if ($summary !== $incident->summary || $notes !== $incident->notes) {
                 $incident->summary = $summary ?? $incident->summary;
+                $incident->notes = $notes;
                 $incident->save();
             }
         }

@@ -70,7 +70,10 @@
                         'currency' => $currency,
                         'refundTerms' => $disclosure,
                     ])
-                    @if (($p['charge_cents'] ?? 0) !== ($p['customer_total_cents'] ?? 0))
+                    @if ((int) ($p['damage_cents'] ?? 0) > 0)
+                        <p data-damage="{{ (int) $p['damage_cents'] }}">Damage {{ Display::money((int) $p['damage_cents'], $currency) }} is included in the total. It is not a booking fee.</p>
+                    @endif
+                    @if (isset($p['charge_cents']) && (int) $p['charge_cents'] !== (int) ($p['customer_total_cents'] ?? 0))
                         <p class="muted">Due now: {{ Display::money((int) $p['charge_cents'], $currency) }}{{ ! empty($p['deposit_was_raised']) ? ' (deposit raised to cover the booking fee)' : '' }}.</p>
                     @endif
                 @elseif ($canManage && $open)
@@ -118,6 +121,13 @@
                     </p>
                 @endif
             </section>
+
+            @if ($canReport)
+                <section class="panel" id="damage-report">
+                    <h2>Damage report</h2>
+                    <livewire:staff.file-incident :booking-id="$booking->id" :key="'booking-incident-'.$booking->id" />
+                </section>
+            @endif
 
             @if ($history->isNotEmpty())
                 <section class="panel">

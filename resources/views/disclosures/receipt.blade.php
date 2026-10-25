@@ -7,6 +7,7 @@
     @param int $taxCents
     @param list<array{name?: string, cents?: int|string}>|null $taxLines
     @param int $lateFeeCents  Applied late-return fee. This is not the booking fee.
+    @param int $damageCents  Damage added from an incident report. This is not the booking fee.
     @param int $totalCents
     @param int $paidCents
     @param int|null $refundedCents  Total refunded to the customer, for refund receipts.
@@ -24,6 +25,7 @@
     $refundedCents = $refundedCents ?? null;
     $refundedBookingFeeCents = $refundedBookingFeeCents ?? null;
     $lateFeeCents = $lateFeeCents ?? 0;
+    $damageCents = $damageCents ?? 0;
 
     if ($bookingFeeCents !== null && $refundTerms === null) {
         throw new \LogicException('Customer-paid receipts must show the booking fee refund terms.');
@@ -47,6 +49,12 @@
             <div class="line late-fee">
                 <dt>Late fee</dt>
                 <dd>{{ Money::format($lateFeeCents, $currency) }}</dd>
+            </div>
+        @endif
+        @if ($damageCents > 0)
+            <div class="line damage">
+                <dt>Damage</dt>
+                <dd>{{ Money::format($damageCents, $currency) }}</dd>
             </div>
         @endif
         @if ($bookingFeeCents !== null)
