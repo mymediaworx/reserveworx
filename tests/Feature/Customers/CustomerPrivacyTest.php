@@ -359,6 +359,9 @@ class CustomerPrivacyTest extends TestCase
             $this->assertStringNotContainsString('Ada Kayak', $incident->summary);
             $this->assertStringNotContainsString('ada@example.com', $incident->summary);
             $this->assertStringNotContainsString('312-555-0100', $incident->summary);
+            $this->assertStringNotContainsString('Ada Kayak', (string) $incident->notes);
+            $this->assertStringNotContainsString('ada@example.com', (string) $incident->notes);
+            $this->assertStringNotContainsString('312-555-0100', (string) $incident->notes);
 
             $hook = $graph['hook']->fresh();
             $this->assertInstanceOf(NotificationHook::class, $hook);
@@ -824,6 +827,7 @@ class CustomerPrivacyTest extends TestCase
             'tenant_id' => $tenantId,
             'booking_id' => $booking->id,
             'summary' => 'Ada Kayak called from ada@example.com and 312-555-0100',
+            'notes' => 'Ada Kayak called from ada@example.com and 312-555-0100',
             'occurred_at' => '2026-06-16 15:30:00',
         ]);
         $hook = NotificationHook::query()->create([

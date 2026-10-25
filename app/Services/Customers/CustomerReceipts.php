@@ -26,6 +26,7 @@ final class CustomerReceipts
      *     tax_cents: int,
      *     tax_lines: list<array{name: string, cents: int}>,
      *     late_fee_cents: int,
+     *     damage_cents: int,
      *     total_cents: int,
      *     paid_cents: int,
      *     refunded_cents: int|null,
@@ -51,6 +52,7 @@ final class CustomerReceipts
         $tax = $this->cents($payload, 'tax_cents');
         $taxLines = $this->taxLines($payload);
         $lateFee = $this->cents($payload, 'late_fees_cents');
+        $damage = $this->cents($payload, 'damage_cents');
         $total = $this->cents($payload, 'customer_total_cents');
         $currency = $snapshot instanceof PricingSnapshot && $snapshot->currency !== ''
             ? $snapshot->currency
@@ -67,7 +69,7 @@ final class CustomerReceipts
         $refunded = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_refund_cents');
         $refundedFee = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_fee_refund_cents');
         $terms = $this->terms($snapshot);
-        $html = $this->html($subtotal, $operatorFees, $bookingFee, $tax, $taxLines, $lateFee, $total, $paid, $refunded, $refundedFee, $currency, $terms);
+        $html = $this->html($subtotal, $operatorFees, $bookingFee, $tax, $taxLines, $lateFee, $damage, $total, $paid, $refunded, $refundedFee, $currency, $terms);
         $ends = $booking->ends_at;
 
         return [
@@ -84,6 +86,7 @@ final class CustomerReceipts
             'tax_cents' => $tax,
             'tax_lines' => $taxLines,
             'late_fee_cents' => $lateFee,
+            'damage_cents' => $damage,
             'total_cents' => $total,
             'paid_cents' => $paid,
             'refunded_cents' => $refunded > 0 ? $refunded : null,
@@ -225,6 +228,7 @@ final class CustomerReceipts
         int $tax,
         array $taxLines,
         int $lateFee,
+        int $damage,
         int $total,
         int $paid,
         int $refunded,
@@ -243,6 +247,7 @@ final class CustomerReceipts
             'taxCents' => $tax,
             'taxLines' => $taxLines,
             'lateFeeCents' => $lateFee,
+            'damageCents' => $damage,
             'totalCents' => $total,
             'paidCents' => $paid,
             'refundedCents' => $refunded > 0 ? $refunded : null,

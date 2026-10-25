@@ -148,6 +148,12 @@
                             <p data-grace="yes">Inside the grace period. No late fee.</p>
                         @endif
                         <button type="button" class="button primary" wire:click="recordReturn('{{ $checkout->id }}')" wire:loading.attr="disabled" wire:target="recordReturn">Return</button>
+                        @if ($booking instanceof Booking && is_string($checkout->asset_id) && $checkout->asset_id !== '')
+                            <div class="damage-report">
+                                <h3>Damage report</h3>
+                                <livewire:staff.file-incident :booking-id="$booking->id" :fixed-asset-id="$checkout->asset_id" :key="'return-incident-'.$checkout->id" />
+                            </div>
+                        @endif
                     </div>
                 </li>
             @endforeach

@@ -14,6 +14,7 @@ use App\Http\Controllers\Web\StaffAuthController;
 use App\Http\Controllers\Web\StaffBusinessController;
 use App\Http\Controllers\Web\StaffCheckInController;
 use App\Http\Controllers\Web\StaffImportTemplateController;
+use App\Http\Controllers\Web\StaffIncidentPhotoController;
 use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
@@ -30,6 +31,7 @@ use App\Livewire\Staff\Closures;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Import;
+use App\Livewire\Staff\Incidents;
 use App\Livewire\Staff\LocationTax;
 use App\Livewire\Staff\Maintenance;
 use App\Livewire\Staff\Manifest;
@@ -146,6 +148,11 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/check-in', CheckIn::class)->name('staff.check-in');
         Route::get('/returns', Returns::class)->name('staff.returns');
+        Route::get('/incidents', Incidents::class)->name('staff.incidents');
+        Route::get('/incidents/{incident}/photos/{photo}', [StaffIncidentPhotoController::class, 'show'])
+            ->whereUlid('incident')
+            ->whereUlid('photo')
+            ->name('staff.incidents.photo');
         Route::get('/maintenance', Maintenance::class)->name('staff.maintenance');
         Route::get('/check-in/{booking}', [StaffCheckInController::class, 'show'])
             ->whereUlid('booking')
