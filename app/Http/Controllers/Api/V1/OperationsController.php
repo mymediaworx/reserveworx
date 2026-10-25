@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\MaintenanceKind;
 use App\Http\Controllers\Controller;
 use App\Models\Asset;
 use App\Models\Booking;
@@ -13,18 +14,19 @@ use App\Models\Pool;
 use App\Models\Tenant;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
-use App\Services\Operations\AffectedBookings;
+use App\Services\Operations\MaintenancePlanner;
 use App\Services\Operations\WaiverPdf;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class OperationsController extends Controller
 {
-    public function __construct(private readonly AffectedBookings $affected) {}
+    public function __construct(private readonly MaintenancePlanner $maintenance) {}
 
     public function indexMaintenance(): JsonResponse
     {
@@ -36,6 +38,7 @@ class OperationsController extends Controller
                 'id' => $window->id,
                 'asset_id' => $window->asset_id,
                 'pool_id' => $window->pool_id,
+                'kind' => $window->kind->value,
                 'starts_at' => $window->starts_at->toIso8601String(),
                 'ends_at' => $window->ends_at->toIso8601String(),
                 'reason' => $window->reason,
@@ -48,13 +51,14 @@ class OperationsController extends Controller
     public function storeMaintenance(Request $request): JsonResponse
     {
         $this->authorize('create', Asset::class);
-        $tenant = $this->tenant($request);
+        $this->tenant($request);
         $validated = $request->validate([
             'asset_id' => ['nullable', 'string'],
             'pool_id' => ['nullable', 'string'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             'reason' => ['required', 'string', 'max:160'],
+            'kind' => ['nullable', Rule::enum(MaintenanceKind::class)],
         ]);
         $assetId = $this->ownedId(Asset::class, $validated['asset_id'] ?? null);
         $poolId = $this->ownedId(Pool::class, $validated['pool_id'] ?? null);
@@ -63,21 +67,20 @@ class OperationsController extends Controller
             throw ValidationException::withMessages(['asset_id' => 'Choose one asset or one pool.']);
         }
 
-        $starts = CarbonImmutable::parse($validated['starts_at'])->utc();
-        $ends = CarbonImmutable::parse($validated['ends_at'])->utc();
-        $window = MaintenanceWindow::query()->create([
-            'tenant_id' => $tenant->id,
-            'asset_id' => $assetId,
-            'pool_id' => $poolId,
-            'starts_at' => $starts,
-            'ends_at' => $ends,
-            'reason' => $validated['reason'],
-        ]);
-        $flagged = $this->affected->flag($assetId, $poolId, $starts, $ends, $validated['reason']);
+        $resource = $assetId !== null ? Asset::query()->findOrFail($assetId) : Pool::query()->findOrFail($poolId);
+        $this->authorize('update', $resource);
+        $scheduled = $this->maintenance->schedule(
+            $resource,
+            MaintenanceKind::tryFrom((string) ($validated['kind'] ?? '')) ?? MaintenanceKind::Maintenance,
+            CarbonImmutable::parse($validated['starts_at'])->utc(),
+            CarbonImmutable::parse($validated['ends_at'])->utc(),
+            $validated['reason'],
+        );
 
         return response()->json(['data' => [
-            'id' => $window->id,
-            'flagged_bookings' => $flagged,
+            'id' => $scheduled['window']->id,
+            'kind' => $scheduled['window']->kind->value,
+            'flagged_bookings' => $scheduled['flagged'],
         ]], 201);
     }
 

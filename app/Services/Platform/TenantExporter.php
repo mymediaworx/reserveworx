@@ -24,6 +24,7 @@ use App\Models\GhlConnection;
 use App\Models\GhlSyncLog;
 use App\Models\Hold;
 use App\Models\Incident;
+use App\Models\InspectionSchedule;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
 use App\Models\LocationTaxRule;
@@ -312,6 +313,7 @@ class TenantExporter
             WaiverSignature::class,
             MaintenanceWindow::class,
             MaintenanceRecord::class,
+            InspectionSchedule::class,
             Incident::class,
             RentalCheckout::class,
             RentalReturn::class,
