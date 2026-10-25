@@ -25,6 +25,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Catalog\BookingAddOnLines;
@@ -44,6 +45,7 @@ class BookingController extends Controller
         private readonly WaitlistPromoter $promoter,
         private readonly BookingAddOnLines $addOnLines,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly RentalExtensions $extensions,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -235,10 +237,20 @@ class BookingController extends Controller
         $this->authorize('update', $booking);
         $validated = $request->validate([
             'ends_at' => ['required', 'date'],
+            'asset_id' => ['sometimes', 'nullable', 'string', 'max:26'],
         ]);
+        $back = url('/staff/bookings/'.$booking->id);
 
         try {
-            $result = $this->allocator->extend($booking, CarbonImmutable::parse($validated['ends_at'])->utc());
+            $result = $this->extensions->request(
+                $booking,
+                CarbonImmutable::parse($validated['ends_at'])->utc(),
+                $validated['asset_id'] ?? null,
+                $back.'?paid=1',
+                $back,
+                false,
+                $request,
+            );
         } catch (AllocationUnavailableException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
@@ -252,8 +264,22 @@ class BookingController extends Controller
         }
 
         $this->audit->log('booking.extended', $result['booking'], [], request: $request);
+        $body = ['data' => $this->payload($result['booking'])];
 
-        return response()->json(['data' => $this->payload($result['booking'])]);
+        if ($result['checkout'] !== null) {
+            $body['checkout'] = [
+                'payment_id' => $result['checkout']['payment_id'],
+                'checkout_url' => $result['checkout']['url'],
+                'amount_cents' => $result['checkout']['amount_cents'],
+                'fee_cents' => $result['checkout']['fee_cents'],
+            ];
+        }
+
+        if ($result['charge_message'] !== null) {
+            $body['charge_message'] = $result['charge_message'];
+        }
+
+        return response()->json($body);
     }
 
     public function cancel(Request $request, Booking $booking): JsonResponse

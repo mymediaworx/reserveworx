@@ -181,11 +181,18 @@
                             @error('rescheduleEnd')<p class="error">{{ $message }}</p>@enderror
                             <button type="submit" class="button">Reschedule</button>
                         </form>
-                        @if ($isRental)
+                        @if ($canExtend)
                             <form wire:submit="extend" class="stack top-gap">
                                 <label class="field"><span>New return time</span><input type="datetime-local" wire:model="extendEnd"></label>
+                                @error('extendEnd')<p class="error">{{ $message }}</p>@enderror
                                 <button type="submit" class="button">Extend rental</button>
                             </form>
+                            @if ($extensionShorterLabel)
+                                <button type="button" class="button top-gap" wire:click="acceptShorterExtension">Extend until {{ $extensionShorterLabel }}</button>
+                            @endif
+                            @foreach ($extensionAssets as $offerAsset)
+                                <button type="button" class="button top-gap" wire:click="acceptAssetExtension('{{ $offerAsset['id'] }}')">Use {{ $offerAsset['name'] }} instead</button>
+                            @endforeach
                         @endif
                     </section>
 

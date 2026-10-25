@@ -219,4 +219,5 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::get('/manage/{booking}', [GuestBookingController::class, 'manage'])->name('widget.manage')->middleware('signed');
         Route::post('/manage/{booking}/cancel', [GuestBookingController::class, 'cancel'])->name('widget.guest-cancel')->middleware('signed');
         Route::post('/manage/{booking}/reschedule', [GuestBookingController::class, 'reschedule'])->name('widget.guest-reschedule')->middleware('signed');
+        Route::post('/manage/{booking}/extend', [GuestBookingController::class, 'extend'])->name('widget.guest-extend')->middleware('signed');
     });
