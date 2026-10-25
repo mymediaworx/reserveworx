@@ -28,7 +28,7 @@
                 </label>
             </fieldset>
             <label class="field compact">
-                <span>Hold boats during checkout for (minutes)</span>
+                <span>{{ $industry->holdMinutesLabel() }}</span>
                 <input type="number" min="5" max="120" wire:model="holdMinutes" @disabled(! $canUpdate)>
             </label>
             @error('holdMinutes')<p class="error">{{ $message }}</p>@enderror

@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Platform;
 
+use App\Enums\Industry;
 use App\Enums\MembershipStatus;
 use App\Enums\TenantStatus;
 use App\Models\Domain;
@@ -33,6 +34,8 @@ class TenantDetail extends Component
 {
     #[Locked]
     public string $tenantId = '';
+
+    public string $industry = 'boat_rentals';
 
     public string $hostname = '';
 
@@ -67,6 +70,7 @@ class TenantDetail extends Component
         $this->guard();
         $model = $this->tenant($tenant);
         $this->tenantId = $model->id;
+        $this->industry = $model->industry->value;
         $setting = $this->setting();
         $this->directPercent = $this->percent($setting->direct_fee_bps);
         $this->thirdPartyPercent = $this->percent($setting->third_party_fee_bps);
@@ -102,6 +106,29 @@ class TenantDetail extends Component
         $tenant->save();
         $audit->log('tenant.status_changed', $tenant, ['before' => $before, 'after' => $next->value], $tenant->id, $actor, request(), false);
         $this->flash = 'Status changed to '.$next->value.'.';
+    }
+
+    public function saveIndustry(AuditLogger $audit): void
+    {
+        $actor = $this->guard();
+        $this->resetMessages();
+        $this->validate([
+            'industry' => ['required', 'string', Rule::enum(Industry::class)],
+        ]);
+        $tenant = $this->tenant($this->tenantId);
+        $next = Industry::from($this->industry);
+
+        if ($tenant->industry === $next) {
+            $this->flash = 'Industry is already '.$next->label().'.';
+
+            return;
+        }
+
+        $before = $tenant->industry->value;
+        $tenant->industry = $next;
+        $tenant->save();
+        $audit->log('tenant.industry_updated', $tenant, ['before' => $before, 'after' => $next->value], $tenant->id, $actor, request(), false);
+        $this->flash = 'Industry changed to '.$next->label().'.';
     }
 
     public function addDomain(AuditLogger $audit): void
@@ -263,6 +290,7 @@ class TenantDetail extends Component
             'domains' => Domain::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenant->id)->orderByDesc('is_primary')->orderBy('hostname')->get(),
             'members' => $members,
             'statuses' => TenantStatus::cases(),
+            'industries' => Industry::cases(),
             'setting' => $this->setting(),
             'exports' => TenantDataExport::withoutGlobalScope(TenantScope::class)
                 ->where('tenant_id', $tenant->id)

@@ -326,6 +326,7 @@ fieldset.panel > legend + * { clear: both; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; margin-bottom: 1.25rem; }
 @media (min-width: 900px) { .stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.1rem; } }
+.kicker { margin: 0 0 0.2rem; color: var(--muted); font-size: 0.85rem; font-weight: 600; }
 .stat-card {
     display: flex;
     flex-direction: column;
@@ -338,6 +339,10 @@ fieldset.panel > legend + * { clear: both; }
     text-decoration: none;
     min-height: 11.5rem;
 }
+button.stat-card { width: 100%; font: inherit; text-align: left; cursor: pointer; color: inherit; }
+.stat-card.compact { min-height: 0; }
+.stat-card.compact .stat-body { padding: 0.75rem 0.9rem 0.9rem; }
+.stat-card.is-selected { border-color: var(--brand); }
 a.stat-card:hover { border-color: var(--line-strong); }
 .stat-strip { display: flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; background: var(--strip); color: var(--ink-soft); font-size: 0.9rem; }
 .stat-body { position: relative; display: flex; flex-direction: column; flex: 1; padding: 0.9rem 0.9rem 1rem; }
@@ -657,6 +662,20 @@ body.auth { display: grid; place-items: center; min-height: 100vh; padding: 1rem
 .auth-panel h1 { margin-bottom: 1.25rem; }
 .auth-foot { margin: 1rem 0 0; font-size: 0.9rem; }
 .auth-panel.wide { width: min(36rem, 100%); }
+.welcome-shell { width: min(64rem, 100%); min-width: 0; display: grid; gap: 1.25rem; }
+.welcome-intro { justify-self: center; }
+.industry-board { min-width: 0; }
+.industry-board h2 { margin: 0 0 0.75rem; font-size: 1.15rem; }
+.industry-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; list-style: none; margin: 0; padding: 0; min-width: 0; }
+@media (min-width: 640px) { .industry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 960px) { .industry-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.industry-card { display: flex; align-items: center; gap: 0.65rem; min-width: 0; padding: 0.7rem 0.85rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); color: inherit; text-decoration: none; }
+.industry-card span { min-width: 0; overflow-wrap: anywhere; }
+.industry-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.industry-counts li { max-width: 100%; min-width: 0; }
+.industry-counts button { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 0.35rem 0.7rem; font: inherit; color: inherit; cursor: pointer; }
+.industry-counts button.is-selected { border-color: var(--brand); }
+.industry-counts button span { color: var(--muted); }
 .hp-field { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 
 /* Resource schedule. The grid is wider than a 390px screen and scrolls sideways.

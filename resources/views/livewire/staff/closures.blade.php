@@ -2,7 +2,7 @@
     <header class="page-head">
         <div>
             <h1>Closures</h1>
-            <p class="lede">Close a location, one category, or a single boat for a day or a few hours. A holiday can repeat every year. Confirmed bookings that overlap stay booked.</p>
+            <p class="lede">{{ $industry->closureLede() }}</p>
         </div>
     </header>
 
@@ -34,7 +34,7 @@
                             <select wire:model.live="scope">
                                 <option value="location">The whole location</option>
                                 <option value="category">One category</option>
-                                <option value="resource">One boat or pool</option>
+                                <option value="resource">{{ $industry->closureOption() }}</option>
                             </select>
                         </label>
                     </div>

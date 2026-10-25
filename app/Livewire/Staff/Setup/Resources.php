@@ -10,7 +10,6 @@ use App\Models\Pool;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
-use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /**
@@ -18,7 +17,6 @@ use Livewire\Component;
  * an asset is one tracked item (the pontoon boat, a named guide).
  */
 #[Layout('layouts.staff')]
-#[Title('Boats & gear')]
 class Resources extends Component
 {
     use WithinTenant;
@@ -130,7 +128,7 @@ class Resources extends Component
             'assets' => Asset::query()->orderBy('name')->get()->groupBy('location_id'),
             'canManage' => $this->allows('inventory.manage'),
             'statuses' => ResourceStatus::cases(),
-        ]);
+        ])->title($this->tenant()->industry->catalog());
     }
 
     private function resource(string $type, string $id): Asset|Pool

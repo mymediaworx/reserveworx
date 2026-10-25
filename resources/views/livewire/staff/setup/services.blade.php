@@ -77,7 +77,7 @@
                     <p class="muted">Add a location first.</p>
                 @else
                     <form wire:submit="create" class="stack">
-                        <label class="field"><span>Name</span><input type="text" wire:model="name" maxlength="120" required placeholder="Single kayak rental"></label>
+                        <label class="field"><span>Name</span><input type="text" wire:model="name" maxlength="120" required placeholder="{{ $industry->servicePlaceholder() }}"></label>
                         <fieldset class="choice">
                             <legend>Type</legend>
                             <label class="check"><input type="radio" wire:model="kind" value="rental"><span>Rental: customer picks a start time and length</span></label>

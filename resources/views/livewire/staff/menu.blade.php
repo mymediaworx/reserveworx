@@ -23,7 +23,7 @@
         <div class="app-grid">
             <a href="/staff/setup/locations" wire:navigate><span class="app-circle"><x-icon name="pin" size="26" /></span>Locations</a>
             <a href="/staff/closures" wire:navigate><span class="app-circle"><x-icon name="closure" size="26" /></span>Closures</a>
-            <a href="/staff/setup/resources" wire:navigate><span class="app-circle"><x-icon name="boat" size="26" /></span>Boats & gear</a>
+            <a href="/staff/setup/resources" wire:navigate><span class="app-circle"><x-icon :name="$industry->icon()" size="26" /></span>{{ $industry->catalog() }}</a>
             <a href="/staff/setup/services" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Services & prices</a>
             <a href="/staff/promo-codes" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Promo codes</a>
             <a href="/staff/branding" wire:navigate><span class="app-circle"><x-icon name="palette" size="26" /></span>Branding</a>

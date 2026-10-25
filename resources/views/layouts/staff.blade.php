@@ -31,7 +31,7 @@
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*')],
         ['href' => '/staff/closures', 'label' => 'Closures', 'icon' => 'closure', 'active' => request()->is('staff/closures')],
-        ['href' => '/staff/setup/resources', 'label' => 'Boats & gear', 'icon' => 'boat', 'active' => request()->is('staff/setup/resources*')],
+        ['href' => '/staff/setup/resources', 'label' => $industry->catalog(), 'icon' => $industry->icon(), 'active' => request()->is('staff/setup/resources*')],
         ['href' => '/staff/setup/services', 'label' => 'Services & prices', 'icon' => 'tag', 'active' => request()->is('staff/setup/services*')],
         ['href' => '/staff/promo-codes', 'label' => 'Promo codes', 'icon' => 'tag', 'active' => request()->is('staff/promo-codes')],
         ['href' => '/staff/branding', 'label' => 'Branding', 'icon' => 'palette', 'active' => request()->is('staff/branding')],

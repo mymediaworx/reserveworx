@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Enums\Industry;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\RendersStaffPage;
 use App\Models\Domain;
@@ -17,6 +18,7 @@ use App\Tenancy\TenantScope;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -51,10 +53,17 @@ class StaffBusinessController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'slug' => ['required', 'string', 'max:63', 'regex:/^[a-z0-9]+(?:-[a-z0-9]+)*$/', 'unique:tenants,slug'],
             'hostname' => ['nullable', 'string', 'max:253'],
+            'industry' => ['nullable', 'string', Rule::enum(Industry::class)],
         ]);
         $host = $this->validatedHostname((string) ($validated['hostname'] ?? ''));
 
-        $tenant = $this->provisioner->create($validated['name'], $validated['slug'], $user, $request);
+        $tenant = $this->provisioner->create(
+            $validated['name'],
+            $validated['slug'],
+            $user,
+            $request,
+            Industry::fromOptional($validated['industry'] ?? null),
+        );
         $this->provisioner->addOwner($tenant, $user, $user, $request);
 
         if ($host !== null) {

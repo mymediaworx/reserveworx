@@ -2,8 +2,8 @@
 <div class="page">
     <header class="page-head">
         <div>
-            <h1>Boats & gear</h1>
-            <p class="lede">Everything that can be booked. Bookings never take the same boat twice, across rentals and tours.</p>
+            <h1>{{ $industry->catalog() }}</h1>
+            <p class="lede">{{ $industry->resourcesLede() }}</p>
         </div>
     </header>
 
@@ -13,7 +13,7 @@
 
     @if ($locations->isEmpty())
         <section class="notice">
-            <p>Add a location first. Gear always belongs to a location.</p>
+            <p>{{ $industry->needsLocation() }}</p>
             <p><a class="button" href="/staff/setup/locations" wire:navigate>Add a location</a></p>
         </section>
     @else
@@ -71,19 +71,19 @@
 
             @if ($canManage)
                 <section class="panel">
-                    <h2>Add gear</h2>
+                    <h2>{{ $industry->addHeading() }}</h2>
                     <form wire:submit="create" class="stack">
                         <fieldset class="choice">
                             <legend>Type</legend>
-                            <label class="check"><input type="radio" wire:model.live="kind" value="pool"><span>Counted gear, like 12 single kayaks</span></label>
-                            <label class="check"><input type="radio" wire:model.live="kind" value="asset"><span>One tracked item, like a pontoon boat or a guide</span></label>
+                            <label class="check"><input type="radio" wire:model.live="kind" value="pool"><span>{{ $industry->countedExample() }}</span></label>
+                            <label class="check"><input type="radio" wire:model.live="kind" value="asset"><span>{{ $industry->trackedExample() }}</span></label>
                         </fieldset>
                         <label class="field"><span>Location</span>
                             <select wire:model="locationId">
                                 @foreach ($locations as $location)<option value="{{ $location->id }}">{{ $location->name }}</option>@endforeach
                             </select>
                         </label>
-                        <label class="field"><span>Name</span><input type="text" wire:model="name" maxlength="120" required placeholder="{{ $kind === 'pool' ? 'Single kayak' : 'Pontoon boat' }}"></label>
+                        <label class="field"><span>Name</span><input type="text" wire:model="name" maxlength="120" required placeholder="{{ $kind === 'pool' ? $industry->poolPlaceholder() : $industry->assetPlaceholder() }}"></label>
                         @if ($kind === 'pool')
                             <label class="field"><span>How many</span><input type="number" min="0" max="100000" wire:model="quantity" required></label>
                         @else

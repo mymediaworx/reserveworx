@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Industry;
 use App\Enums\TenantStatus;
 use App\Tenancy\TenantScope;
 use Database\Factories\TenantFactory;
@@ -20,10 +21,16 @@ class Tenant extends Model
         'name',
         'slug',
         'status',
+        'industry',
+    ];
+
+    protected $attributes = [
+        'industry' => 'boat_rentals',
     ];
 
     protected $casts = [
         'status' => TenantStatus::class,
+        'industry' => Industry::class,
     ];
 
     /**

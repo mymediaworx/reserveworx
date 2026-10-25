@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\Industry;
 use App\Enums\TenantStatus;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
@@ -26,6 +27,7 @@ class TenantFactory extends Factory
             'name' => $name,
             'slug' => $slug.'-'.Str::lower(Str::random(4)),
             'status' => TenantStatus::Active,
+            'industry' => Industry::BoatRentals,
         ];
     }
 
