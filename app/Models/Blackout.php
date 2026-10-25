@@ -3,13 +3,19 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToTenant;
+use App\Models\Concerns\LimitsStaffLocations;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Blackout extends Model
 {
-    use BelongsToTenant, HasUlids;
+    use BelongsToTenant, HasUlids, LimitsStaffLocations;
+
+    public static function staffLocationIncludesUnassigned(): bool
+    {
+        return true;
+    }
 
     protected $fillable = [
         'tenant_id',

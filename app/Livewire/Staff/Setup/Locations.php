@@ -177,6 +177,10 @@ class Locations extends Component
     {
         $locations = Location::query()->orderBy('name')->get();
 
+        if ($this->hoursLocationId !== '' && ! $locations->contains('id', $this->hoursLocationId)) {
+            $this->hoursLocationId = (string) ($locations->first()->id ?? '');
+        }
+
         if ($this->hoursLocationId === '' && $locations->isNotEmpty()) {
             $this->hoursLocationId = $locations->first()->id;
         }

@@ -14,9 +14,12 @@ use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\RentalCheckout;
 use App\Models\Service;
+use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use DateTimeZone;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
 use RuntimeException;
@@ -59,8 +62,12 @@ final class TodayReport
 
         $shownBookings = $bookings->take(100);
         $shownDepartures = $departures->take(100);
-        $charged = (int) PlatformFee::query()->sum('amount_cents');
-        $refundedAllTime = (int) PlatformFee::query()->sum('refunded_cents');
+        $chargedFees = PlatformFee::query();
+        $this->limitToVisibleBookings($chargedFees);
+        $refundedFees = PlatformFee::query();
+        $this->limitToVisibleBookings($refundedFees);
+        $charged = (int) $chargedFees->sum('amount_cents');
+        $refundedAllTime = (int) $refundedFees->sum('refunded_cents');
         $payments = $this->payments($windowStart, $windowEnd, $clockZone, $reportDate);
 
         return [
@@ -84,8 +91,8 @@ final class TodayReport
                 'seats' => $departure->seats,
                 'headcount' => $departure->headcount(),
             ])->all(),
-            'open_checkouts' => RentalCheckout::query()->whereNull('returned_at')->count(),
-            'overdue_checkouts' => RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
+            'open_checkouts' => $this->visibleCheckouts()->count(),
+            'overdue_checkouts' => $this->visibleCheckouts()->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
             'payments' => $payments,
             'totals' => $this->totals($bookings, $windowStart, $windowEnd, $clockZone, $reportDate),
             'outcomes' => $this->outcomes($windowStart, $windowEnd, $reportDate),
@@ -244,8 +251,9 @@ final class TodayReport
             ->with('booking.location')
             ->where('created_at', '>=', $windowStart)
             ->where('created_at', '<', $windowEnd)
-            ->where('application_fee_refund_cents', '>', 0)
-            ->get();
+            ->where('application_fee_refund_cents', '>', 0);
+        $this->limitToVisibleBookings($refunds);
+        $refunds = $refunds->get();
 
         foreach ($refunds as $refund) {
             if (! $this->onDate($refund->created_at, $this->zoneForBooking($refund->booking), $reportDate)) {
@@ -258,8 +266,9 @@ final class TodayReport
         $manualRefunds = PlatformFeeRefund::query()
             ->with('platformFee.booking.location')
             ->where('created_at', '>=', $windowStart)
-            ->where('created_at', '<', $windowEnd)
-            ->get();
+            ->where('created_at', '<', $windowEnd);
+        $this->limitToVisibleBookings($manualRefunds, 'platformFee.booking');
+        $manualRefunds = $manualRefunds->get();
 
         foreach ($manualRefunds as $manual) {
             $fee = $manual->platformFee;
@@ -295,8 +304,9 @@ final class TodayReport
         $rows = Payment::query()
             ->where('status', 'paid')
             ->where('created_at', '>=', $windowStart)
-            ->where('created_at', '<', $windowEnd)
-            ->get();
+            ->where('created_at', '<', $windowEnd);
+        $this->limitToVisibleBookings($rows);
+        $rows = $rows->get();
 
         foreach ($rows as $payment) {
             if (! $this->onDate($payment->created_at, $clockZone, $reportDate)) {
@@ -346,7 +356,10 @@ final class TodayReport
 
         $refunds = 0;
 
-        foreach (Refund::query()->where('created_at', '>=', $windowStart)->where('created_at', '<', $windowEnd)->get() as $refund) {
+        $refundRows = Refund::query()->where('created_at', '>=', $windowStart)->where('created_at', '<', $windowEnd);
+        $this->limitToVisibleBookings($refundRows);
+
+        foreach ($refundRows->get() as $refund) {
             if (! $this->onDate($refund->created_at, $clockZone, $reportDate)) {
                 continue;
             }
@@ -400,5 +413,26 @@ final class TodayReport
     private function validZone(string $timezone): bool
     {
         return in_array($timezone, DateTimeZone::listIdentifiers(), true);
+    }
+
+    /**
+     * @return Builder<RentalCheckout>
+     */
+    private function visibleCheckouts(): Builder
+    {
+        $query = RentalCheckout::query()->whereNull('returned_at');
+        $this->limitToVisibleBookings($query);
+
+        return $query;
+    }
+
+    /**
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     */
+    private function limitToVisibleBookings(Builder $query, string $relation = 'booking'): void
+    {
+        app(StaffLocationAccess::class)->constrainToVisibleBookings($query, $relation);
     }
 }

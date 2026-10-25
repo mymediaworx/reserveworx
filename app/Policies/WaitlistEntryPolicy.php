@@ -22,6 +22,8 @@ class WaitlistEntryPolicy
 
     public function update(User $user, WaitlistEntry $entry): bool
     {
-        return $this->sameTenant($entry->tenant_id) && $this->tenantAllows($user, 'bookings.manage');
+        return $this->sameTenant($entry->tenant_id)
+            && $this->tenantAllows($user, 'bookings.manage')
+            && $this->locationAllowed($user, $entry->location_id);
     }
 }

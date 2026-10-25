@@ -13,6 +13,7 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -38,7 +39,7 @@ class ServiceController extends Controller
         abort_unless($tenant instanceof Tenant, 403);
 
         $validated = $request->validate([
-            'location_id' => ['required', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenant->id))],
+            'location_id' => ['required', 'string', app(StaffLocationAccess::class)->locationExistsRule($tenant->id)],
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::enum(ServiceKind::class)],
             'min_participants' => ['nullable', 'integer', 'min:1'],

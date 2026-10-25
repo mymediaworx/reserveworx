@@ -17,7 +17,9 @@ class DeparturePolicy
 
     public function view(User $user, Departure $departure): bool
     {
-        return $this->sameTenant($departure->tenant_id) && $this->tenantAllows($user, 'bookings.view');
+        return $this->sameTenant($departure->tenant_id)
+            && $this->tenantAllows($user, 'bookings.view')
+            && $this->locationAllowed($user, $departure->location_id);
     }
 
     public function create(User $user): bool
@@ -27,6 +29,8 @@ class DeparturePolicy
 
     public function update(User $user, Departure $departure): bool
     {
-        return $this->sameTenant($departure->tenant_id) && $this->tenantAllows($user, 'bookings.manage');
+        return $this->sameTenant($departure->tenant_id)
+            && $this->tenantAllows($user, 'bookings.manage')
+            && $this->locationAllowed($user, $departure->location_id);
     }
 }

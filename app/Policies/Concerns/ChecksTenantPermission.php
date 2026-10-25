@@ -4,6 +4,7 @@ namespace App\Policies\Concerns;
 
 use App\Models\User;
 use App\Tenancy\Access;
+use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
 
 trait ChecksTenantPermission
@@ -20,5 +21,10 @@ trait ChecksTenantPermission
         $current = app(TenantManager::class)->id();
 
         return $current !== null && $current === $tenantId;
+    }
+
+    protected function locationAllowed(User $user, ?string $locationId): bool
+    {
+        return app(StaffLocationAccess::class)->allows($locationId, $user);
     }
 }

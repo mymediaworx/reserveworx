@@ -17,7 +17,9 @@ class ServicePolicy
 
     public function view(User $user, Service $service): bool
     {
-        return $this->sameTenant($service->tenant_id) && $this->tenantAllows($user, 'inventory.view');
+        return $this->sameTenant($service->tenant_id)
+            && $this->tenantAllows($user, 'inventory.view')
+            && $this->locationAllowed($user, $service->location_id);
     }
 
     public function create(User $user): bool
@@ -27,6 +29,8 @@ class ServicePolicy
 
     public function update(User $user, Service $service): bool
     {
-        return $this->sameTenant($service->tenant_id) && $this->tenantAllows($user, 'inventory.manage');
+        return $this->sameTenant($service->tenant_id)
+            && $this->tenantAllows($user, 'inventory.manage')
+            && $this->locationAllowed($user, $service->location_id);
     }
 }

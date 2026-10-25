@@ -3,7 +3,9 @@
 namespace App\Services\Team;
 
 use App\Enums\MembershipStatus;
+use App\Models\Location;
 use App\Models\Membership;
+use App\Models\MembershipLocation;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
@@ -11,6 +13,8 @@ use App\Notifications\TeamInvite;
 use App\Services\AuditLogger;
 use App\Services\Tenancy\WorkspaceOrigin;
 use App\Tenancy\Access;
+use App\Tenancy\StaffLocationAccess;
+use App\Tenancy\StaffLocationScope;
 use App\Tenancy\TenantManager;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
@@ -37,12 +41,16 @@ final class WorkspaceTeam
         private readonly WorkspaceOrigin $origins,
     ) {}
 
-    public function invite(User $actor, string $email, string $roleSlug, Request $request): InviteResult
+    /**
+     * @param  list<string>  $locationIds
+     */
+    public function invite(User $actor, string $email, string $roleSlug, Request $request, bool $allLocations = true, array $locationIds = []): InviteResult
     {
         $tenant = $this->tenant();
         $this->assertManager($actor, $tenant->id);
         $email = strtolower(trim($email));
         $this->roles->assertCanAssign($actor, $tenant->id, $roleSlug);
+        $ids = $this->validatedLocationIds($allLocations, $locationIds);
 
         if ($email === strtolower($actor->email)) {
             throw ValidationException::withMessages([
@@ -62,7 +70,7 @@ final class WorkspaceTeam
         $expires = now()->addDays(self::INVITE_DAYS);
 
         try {
-            $membership = DB::transaction(function () use ($actor, $email, $role, $tenant, $plain, $expires, $request): Membership {
+            $membership = DB::transaction(function () use ($actor, $email, $role, $tenant, $plain, $expires, $request, $allLocations, $ids): Membership {
                 $existing = User::query()->where('email', $email)->first();
                 $user = $existing;
 
@@ -106,14 +114,24 @@ final class WorkspaceTeam
                 $membership->invite_expires_at = $expires;
                 $membership->save();
 
+                if (! $allLocations) {
+                    $this->storeLocations($membership, false, $ids);
+                }
+
+                $properties = [
+                    'email' => $email,
+                    'role' => $role->slug,
+                    'existing_user' => $existing instanceof User,
+                ];
+
+                if (! $allLocations) {
+                    $properties['location_ids'] = $ids;
+                }
+
                 $this->audit->log(
                     action: 'membership.invited',
                     subject: $membership,
-                    properties: [
-                        'email' => $email,
-                        'role' => $role->slug,
-                        'existing_user' => $existing instanceof User,
-                    ],
+                    properties: $properties,
                     actor: $actor,
                     request: $request,
                 );
@@ -187,6 +205,48 @@ final class WorkspaceTeam
             actor: $actor,
             request: $request,
         );
+
+        return $membership;
+    }
+
+    /**
+     * @param  list<string>  $locationIds
+     */
+    public function assignLocations(User $actor, Membership $membership, bool $allLocations, array $locationIds, Request $request): Membership
+    {
+        $tenant = $this->tenant();
+        $this->assertSameWorkspace($membership, $tenant);
+        $this->assertManager($actor, $tenant->id);
+        $this->roles->assertCanTouch($actor, $membership);
+
+        if (! in_array($membership->status, [MembershipStatus::Active, MembershipStatus::Invited], true)) {
+            throw ValidationException::withMessages([
+                'team' => 'That person is not on this team.',
+            ]);
+        }
+
+        $ids = $this->validatedLocationIds($allLocations, $locationIds);
+        $beforeIds = $this->storedLocationIds($membership);
+        $beforeAll = ! $membership->locations_restricted;
+
+        $this->storeLocations($membership, $allLocations, $ids);
+
+        $same = $beforeAll === $allLocations && $beforeIds === $ids;
+
+        if (! $same) {
+            $membership->loadMissing('user');
+            $this->audit->log(
+                action: 'membership.locations_updated',
+                subject: $membership,
+                properties: [
+                    'email' => $membership->user?->email,
+                    'all_locations' => $allLocations,
+                    'location_ids' => $allLocations ? [] : $ids,
+                ],
+                actor: $actor,
+                request: $request,
+            );
+        }
 
         return $membership;
     }
@@ -416,6 +476,90 @@ final class WorkspaceTeam
                 ],
             ),
         );
+    }
+
+    /**
+     * @param  list<mixed>  $locationIds
+     * @return list<string>
+     */
+    private function validatedLocationIds(bool $allLocations, array $locationIds): array
+    {
+        if ($allLocations) {
+            return [];
+        }
+
+        $ids = [];
+
+        foreach ($locationIds as $id) {
+            if (is_string($id) && $id !== '') {
+                $ids[$id] = $id;
+            }
+        }
+
+        $ids = array_values($ids);
+        sort($ids);
+
+        if ($ids === []) {
+            throw ValidationException::withMessages([
+                'locations' => 'Choose at least one location.',
+            ]);
+        }
+
+        $found = Location::query()
+            ->withoutGlobalScope(StaffLocationScope::class)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->all();
+
+        if (count($found) !== count($ids)) {
+            throw ValidationException::withMessages([
+                'locations' => 'Choose a location in this workspace.',
+            ]);
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param  list<string>  $ids
+     */
+    private function storeLocations(Membership $membership, bool $allLocations, array $ids): void
+    {
+        $membership->locations_restricted = ! $allLocations;
+        $membership->save();
+        MembershipLocation::query()->where('membership_id', $membership->id)->delete();
+
+        if (! $allLocations) {
+            foreach ($ids as $id) {
+                MembershipLocation::query()->create([
+                    'tenant_id' => $membership->tenant_id,
+                    'membership_id' => $membership->id,
+                    'location_id' => $id,
+                ]);
+            }
+        }
+
+        app(StaffLocationAccess::class)->forget();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function storedLocationIds(Membership $membership): array
+    {
+        if (! $membership->locations_restricted) {
+            return [];
+        }
+
+        $ids = MembershipLocation::query()
+            ->where('membership_id', $membership->id)
+            ->orderBy('location_id')
+            ->pluck('location_id')
+            ->all();
+        $ids = array_values(array_map(strval(...), $ids));
+        sort($ids);
+
+        return $ids;
     }
 
     private function tenant(): Tenant

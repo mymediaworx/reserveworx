@@ -9,6 +9,7 @@ use App\Models\LocationClosure;
 use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Models\Tenant;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -70,7 +71,7 @@ final class ClosureWriter
     private function validate(Tenant $tenant, array $input): array
     {
         $validator = Validator::make($input, [
-            'location_id' => ['required', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenant->id))],
+            'location_id' => ['required', 'string', app(StaffLocationAccess::class)->locationExistsRule($tenant->id)],
             'scope' => ['required', Rule::in(['location', 'category', 'resource'])],
             'resource_category_id' => ['nullable', 'string'],
             'resource_key' => ['nullable', 'string'],
@@ -157,6 +158,8 @@ final class ClosureWriter
             $location = Location::query()->find($data['location_id']);
 
             if (! $location instanceof Location) {
+                $validator->errors()->add('location_id', 'Choose a location in this workspace.');
+
                 return;
             }
 

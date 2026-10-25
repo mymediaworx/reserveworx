@@ -11,6 +11,8 @@ use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\ReportSummary;
 use App\Models\Tenant;
+use App\Tenancy\StaffLocationAccess;
+use App\Tenancy\StaffLocationScope;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
@@ -121,7 +123,8 @@ final class PortfolioReport
         $bookings = Booking::query()
             ->withoutGlobalScope(TenantScope::class)
             ->with(['location' => function ($query): void {
-                $query->withoutGlobalScope(TenantScope::class);
+                $query->withoutGlobalScope(TenantScope::class)
+                    ->withoutGlobalScope(StaffLocationScope::class);
             }])
             ->whereIn('tenant_id', $tenantIds)
             ->where('starts_at', '>=', $padStart)
@@ -130,8 +133,9 @@ final class PortfolioReport
                 BookingStatus::Confirmed->value,
                 BookingStatus::Cancelled->value,
                 BookingStatus::NoShow->value,
-            ])
-            ->get()
+            ]);
+        app(StaffLocationAccess::class)->limitAcrossTenants($bookings, $tenantIds);
+        $bookings = $bookings->get()
             ->filter(function (Booking $booking) use ($from, $to, $tenantIds): bool {
                 if (! in_array((string) $booking->tenant_id, $tenantIds, true)) {
                     return false;
@@ -511,8 +515,9 @@ final class PortfolioReport
                 ->withoutGlobalScope(TenantScope::class)
                 ->whereIn('tenant_id', $tenantIds)
                 ->whereIn('customer_id', $customerIds)
-                ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::NoShow->value])
-                ->get(['id', 'tenant_id', 'customer_id', 'starts_at']);
+                ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::NoShow->value]);
+            app(StaffLocationAccess::class)->limitAcrossTenants($history, $tenantIds);
+            $history = $history->get(['id', 'tenant_id', 'customer_id', 'starts_at']);
 
             foreach ($history as $booking) {
                 $customerId = $booking->customer_id;
@@ -598,8 +603,9 @@ final class PortfolioReport
             ->whereIn('tenant_id', $tenantIds)
             ->where('status', BookingStatus::Confirmed->value)
             ->where('starts_at', '>=', $start)
-            ->where('starts_at', '<', $end)
-            ->get(['id', 'tenant_id']);
+            ->where('starts_at', '<', $end);
+        app(StaffLocationAccess::class)->limitAcrossTenants($bookings, $tenantIds);
+        $bookings = $bookings->get(['id', 'tenant_id']);
 
         foreach ($bookings as $booking) {
             $tenantId = (string) $booking->tenant_id;
@@ -620,8 +626,9 @@ final class PortfolioReport
             ->withoutGlobalScope(TenantScope::class)
             ->whereIn('tenant_id', $tenantIds)
             ->whereDate('summary_date', '>=', $from)
-            ->whereDate('summary_date', '<=', $to)
-            ->get();
+            ->whereDate('summary_date', '<=', $to);
+        app(StaffLocationAccess::class)->limitAcrossTenants($summaries, $tenantIds);
+        $summaries = $summaries->get();
 
         foreach ($summaries as $summary) {
             $tenantId = (string) $summary->tenant_id;

@@ -124,6 +124,29 @@ img { max-width: 100%; }
 .identity-name { font-size: 1.2rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .identity-sub { font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.15rem; }
 .app-bar-actions { display: flex; align-items: center; gap: 0.25rem; }
+.location-switcher {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding: 0.5rem 1rem 0.65rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    min-width: 0;
+}
+.location-switcher a {
+    flex: none;
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    text-decoration: none;
+    color: inherit;
+    background: var(--surface);
+    white-space: nowrap;
+}
+.location-switcher a.is-current { background: var(--brand-soft, #e7f3ef); border-color: var(--brand); font-weight: 600; }
 
 .icon-button {
     position: relative;
@@ -862,6 +885,10 @@ button.schedule-block:focus-visible,
 .team-card .form-row { align-items: stretch; }
 .team-card select { width: 100%; min-width: 0; }
 .team-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.location-picks { border: 0; margin: 0; padding: 0; display: grid; gap: 0.35rem; min-width: 0; }
+.location-picks legend { font-weight: 600; padding: 0; }
+.location-picks .check { min-height: 2.75rem; align-items: center; }
+.location-picks .muted { margin: 0; }
 @media (max-width: 420px) {
     .team-card .form-row,
     .team-actions { display: grid; }

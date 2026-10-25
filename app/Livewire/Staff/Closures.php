@@ -156,6 +156,10 @@ class Closures extends Component
     {
         $locations = Location::query()->orderBy('name')->get();
 
+        if ($this->locationId !== '' && ! $locations->contains('id', $this->locationId)) {
+            abort(404);
+        }
+
         if ($this->locationId === '' && $locations->isNotEmpty()) {
             $this->locationId = (string) $locations->first()->id;
         }

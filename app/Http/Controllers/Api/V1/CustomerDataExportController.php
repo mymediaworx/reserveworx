@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\CustomerDataExport;
 use App\Models\User;
 use App\Services\Privacy\CustomerDataExporter;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -20,6 +21,7 @@ class CustomerDataExportController extends Controller
         $this->authorize('export', $customer);
         $actor = $request->user();
         abort_unless($actor instanceof User, 403);
+        abort_if(app(StaffLocationAccess::class)->isRestricted($actor), 403);
 
         $export = $this->exports->queue($customer, $actor, $request);
 

@@ -37,6 +37,8 @@ use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
 use App\Services\Pricing\PromoCodes;
 use App\Services\Webhooks\WebhookPublisher;
+use App\Tenancy\StaffLocationAccess;
+use App\Tenancy\StaffLocationScope;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -904,7 +906,7 @@ class Allocator
         }
 
         $this->enterTenant($intent->tenantId);
-        $existing = Booking::query()->where('idempotency_key', $intent->idempotencyKey)->first();
+        $existing = $this->bookingForIdempotency($intent->idempotencyKey);
 
         if (! $existing instanceof Booking) {
             throw $exception;
@@ -924,9 +926,14 @@ class Allocator
         }
 
         $existing = Booking::query()
+            ->withoutGlobalScope(StaffLocationScope::class)
             ->where('idempotency_key', $intent->idempotencyKey)
             ->lockForUpdate()
             ->first();
+
+        if ($existing instanceof Booking && ! app(StaffLocationAccess::class)->allows($existing->location_id)) {
+            throw new IdempotencyConflictException;
+        }
 
         if ($existing === null) {
             return null;
@@ -937,6 +944,20 @@ class Allocator
         }
 
         return $existing->load(['holds', 'allocations', 'lineItems']);
+    }
+
+    private function bookingForIdempotency(string $key): ?Booking
+    {
+        $existing = Booking::query()
+            ->withoutGlobalScope(StaffLocationScope::class)
+            ->where('idempotency_key', $key)
+            ->first();
+
+        if ($existing instanceof Booking && ! app(StaffLocationAccess::class)->allows($existing->location_id)) {
+            throw new IdempotencyConflictException;
+        }
+
+        return $existing;
     }
 
     /**
@@ -2296,6 +2317,7 @@ class Allocator
         }
 
         $conflict = Booking::query()
+            ->withoutGlobalScope(StaffLocationScope::class)
             ->where('guide_user_id', $guideUserId)
             ->when($ignoreBookingId !== null, fn ($query) => $query->where('id', '!=', $ignoreBookingId))
             ->when($departureId !== null && $departureId !== '', function ($query) use ($departureId): void {

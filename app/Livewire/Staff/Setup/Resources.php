@@ -7,7 +7,7 @@ use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
 use App\Models\Location;
 use App\Models\Pool;
-use Illuminate\Validation\Rule;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -45,7 +45,7 @@ class Resources extends Component
     public function create(): void
     {
         $tenantId = $this->tenant()->id;
-        $owned = Rule::exists('locations', 'id')->where(fn ($q) => $q->where('tenant_id', $tenantId));
+        $owned = app(StaffLocationAccess::class)->locationExistsRule($tenantId);
         $base = [
             'locationId' => ['required', 'string', $owned],
             'name' => ['required', 'string', 'max:120'],

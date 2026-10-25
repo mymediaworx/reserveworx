@@ -8,6 +8,7 @@ use App\Models\Location;
 use App\Models\PriceRule;
 use App\Models\PromoCode;
 use App\Models\Service;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -46,7 +47,7 @@ class Services extends Component
         $this->validate([
             'name' => ['required', 'string', 'max:120'],
             'kind' => ['required', Rule::enum(ServiceKind::class)],
-            'locationId' => ['required', 'string', Rule::exists('locations', 'id')->where(fn ($q) => $q->where('tenant_id', $tenantId))],
+            'locationId' => ['required', 'string', app(StaffLocationAccess::class)->locationExistsRule($tenantId)],
         ]);
 
         $service = Service::query()->create([

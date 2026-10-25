@@ -51,7 +51,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures` |
 | Tenant domain | `/staff/promo-codes` | List, add, edit, and turn off promo codes. A code is a percent or a fixed amount. Dates and a use limit are optional |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection |
-| Tenant domain | `/staff/team` | Invite by email, resend or revoke a pending invitation, change a role, or remove a member. Owners, and anyone else with `members.manage`, can open it. The signed accept link expires in 7 days |
+| Tenant domain | `/staff/team` | Invite by email, resend or revoke a pending invitation, change a role, remove a member, or limit that person to specific locations. Until a limit is saved, they can work at every location. Owners, and anyone else with `members.manage`, can open it. The signed accept link expires in 7 days. The location switcher under the staff header lists only the locations that member can use |
 | Tenant domain | `/staff/invites/{membership}` | Signed page for that invitation. A new person sets a password. An existing account joins this workspace and keeps its password |
 | Tenant domain | `/staff/share` | Share & embed: link, button, on-page embed, pop-up, and named links |
 | Tenant domain | `/staff/branding` | Name, logo, colors, support contacts |

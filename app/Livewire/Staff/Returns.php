@@ -13,6 +13,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Operations\ResourceReturn;
 use App\Support\Lateness;
+use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
@@ -175,6 +176,7 @@ class Returns extends Component
             ->whereNull('returned_at')
             ->orderBy('due_at')
             ->orderBy('id');
+        app(StaffLocationAccess::class)->constrainToVisibleBookings($query);
 
         if ($selected instanceof Location) {
             $query->whereHas('booking', fn ($booking) => $booking->where('location_id', $selected->id));

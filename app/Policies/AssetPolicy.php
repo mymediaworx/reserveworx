@@ -17,7 +17,9 @@ class AssetPolicy
 
     public function view(User $user, Asset $asset): bool
     {
-        return $this->sameTenant($asset->tenant_id) && $this->tenantAllows($user, 'inventory.view');
+        return $this->sameTenant($asset->tenant_id)
+            && $this->tenantAllows($user, 'inventory.view')
+            && $this->locationAllowed($user, $asset->location_id);
     }
 
     public function create(User $user): bool
@@ -27,6 +29,8 @@ class AssetPolicy
 
     public function update(User $user, Asset $asset): bool
     {
-        return $this->sameTenant($asset->tenant_id) && $this->tenantAllows($user, 'inventory.manage');
+        return $this->sameTenant($asset->tenant_id)
+            && $this->tenantAllows($user, 'inventory.manage')
+            && $this->locationAllowed($user, $asset->location_id);
     }
 }

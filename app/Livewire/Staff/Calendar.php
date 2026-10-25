@@ -67,6 +67,10 @@ class Calendar extends Component
         $location = $this->location !== '' ? $this->location : null;
         $service = $this->service !== '' ? $this->service : null;
 
+        if ($location !== null && ! Location::query()->whereKey($location)->exists()) {
+            abort(404);
+        }
+
         $bookings = Booking::query()
             ->with('service')
             ->where('starts_at', '<', $end)

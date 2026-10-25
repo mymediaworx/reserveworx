@@ -19,6 +19,7 @@ use App\Services\Onboarding\OnboardingProgress;
 use App\Services\Signup\SignupVerification;
 use App\Services\TenantLifecycle;
 use App\Services\Workspaces\WorkspaceDirectory;
+use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -70,6 +71,13 @@ class Dashboard extends Component
 
         $onboarding = $this->tenant()->status === TenantStatus::Onboarding;
         $progress = $onboarding ? app(OnboardingChecklist::class)->assess($this->tenant()) : null;
+        $access = app(StaffLocationAccess::class);
+        $overdue = RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'));
+        $access->constrainToVisibleBookings($overdue);
+        $paid = Payment::query()
+            ->where('status', 'paid')
+            ->where('created_at', '>=', $now->subDays(30)->utc());
+        $access->constrainToVisibleBookings($paid);
 
         return view('livewire.staff.dashboard', [
             'zone' => $zone,
@@ -78,17 +86,14 @@ class Dashboard extends Component
             'today' => $today,
             'departures' => $departures,
             'todayCount' => $today->count(),
-            'overdueCount' => RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
+            'overdueCount' => $overdue->count(),
             'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
             'upcomingCount' => Booking::query()
                 ->where('starts_at', '>', $end)
                 ->where('starts_at', '<', $now->addDays(7)->endOfDay()->utc())
                 ->whereIn('status', $active)
                 ->count(),
-            'paidCents' => (int) Payment::query()
-                ->where('status', 'paid')
-                ->where('created_at', '>=', $now->subDays(30)->utc())
-                ->sum('amount_cents'),
+            'paidCents' => (int) $paid->sum('amount_cents'),
             'currency' => $currency,
             'customers' => $this->customersFor($today),
             'zones' => $this->zones(),

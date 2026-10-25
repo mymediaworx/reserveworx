@@ -6,6 +6,7 @@ use App\Enums\ResourceStatus;
 use App\Models\Pool;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -27,7 +28,7 @@ class StorePoolRequest extends FormRequest
         $tenantId = $tenant instanceof Tenant ? $tenant->id : null;
 
         return [
-            'location_id' => ['required', 'string', Rule::exists('locations', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
+            'location_id' => ['required', 'string', app(StaffLocationAccess::class)->locationExistsRule($tenantId)],
             'resource_category_id' => ['nullable', 'string', Rule::exists('resource_categories', 'id')->where(fn ($query) => $query->where('tenant_id', $tenantId))],
             'name' => ['required', 'string', 'max:120'],
             'quantity' => ['required', 'integer', 'between:0,100000'],
