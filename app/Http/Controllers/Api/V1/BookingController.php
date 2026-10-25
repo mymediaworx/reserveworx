@@ -641,7 +641,7 @@ class BookingController extends Controller
         $validated = $request->validate([
             'conditions' => ['present', 'array'],
             'conditions.*.asset_id' => ['required', 'string'],
-            'conditions.*.condition' => ['required', 'string', Rule::in(array_column(ReturnCondition::cases(), 'value'))],
+            'conditions.*.condition' => ['required', 'string', Rule::in(ReturnCondition::apiValues())],
             'conditions.*.notes' => ['nullable', 'string', 'max:500'],
         ], [
             'conditions.*.condition.in' => 'Condition must be ok, damaged, or missing.',
@@ -691,7 +691,7 @@ class BookingController extends Controller
     }
 
     /**
-     * @return list<array{id: string, booking_id: string, rental_checkout_id: string, asset_id: string, condition: string, notes: ?string, recorded_by: ?string, created_at: ?string}>
+     * @return list<array{id: string, booking_id: string, rental_checkout_id: string, asset_id: string|null, condition: string, notes: ?string, minutes_late: ?int, recorded_by: ?string, created_at: ?string}>
      */
     private function returnRecords(Booking $booking): array
     {
@@ -705,6 +705,7 @@ class BookingController extends Controller
                 'asset_id' => $row->asset_id,
                 'condition' => $row->condition->value,
                 'notes' => $row->notes,
+                'minutes_late' => $row->minutes_late,
                 'recorded_by' => $row->recorded_by,
                 'created_at' => $row->created_at?->toIso8601String(),
             ];

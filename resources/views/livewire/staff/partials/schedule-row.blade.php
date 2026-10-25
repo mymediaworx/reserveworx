@@ -1,4 +1,4 @@
-<div class="schedule-label" style="--lanes: {{ $row['lanes'] }}" data-resource="{{ $row['key'] }}">
+<div class="schedule-label" style="--lanes: {{ $row['lanes'] }}" data-resource="{{ $row['key'] }}" data-flag="{{ $row['flag'] ?? '' }}">
     <span>{{ $row['name'] }}</span>
     @if ($row['detail'] !== '')
         <small>{{ $row['detail'] }}</small>

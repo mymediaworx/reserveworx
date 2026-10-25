@@ -38,6 +38,18 @@
                 <span class="stat-value">{{ Display::money($paidCents, $currency) }}</span>
             </span>
         </a>
+        <a class="stat-card" href="/staff/returns" wire:navigate data-overdue="{{ $overdueCount }}">
+            <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
+            <span class="stat-body">
+                <span class="stat-title">Overdue</span>
+                <span class="icon-circle {{ $overdueCount > 0 ? 'tone-late' : 'tone-ok' }}"><x-icon name="clock" size="22" /></span>
+                @if ($overdueCount === 0)
+                    <span class="stat-good">All clear</span>
+                @else
+                    <span class="stat-value">{{ $overdueCount }}</span>
+                @endif
+            </span>
+        </a>
         <a class="stat-card" href="/staff/bookings?status=held" wire:navigate>
             <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
             <span class="stat-body">
