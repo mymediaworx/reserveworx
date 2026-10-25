@@ -206,6 +206,10 @@ final class WebhookProcessor
             $payload['charged_basis_cents'] = (int) $payload['charged_basis_cents'] + $addedBasis;
         }
         $payload['tax_cents'] = $this->cents($payload, 'tax_cents') + $this->cents($pending, 'tax_cents');
+
+        if (is_array($pending['tax_lines'] ?? null)) {
+            $payload['tax_lines'] = $pending['tax_lines'];
+        }
         $payload['fee_cents'] = $this->cents($payload, 'fee_cents') + $this->cents($pending, 'fee_cents');
         $payload['customer_total_cents'] = $this->cents($payload, 'customer_total_cents') + $this->cents($pending, 'charge_cents');
 

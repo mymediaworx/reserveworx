@@ -142,6 +142,29 @@ class DisclosurePartialsTest extends TestCase
         $this->assertNoForbiddenTerms($html);
     }
 
+    public function test_named_tax_lines_replace_the_single_taxes_row_and_are_escaped(): void
+    {
+        $html = view('disclosures.checkout-summary', [
+            'subtotalCents' => 10_000,
+            'bookingFeeCents' => 315,
+            'taxCents' => 875,
+            'taxLines' => [
+                ['name' => 'State sales tax', 'cents' => 825],
+                ['name' => '<script>', 'cents' => 50],
+            ],
+            'totalCents' => 11_190,
+            'refundTerms' => $this->terms(),
+        ])->render();
+
+        $this->assertStringContainsString('State sales tax', $html);
+        $this->assertStringContainsString('$8.25', $html);
+        $this->assertStringContainsString('$0.50', $html);
+        $this->assertStringNotContainsString('<dt>Taxes</dt>', $html);
+        $this->assertStringNotContainsString('<script>', $html);
+        $this->assertStringContainsString('&lt;script&gt;', $html);
+        $this->assertNoForbiddenTerms($html);
+    }
+
     public function test_business_name_is_escaped(): void
     {
         $html = view('disclosures.checkout-summary', [

@@ -868,6 +868,38 @@ button.schedule-block:focus-visible,
     .team-card .button { width: 100%; white-space: normal; }
 }
 
+.tax-page { min-width: 0; }
+.tax-page .page-head,
+.tax-page .panel,
+.tax-page .field,
+.tax-page .stack,
+.tax-page .row,
+.tax-page .split,
+.tax-page .actions { min-width: 0; max-width: 100%; }
+.tax-page h1,
+.tax-page .lede,
+.tax-page .row strong,
+.tax-page .row .muted { overflow-wrap: anywhere; }
+.tax-page .field input { width: 100%; min-width: 0; max-width: 100%; }
+.tax-applies { display: grid; gap: 0.65rem; margin: 0; padding: 0; border: 0; }
+.tax-applies legend { font-weight: 500; font-size: 0.875rem; color: var(--ink-soft); }
+.tax-applies .check {
+    min-height: 2.75rem;
+    align-items: center;
+    margin: 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+}
+.tax-page .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+@media (max-width: 420px) {
+    .tax-page .actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+    .tax-page .button,
+    .tax-page .actions .button,
+    .tax-page .row .button { width: 100%; white-space: normal; text-align: center; }
+    .tax-page .stack > .button { justify-self: stretch; }
+}
+
 @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }

@@ -5,6 +5,7 @@
     @param list<array{name?: string, total_cents?: int|string}>|null $operatorFees
     @param int|null $bookingFeeCents  Customer-paid booking fee; null in operator-absorbed mode.
     @param int $taxCents
+    @param list<array{name?: string, cents?: int|string}>|null $taxLines
     @param int $totalCents
     @param int $paidCents
     @param int|null $refundedCents  Total refunded to the customer, for refund receipts.
@@ -46,10 +47,7 @@
                 <dd>{{ Money::format($bookingFeeCents, $currency) }}</dd>
             </div>
         @endif
-        <div class="line taxes">
-            <dt>Taxes</dt>
-            <dd>{{ Money::format($taxCents, $currency) }}</dd>
-        </div>
+        @include('disclosures.partials.tax-or-lines')
         <div class="line total">
             <dt>Total</dt>
             <dd>{{ Money::format($totalCents, $currency) }}</dd>

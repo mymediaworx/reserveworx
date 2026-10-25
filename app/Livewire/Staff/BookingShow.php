@@ -11,6 +11,7 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\DisclosureVersion;
+use App\Models\LocationTaxRule;
 use App\Models\Payment;
 use App\Models\Pool;
 use App\Models\PricingSnapshot;
@@ -72,18 +73,24 @@ class BookingShow extends Component
     public function price(BookingPricer $pricer): void
     {
         $booking = $this->editable();
-        $this->validate([
-            'taxPercent' => ['required', 'numeric', 'between:0,100'],
+        $hasLocationTax = $this->locationHasTax($booking);
+        $rules = [
             'promoCode' => ['nullable', 'string', 'max:40'],
             'depositPercent' => ['integer', 'between:1,100'],
-        ]);
+        ];
+
+        if (! $hasLocationTax) {
+            $rules['taxPercent'] = ['required', 'numeric', 'between:0,100'];
+        }
+
+        $this->validate($rules);
 
         try {
             $pricer->quote(
                 $booking->load('location'),
                 $this->tenant(),
                 FeeChannel::Direct,
-                (int) round(((float) $this->taxPercent) * 100),
+                $hasLocationTax ? 0 : (int) round(((float) $this->taxPercent) * 100),
                 $this->promoCode !== '' ? $this->promoCode : null,
                 $this->depositPercent,
             );
@@ -307,7 +314,14 @@ class BookingShow extends Component
                 ->limit(20)
                 ->get(),
             'operationalStatuses' => OperationalStatus::cases(),
+            'hasLocationTax' => $this->locationHasTax($booking),
         ])->title(($booking->service->name ?? 'Booking').' – '.$booking->starts_at->timezone($zone)->format('M j'));
+    }
+
+    private function locationHasTax(Booking $booking): bool
+    {
+        return $booking->location_id !== ''
+            && LocationTaxRule::query()->where('location_id', $booking->location_id)->exists();
     }
 
     private function booking(string $id): Booking

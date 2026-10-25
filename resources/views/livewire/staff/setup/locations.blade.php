@@ -41,6 +41,9 @@
                                     <strong>{{ $location->name }}</strong>
                                     <span class="muted">{{ $location->timezone }}{{ $location->status->value !== 'active' ? ', closed' : '' }}</span>
                                 </div>
+                                @if ($canSetTax)
+                                    <a class="button small" href="/staff/locations/{{ $location->id }}/tax" wire:navigate>Tax</a>
+                                @endif
                                 @if ($canManage)
                                     <button type="button" class="button small" wire:click="edit('{{ $location->id }}')">Edit</button>
                                 @endif

@@ -158,6 +158,7 @@
                         'operatorFees' => $operatorFees,
                         'bookingFeeCents' => $payload['customer_fee_line_cents'] ?? null,
                         'taxCents' => (int) ($payload['tax_cents'] ?? 0),
+                        'taxLines' => is_array($payload['tax_lines'] ?? null) ? $payload['tax_lines'] : [],
                         'totalCents' => (int) $payload['customer_total_cents'],
                         'currency' => $booking['currency'],
                         'refundTerms' => $booking['disclosure'],

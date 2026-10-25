@@ -469,6 +469,132 @@ class PricingEngineTest extends TestCase
         );
     }
 
+    public function test_location_rates_replace_the_single_rate_and_leave_the_booking_fee_untaxed(): void
+    {
+        $rules = [
+            [
+                'id' => '01STATE',
+                'name' => 'State sales tax',
+                'percent_bps' => 825,
+                'applies_to_rentals' => true,
+                'applies_to_add_ons' => true,
+                'applies_to_fees' => true,
+            ],
+            [
+                'id' => '01CITY',
+                'name' => 'City tax',
+                'percent_bps' => 100,
+                'applies_to_rentals' => true,
+                'applies_to_add_ons' => false,
+                'applies_to_fees' => false,
+            ],
+        ];
+        $fees = [[
+            'operator_fee_id' => '01CLEAN',
+            'name' => 'Cleaning',
+            'pricing' => 'flat',
+            'scope' => 'service',
+            'amount_cents' => 500,
+            'percent_bps' => null,
+        ]];
+        $priced = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            1,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            null,
+            null,
+            null,
+            100,
+            2_000,
+            [['name' => 'Cooler', 'total_cents' => 2_000]],
+            $fees,
+            $rules,
+        );
+        $snapshot = $priced->toSnapshot();
+
+        $this->assertSame(1_131, $snapshot['tax_cents']);
+        $this->assertSame(375, $snapshot['fee_cents']);
+        $this->assertSame(14_006, $snapshot['customer_total_cents']);
+        $this->assertFalse($snapshot['tax_includes_booking_fee']);
+        $this->assertSame('State sales tax', $snapshot['tax_lines'][0]['name']);
+        $this->assertSame(1_031, $snapshot['tax_lines'][0]['cents']);
+        $this->assertSame(12_500, $snapshot['tax_lines'][0]['basis_cents']);
+        $this->assertSame('City tax', $snapshot['tax_lines'][1]['name']);
+        $this->assertSame(100, $snapshot['tax_lines'][1]['cents']);
+        $this->assertSame(10_000, $snapshot['tax_lines'][1]['basis_cents']);
+        $this->assertArrayNotHasKey('tax_lines', $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            1,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            null,
+            null,
+            null,
+            100,
+        )->toSnapshot());
+
+        $increase = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 20_000, 'weekday')],
+            1,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            null,
+            null,
+            10_000,
+            0,
+            1_131,
+            2_000,
+            2_000,
+            500,
+            $fees,
+            $rules,
+        );
+
+        $this->assertSame(10_000, $increase->basisCents);
+        $this->assertSame(925, $increase->taxCents);
+        $this->assertSame(300, $increase->quote->toSnapshot()['fee_cents']);
+        $this->assertIsArray($increase->taxLines);
+        $this->assertSame(1_856, $increase->taxLines[0]['cents']);
+        $this->assertSame(200, $increase->taxLines[1]['cents']);
+
+        $decrease = $this->engine->decreaseFromQuote(
+            [new PriceRuleInput('base', 10_000, 'weekday')],
+            1,
+            60,
+            CarbonImmutable::parse('2026-06-15'),
+            1_000,
+            null,
+            null,
+            20_000,
+            0,
+            2_056,
+            2_000,
+            2_000,
+            500,
+            $fees,
+            $rules,
+        );
+
+        $this->assertSame(10_000, $decrease->basisReductionCents);
+        $this->assertSame(925, $decrease->taxReductionCents);
+        $this->assertIsArray($decrease->taxLines);
+        $this->assertSame(1_031, $decrease->taxLines[0]['cents']);
+        $this->assertSame(100, $decrease->taxLines[1]['cents']);
+    }
+
     public function test_a_service_with_no_matching_rule_is_refused(): void
     {
         $this->expectException(InvalidArgumentException::class);

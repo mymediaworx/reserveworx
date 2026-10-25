@@ -41,4 +41,12 @@ class Location extends Model
     {
         return $this->hasMany(Pool::class);
     }
+
+    /**
+     * @return HasMany<LocationTaxRule, $this>
+     */
+    public function taxRules(): HasMany
+    {
+        return $this->hasMany(LocationTaxRule::class);
+    }
 }

@@ -428,11 +428,16 @@ class WidgetController extends Controller
         $fresh = $booking->fresh() ?? $booking;
 
         $fresh->load('service');
+        $snapshot = PricingSnapshot::query()->where('booking_id', $fresh->id)->first();
+        $payload = $snapshot instanceof PricingSnapshot ? $snapshot->payload : [];
+        $taxLines = is_array($payload['tax_lines'] ?? null) ? $payload['tax_lines'] : [];
 
         return view('widget.confirmation', [
             'booking' => $fresh,
             'checkInQr' => $this->checkInPass->svg($fresh),
             'checkInUrl' => $this->checkInPass->url($fresh),
+            'taxLines' => $taxLines,
+            'currency' => $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
         ]);
     }
 
