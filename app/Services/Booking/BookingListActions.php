@@ -2,27 +2,25 @@
 
 namespace App\Services\Booking;
 
-use App\Domain\Fees\Refunds\RefundReason;
-use App\Domain\Payments\StripeNotConfiguredException;
 use App\Enums\BookingStatus;
+use App\Enums\StaffUndoKind;
 use App\Models\Booking;
-use App\Models\Payment;
+use App\Models\StaffUndoAction;
 use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\AuditLogger;
 use App\Services\CheckIn\ArrivalCheckIn;
-use App\Services\Payments\RefundException;
-use App\Services\Payments\RefundService;
+use App\Services\Staff\StaffUndo;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Gate;
-use InvalidArgumentException;
 use RuntimeException;
 
 /**
  * Bulk actions for the staff bookings list. Each row uses the same check-in,
- * return, and cancellation services as the booking screen. Cancellation of a
- * card payment uses the operator-cancel refund rule.
+ * return, and cancellation services as the booking screen. A cancellation with
+ * no refund yet can be undone for 10 seconds. The card refund and the customer
+ * notification wait until that window passes.
  */
 final class BookingListActions
 {
@@ -30,8 +28,9 @@ final class BookingListActions
         private readonly ArrivalCheckIn $checkIn,
         private readonly Allocator $allocator,
         private readonly WaitlistPromoter $promoter,
-        private readonly RefundService $refunds,
         private readonly AuditLogger $audit,
+        private readonly BookingCancellation $cancellation,
+        private readonly StaffUndo $undo,
     ) {}
 
     /**
@@ -104,11 +103,12 @@ final class BookingListActions
 
     /**
      * @param  list<string>  $ids
-     * @return array{cancelled: int, refunded: int, problems: list<string>}
+     * @return array{cancelled: int, refunded: int, problems: list<string>, undo: ?StaffUndoAction}
      */
     public function cancel(array $ids, User $actor): array
     {
-        $result = ['cancelled' => 0, 'refunded' => 0, 'problems' => []];
+        $result = ['cancelled' => 0, 'refunded' => 0, 'problems' => [], 'undo' => null];
+        $deferred = [];
 
         foreach ($ids as $id) {
             $booking = Booking::query()->with(['customer', 'service'])->find($id);
@@ -119,38 +119,59 @@ final class BookingListActions
 
             Gate::forUser($actor)->authorize('update', $booking);
 
-            if ($booking->status === BookingStatus::Cancelled) {
+            if ($booking->status === BookingStatus::Cancelled || $this->undo->coversBooking($booking->id)) {
                 continue;
             }
 
-            if ($this->hasCardPayment($booking)) {
-                try {
-                    $this->refunds->issue(
-                        $booking,
-                        RefundReason::OperatorCancelled,
-                        0,
-                        0,
-                        'list-cancel-'.$booking->id,
-                        $actor,
-                    );
-                    $result['refunded']++;
-                } catch (InvalidArgumentException $exception) {
-                    if ($exception->getMessage() !== 'Nothing left to refund.') {
-                        $this->remember($result['problems'], $this->label($booking).' was not cancelled: '.$exception->getMessage());
+            if ($this->cancellation->refundIssued($booking)) {
+                $finished = $this->cancellation->finalize($booking, $actor, true);
 
-                        continue;
-                    }
-                } catch (RefundException|StripeNotConfiguredException $exception) {
-                    $this->remember($result['problems'], $this->label($booking).' was not cancelled: '.$exception->getMessage());
+                if ($finished['problem'] !== null) {
+                    $this->remember($result['problems'], $finished['problem']);
 
                     continue;
                 }
+
+                if ($finished['cancelled']) {
+                    $result['cancelled']++;
+                }
+
+                if ($finished['refunded']) {
+                    $result['refunded']++;
+                }
+
+                continue;
             }
 
-            $cancelled = $this->allocator->cancel($booking);
-            $this->promoter->afterRelease($cancelled);
-            $this->audit->log('booking.cancelled', $cancelled, [], actor: $actor, request: request());
-            $result['cancelled']++;
+            $blocked = $this->cancellation->blockedMessage($booking);
+
+            if ($blocked !== null) {
+                $this->remember($result['problems'], $blocked);
+
+                continue;
+            }
+
+            $deferred[] = [
+                'id' => $booking->id,
+                'refund_card' => $this->cancellation->hasCardPayment($booking),
+                'location_id' => $booking->location_id,
+            ];
+        }
+
+        if ($deferred !== []) {
+            $count = count($deferred);
+            $result['undo'] = $this->undo->offer(
+                $actor,
+                StaffUndoKind::BookingCancel,
+                $count === 1 ? 'Booking cancelled.' : 'Cancelled '.$count.'.',
+                $this->sharedLocation($deferred),
+                null,
+                ['bookings' => array_map(
+                    fn (array $row): array => ['id' => $row['id'], 'refund_card' => $row['refund_card']],
+                    $deferred,
+                )],
+            );
+            $result['cancelled'] += $count;
         }
 
         return $result;
@@ -214,27 +235,22 @@ final class BookingListActions
         return is_string($csv) ? $csv : '';
     }
 
-    private function hasCardPayment(Booking $booking): bool
+    /**
+     * @param  list<array{id: string, refund_card: bool, location_id: ?string}>  $rows
+     */
+    private function sharedLocation(array $rows): ?string
     {
-        return Payment::query()
-            ->where('booking_id', $booking->id)
-            ->where('method', 'stripe')
-            ->where('status', '!=', 'pending')
-            ->where('amount_cents', '>', 0)
-            ->exists();
-    }
+        $locations = [];
 
-    private function label(Booking $booking): string
-    {
-        $name = $booking->customer?->name;
-
-        if (is_string($name) && $name !== '') {
-            return $name;
+        foreach ($rows as $row) {
+            if (is_string($row['location_id']) && $row['location_id'] !== '') {
+                $locations[$row['location_id']] = true;
+            }
         }
 
-        $service = $booking->service?->name;
+        $ids = array_keys($locations);
 
-        return is_string($service) && $service !== '' ? $service : 'A booking';
+        return count($ids) === 1 ? $ids[0] : null;
     }
 
     /**

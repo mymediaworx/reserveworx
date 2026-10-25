@@ -19,6 +19,7 @@
     @if ($flash)
         <p class="flash ok" role="status">{{ $flash }}</p>
     @endif
+    @include('livewire.staff.partials.undo-toast')
 
     <form class="filters" wire:submit.prevent>
         <label class="field compact">

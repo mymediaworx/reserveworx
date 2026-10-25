@@ -38,6 +38,7 @@
     @if ($dateProblem)
         <p class="flash bad" role="alert">{{ $dateProblem }}</p>
     @endif
+    @include('livewire.staff.partials.undo-toast')
 
     <form class="filters" wire:submit.prevent>
         <label class="field compact">

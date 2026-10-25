@@ -3,9 +3,11 @@
 namespace Tests\Feature\Web;
 
 use App\Models\Booking;
+use App\Models\StaffUndoAction;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\Allocator;
 use App\Tenancy\TenantManager;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\BuildsRentalShop;
@@ -165,6 +167,11 @@ class StaffPagesTest extends TestCase
             ->assertOk();
 
         app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('held', Booking::query()->find($booking->id)?->status->value);
+        $this->assertSame(1, StaffUndoAction::query()->count());
+        Carbon::setTestNow(now()->addSeconds(11));
+        $this->artisan('undo:commit')->assertSuccessful();
+        Carbon::setTestNow();
         $this->assertSame('cancelled', Booking::query()->find($booking->id)?->status->value);
         app(TenantManager::class)->forget();
     }

@@ -3,10 +3,13 @@
 namespace App\Livewire\Staff\Setup;
 
 use App\Enums\ResourceStatus;
+use App\Enums\StaffUndoKind;
+use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Services\Staff\StaffUndo;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -19,7 +22,7 @@ use Livewire\Component;
 #[Layout('layouts.staff')]
 class Resources extends Component
 {
-    use WithinTenant;
+    use PresentsUndoToast, WithinTenant;
 
     public string $kind = 'pool';
 
@@ -112,6 +115,29 @@ class Resources extends Component
         $pool->save();
         $this->audit('pool.updated', $pool, ['quantity' => $quantity]);
         $this->flash = 'Count updated.';
+    }
+
+    public function deleteResource(string $type, string $id, StaffUndo $undo): void
+    {
+        $resource = $this->resource($type, $id);
+        $this->authorize('delete', $resource);
+        $name = $resource->name;
+        $kind = $resource instanceof Asset ? StaffUndoKind::AssetDelete : StaffUndoKind::PoolDelete;
+        $audit = $resource instanceof Asset ? 'asset.deleted' : 'pool.deleted';
+        $resource->delete();
+        $this->audit($audit, $resource);
+        $this->rememberUndo($undo->offer(
+            $this->currentUser(),
+            $kind,
+            $name.' removed.',
+            $resource->location_id,
+            $resource,
+            [
+                'name' => $name,
+                'location_id' => $resource->location_id,
+            ],
+        ));
+        $this->flash = $name.' removed.';
     }
 
     public function render(): View

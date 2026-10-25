@@ -10,6 +10,7 @@
     <div aria-live="polite">
         @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
     </div>
+    @include('livewire.staff.partials.undo-toast')
 
     @if ($locations->isEmpty())
         <section class="notice">
@@ -39,6 +40,7 @@
                                             <select aria-label="Status of {{ $pool->name }}" wire:change="setStatus('pool', '{{ $pool->id }}', $event.target.value)">
                                                 @foreach ($statuses as $s)@continue($s->value === 'retired')<option value="{{ $s->value }}" @selected($pool->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
+                                            <button type="button" class="button small" wire:click="deleteResource('pool', '{{ $pool->id }}')">Delete</button>
                                         @else
                                             <span>{{ $pool->quantity }}</span>
                                             <span class="muted">{{ Display::status($pool->status->value) }}</span>
@@ -58,6 +60,7 @@
                                             <select aria-label="Status of {{ $asset->name }}" wire:change="setStatus('asset', '{{ $asset->id }}', $event.target.value)">
                                                 @foreach ($statuses as $s)@continue($s->value === 'retired' && $asset->status !== $s)<option value="{{ $s->value }}" @selected($asset->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
+                                            <button type="button" class="button small" wire:click="deleteResource('asset', '{{ $asset->id }}')">Delete</button>
                                         @else
                                             <span class="muted">{{ Display::status($asset->status->value) }}</span>
                                         @endif

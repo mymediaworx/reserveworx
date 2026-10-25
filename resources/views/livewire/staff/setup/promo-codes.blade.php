@@ -10,6 +10,7 @@
     <div aria-live="polite">
         @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
     </div>
+    @include('livewire.staff.partials.undo-toast')
 
     <div class="split">
         <section class="panel">
@@ -44,6 +45,7 @@
                                 @if ($promo->active)
                                     <button type="button" class="button small" wire:click="deactivate('{{ $promo->id }}')">Deactivate</button>
                                 @endif
+                                <button type="button" class="button small" wire:click="delete('{{ $promo->id }}')">Delete</button>
                             @elseif ($promo->active)
                                 <span class="muted">On</span>
                             @endif

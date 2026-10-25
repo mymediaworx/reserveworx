@@ -5,10 +5,11 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PromoCode extends Model
 {
-    use BelongsToTenant, HasUlids;
+    use BelongsToTenant, HasUlids, SoftDeletes;
 
     protected $fillable = [
         'tenant_id', 'code', 'percent_off', 'amount_off_cents', 'starts_on', 'ends_on',

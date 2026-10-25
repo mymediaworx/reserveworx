@@ -9,6 +9,7 @@
     <div aria-live="polite">
         @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
     </div>
+    @include('livewire.staff.partials.undo-toast')
 
     @if ($locations->isEmpty())
         <section class="panel">

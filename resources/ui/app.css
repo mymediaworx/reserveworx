@@ -332,6 +332,35 @@ fieldset.panel > legend + * { clear: both; }
 .notice h2 { color: inherit; }
 .notice .button { margin-top: 0.25rem; }
 
+.undo-toast {
+    position: fixed;
+    z-index: 40;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(var(--tabbar) + var(--safe-bottom) + 0.75rem);
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 auto;
+    max-width: 28rem;
+    padding: 0.85rem 1rem;
+    border-radius: var(--radius);
+    background: var(--ink);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(17, 24, 39, 0.18);
+}
+.undo-toast p { margin: 0; min-width: 0; }
+.undo-toast .button { flex: 0 0 auto; background: #fff; color: var(--ink); }
+@media (min-width: 1024px) {
+    .undo-toast { bottom: 1.25rem; }
+}
+@media (max-width: 390px) {
+    .undo-toast { display: grid; width: auto; min-width: 0; }
+    .undo-toast p { min-width: 0; overflow-wrap: anywhere; }
+    .undo-toast .button { width: 100%; min-width: 0; }
+}
+
 .flash { padding: 0.8rem 1rem; border-radius: var(--radius); margin: 0 0 1rem; font-weight: 500; }
 .flash.ok { background: var(--ok-soft); color: #14532D; }
 .flash.bad { background: var(--danger-soft); color: var(--danger); }

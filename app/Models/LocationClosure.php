@@ -9,11 +9,12 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class LocationClosure extends Model
 {
     /** @use HasFactory<LocationClosureFactory> */
-    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations, SoftDeletes;
 
     protected $table = 'closures';
 

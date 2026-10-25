@@ -14,6 +14,7 @@ use App\Models\Booking;
 use App\Models\Domain;
 use App\Models\Location;
 use App\Models\Membership;
+use App\Models\NotificationHook;
 use App\Models\Pool;
 use App\Models\PriceRule;
 use App\Models\ResourceRequirement;
@@ -24,6 +25,7 @@ use App\Models\TenantSetting;
 use App\Models\User;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
+use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
@@ -179,9 +181,21 @@ class StaffActionsTest extends TestCase
             ->call('book');
         $booking = Booking::query()->firstOrFail();
 
-        Livewire::test(BookingShow::class, ['booking' => $booking->id])->call('cancelBooking');
+        Livewire::test(BookingShow::class, ['booking' => $booking->id])
+            ->call('cancelBooking')
+            ->assertSee('Undo')
+            ->assertSee('@media (max-width: 390px)', false);
+
+        $this->assertSame('held', $booking->fresh()?->status->value);
+        $this->assertSame(0, NotificationHook::query()->where('kind', 'booking.cancelled')->count());
+        $this->assertSame(0, AuditLog::withoutGlobalScope(TenantScope::class)->where('action', 'booking.cancelled')->count());
+
+        Carbon::setTestNow(now()->addSeconds(11));
+        $this->artisan('undo:commit')->assertSuccessful();
+        Carbon::setTestNow();
 
         $this->assertSame('cancelled', $booking->fresh()?->status->value);
+        $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.cancelled')->count());
         $this->assertSame(1, AuditLog::withoutGlobalScope(TenantScope::class)->where('action', 'booking.cancelled')->count());
     }
 
