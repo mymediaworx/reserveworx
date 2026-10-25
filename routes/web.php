@@ -31,6 +31,7 @@ use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Import;
 use App\Livewire\Staff\LocationTax;
+use App\Livewire\Staff\Maintenance;
 use App\Livewire\Staff\Manifest;
 use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
@@ -145,6 +146,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/check-in', CheckIn::class)->name('staff.check-in');
         Route::get('/returns', Returns::class)->name('staff.returns');
+        Route::get('/maintenance', Maintenance::class)->name('staff.maintenance');
         Route::get('/check-in/{booking}', [StaffCheckInController::class, 'show'])
             ->whereUlid('booking')
             ->middleware('signed')

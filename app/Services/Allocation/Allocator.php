@@ -21,6 +21,7 @@ use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\MaintenanceWindow;
 use App\Models\Pool;
 use App\Models\RentalCheckout;
 use App\Models\ResourceRequirement;
@@ -155,7 +156,7 @@ class Allocator
             if ($unexpired) {
                 $plan = $this->plan($intent);
                 $this->lock($plan);
-                $this->recheck($plan, $booking->id);
+                $this->recheck($plan, $booking->id, honorMaintenance: false);
                 Hold::query()->where('booking_id', $booking->id)->delete();
                 BookingLineItem::query()->where('booking_id', $booking->id)->delete();
                 $this->writeRows($booking, $plan, hold: false);
@@ -171,7 +172,7 @@ class Allocator
             try {
                 $plan = $this->plan($intent);
                 $this->lock($plan);
-                $this->recheck($plan, $booking->id);
+                $this->recheck($plan, $booking->id, honorMaintenance: false);
             } catch (AllocationUnavailableException) {
                 $booking->status = BookingStatus::PaymentException;
                 $booking->save();
@@ -1253,14 +1254,22 @@ class Allocator
     }
 
     /**
+     * Confirming a hold that already exists passes false for $honorMaintenance.
+     * A maintenance window or block scheduled after that hold flags the booking
+     * for staff instead of failing the payment (Spec Section 9).
+     *
      * @param  Plan  $plan
      */
-    private function recheck(array $plan, ?string $ignoreBookingId): void
+    private function recheck(array $plan, ?string $ignoreBookingId, bool $honorMaintenance = true): void
     {
         $open = $this->hours->assess($plan['location'], $plan['starts_at'], $plan['ends_at']);
         $this->refuseClosed($open, false);
 
         foreach ($plan['demands'] as $demand) {
+            if ($honorMaintenance && $this->underMaintenance($demand['type'], $demand['id'], $demand['buffer_start'], $demand['buffer_end'])) {
+                throw new AllocationUnavailableException('That resource is out of service for maintenance at that time.');
+            }
+
             if ($demand['type'] === ResourceType::Asset) {
                 if ($this->assetTaken($demand['id'], $demand['buffer_start'], $demand['buffer_end'], $ignoreBookingId)) {
                     $asset = Asset::query()->find($demand['id']);
@@ -1292,6 +1301,15 @@ class Allocator
 
         [$guideStart, $guideEnd] = $this->guideWindow($plan);
         $this->assertGuideFree($plan['guide_user_id'], $guideStart, $guideEnd, $plan['departure_id'], $ignoreBookingId);
+    }
+
+    private function underMaintenance(ResourceType $type, string $resourceId, CarbonImmutable $start, CarbonImmutable $end): bool
+    {
+        return MaintenanceWindow::query()
+            ->where($type === ResourceType::Asset ? 'asset_id' : 'pool_id', $resourceId)
+            ->where('starts_at', '<', $end)
+            ->where('ends_at', '>', $start)
+            ->exists();
     }
 
     private function assetTaken(string $assetId, CarbonImmutable $start, CarbonImmutable $end, ?string $ignoreBookingId): bool

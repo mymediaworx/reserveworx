@@ -13,6 +13,7 @@
             <a href="/staff/feedback" wire:navigate><span class="app-circle"><x-icon name="message" size="26" /></span>Feedback</a>
             <a href="/staff/check-in" wire:navigate><span class="app-circle"><x-icon name="check" size="26" /></span>Check in</a>
             <a href="/staff/returns" wire:navigate><span class="app-circle"><x-icon name="return" size="26" /></span>Returns</a>
+            <a href="/staff/maintenance" wire:navigate><span class="app-circle"><x-icon name="wrench" size="26" /></span>Maintenance</a>
             <a href="/staff/manifest" wire:navigate><span class="app-circle"><x-icon name="manifest" size="26" /></span>Manifest</a>
             <a href="/staff/waitlist" wire:navigate><span class="app-circle"><x-icon name="clock" size="26" /></span>Waitlist</a>
             <a href="/staff/share" wire:navigate><span class="app-circle"><x-icon name="share" size="26" /></span>Share & embed</a>

@@ -6,13 +6,14 @@ use App\Enums\ResourceStatus;
 use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\Hold;
 use Carbon\CarbonImmutable;
 
 final class AffectedBookings
 {
     /**
-     * Flags future bookings that use this resource in the interval.
-     * Does not cancel or reassign them.
+     * Flags future bookings that use this resource in the interval, through
+     * an allocation or an unexpired hold. Does not cancel or reassign them.
      */
     public function flag(?string $assetId, ?string $poolId, CarbonImmutable $startsAt, CarbonImmutable $endsAt, string $reason): int
     {
@@ -26,7 +27,17 @@ final class AffectedBookings
             $allocationQuery->where('pool_id', $poolId);
         }
 
-        $bookingIds = $allocationQuery->pluck('booking_id')->unique()->values();
+        $holdQuery = Hold::query()
+            ->where('expires_at', '>', now())
+            ->where('starts_at', '<', $endsAt)
+            ->where('ends_at', '>', $startsAt)
+            ->whereNotNull('booking_id')
+            ->where($assetId !== null ? 'asset_id' : 'pool_id', $assetId ?? $poolId);
+
+        $bookingIds = $allocationQuery->pluck('booking_id')
+            ->merge($holdQuery->pluck('booking_id'))
+            ->unique()
+            ->values();
         $flagged = 0;
 
         foreach ($bookingIds as $bookingId) {
