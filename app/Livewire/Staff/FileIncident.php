@@ -10,6 +10,7 @@ use App\Models\Incident;
 use App\Models\MaintenanceWindow;
 use App\Models\PricingSnapshot;
 use App\Models\TenantSetting;
+use App\Services\Operations\IncidentAssets;
 use App\Services\Operations\IncidentPhotos;
 use App\Services\Operations\IncidentReport;
 use App\Support\Display;
@@ -201,6 +202,7 @@ class FileIncident extends Component
         return view('livewire.staff.file-incident', [
             'booking' => $booking,
             'assets' => $assets,
+            'unassigned' => ! app(IncidentAssets::class)->bookingHasResource($booking),
             'fixedAsset' => $this->fixedAssetId !== '' ? $assets->firstWhere('id', $this->fixedAssetId) : null,
             'reports' => Incident::query()
                 ->with(['asset', 'photos'])
@@ -227,14 +229,7 @@ class FileIncident extends Component
      */
     private function assets(Booking $booking): Collection
     {
-        $ids = $booking->allocations()->pluck('asset_id')
-            ->merge($booking->holds()->pluck('asset_id'))
-            ->merge($booking->checkouts()->pluck('asset_id'))
-            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
-            ->unique()
-            ->values();
-
-        return Asset::query()->whereIn('id', $ids)->orderBy('name')->orderBy('id')->get();
+        return app(IncidentAssets::class)->forBooking($booking);
     }
 
     private function damageCents(): ?int

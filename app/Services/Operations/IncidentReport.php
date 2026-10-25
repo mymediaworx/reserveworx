@@ -5,12 +5,9 @@ namespace App\Services\Operations;
 use App\Enums\IncidentSeverity;
 use App\Enums\IncidentStatus;
 use App\Enums\MaintenanceKind;
-use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
-use App\Models\Hold;
 use App\Models\Incident;
-use App\Models\RentalCheckout;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -29,6 +26,7 @@ final class IncidentReport
         private readonly DamageCharge $charges,
         private readonly IncidentPhotos $photos,
         private readonly MaintenancePlanner $planner,
+        private readonly IncidentAssets $assets,
     ) {}
 
     /**
@@ -125,11 +123,7 @@ final class IncidentReport
             ]);
         }
 
-        $onBooking = Allocation::query()->where('booking_id', $booking->id)->where('asset_id', $asset->id)->exists()
-            || Hold::query()->where('booking_id', $booking->id)->where('asset_id', $asset->id)->exists()
-            || RentalCheckout::query()->where('booking_id', $booking->id)->where('asset_id', $asset->id)->exists();
-
-        if (! $onBooking) {
+        if (! $this->assets->forBooking($booking)->contains('id', $asset->id)) {
             throw ValidationException::withMessages([
                 'assetId' => 'Choose a boat on this booking.',
             ]);
