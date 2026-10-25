@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ResourceFlag;
 use App\Enums\ResourceStatus;
 use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\AssetFactory;
@@ -22,6 +23,7 @@ class Asset extends Model
         'replacement_asset_id',
         'name',
         'status',
+        'condition_flag',
         'capacity',
         'is_guide',
         'prep_buffer_minutes',
@@ -46,6 +48,7 @@ class Asset extends Model
 
     protected $casts = [
         'status' => ResourceStatus::class,
+        'condition_flag' => ResourceFlag::class,
         'capacity' => 'integer',
         'is_guide' => 'boolean',
         'prep_buffer_minutes' => 'integer',

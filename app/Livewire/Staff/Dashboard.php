@@ -10,6 +10,7 @@ use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Location;
 use App\Models\Payment;
+use App\Models\RentalCheckout;
 use App\Models\Service;
 use App\Models\TenantSetting;
 use App\Models\User;
@@ -77,6 +78,7 @@ class Dashboard extends Component
             'today' => $today,
             'departures' => $departures,
             'todayCount' => $today->count(),
+            'overdueCount' => RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'))->count(),
             'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
             'upcomingCount' => Booking::query()
                 ->where('starts_at', '>', $end)

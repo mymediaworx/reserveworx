@@ -60,7 +60,7 @@ final class BookingEvents
     }
 
     /**
-     * @param  list<array{asset_id: string, condition: string, notes: ?string, recorded_by: string}>  $conditions
+     * @param  list<array{asset_id: string|null, condition: string, notes: ?string, recorded_by: string|null, pool_id?: string|null, minutes_late?: int}>  $conditions
      */
     public function returned(Booking $booking, array $conditions = []): void
     {

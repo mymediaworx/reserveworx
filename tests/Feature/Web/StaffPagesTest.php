@@ -59,6 +59,7 @@ class StaffPagesTest extends TestCase
             '/staff/team' => 'Invite by email',
             '/staff/feedback' => 'No ratings yet.',
             '/staff/check-in' => "Today's arrivals",
+            '/staff/returns' => 'Due back today',
             '/staff/manifest' => 'Dispatch manifest',
             '/staff/waitlist' => 'No one is waiting on this date.',
             '/staff/menu' => 'Set up your business',

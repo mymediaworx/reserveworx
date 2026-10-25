@@ -17,13 +17,16 @@ class RentalReturn extends Model
         'booking_id',
         'rental_checkout_id',
         'asset_id',
+        'pool_id',
         'condition',
         'notes',
+        'minutes_late',
         'recorded_by',
     ];
 
     protected $casts = [
         'condition' => ReturnCondition::class,
+        'minutes_late' => 'integer',
     ];
 
     /**
@@ -40,6 +43,14 @@ class RentalReturn extends Model
     public function asset(): BelongsTo
     {
         return $this->belongsTo(Asset::class);
+    }
+
+    /**
+     * @return BelongsTo<Pool, $this>
+     */
+    public function pool(): BelongsTo
+    {
+        return $this->belongsTo(Pool::class);
     }
 
     /**
