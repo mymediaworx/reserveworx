@@ -43,7 +43,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/manifest`, `/staff/manifest.csv` | Dispatch sheet for a chosen date. Each location lists confirmed and no-show bookings in its own timezone, with the resource, customer, party, waivers, add-ons, balance, check-in, return time, and staff notes. Print puts one location on a page. The CSV is the same rows |
 | Tenant domain | `/staff/feedback` | Ratings left after a visit, with the average and filters for stars, service, and a comment. Owner and manager can set the wait, the on/off switch, and the public review link |
 | Tenant domain | `/feedback/{booking}` | Signed page where the customer rates that visit from 1 to 5 and can leave a comment. A 4 or 5 can show the workspace's review link. `/feedback/{booking}/opt-out` confirms before it stops later feedback email |
-| Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List, and one booking with price, payment, and all staff actions |
+| Tenant domain | `/staff/bookings`, `/staff/bookings/{id}` | List with status, date, location, and item filters, a per-person saved view, and bulk check-in, return, cancel, and CSV. One booking with price, payment, and all staff actions |
 | Tenant domain | `/staff/bookings/new` | Pick a service, time or departure, and customer, then hold |
 | Tenant domain | `/staff/waitlist` | Waiting parties for one date and, optionally, one service. `bookings.view` opens it. `bookings.manage` can promote a party into a hold or cancel the row. Promote uses the same promoter as a freed slot |
 | Tenant domain | `/waitlist/{entry}/leave` | Signed page from the waitlist email. Opening it does not leave. The button does |
