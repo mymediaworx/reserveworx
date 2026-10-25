@@ -13,6 +13,7 @@ use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Models\Booking;
 use App\Models\DisclosureVersion;
+use App\Models\LocationTaxRule;
 use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
@@ -182,6 +183,7 @@ final class BookingPricer
         }
 
         $operatorDefinitions = $this->operatorFees->definitionsFor($serviceId, $locationId);
+        $locationTaxRules = $this->locationTaxRules($locationId);
         $priced = $this->pricing->price(
             $channel,
             $rate,
@@ -198,10 +200,15 @@ final class BookingPricer
             $addOnsCents,
             $addOnLines,
             $operatorDefinitions,
+            $locationTaxRules,
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
         $payload = $priced->toSnapshot();
         $payload['tax_basis_points'] = $taxBasisPoints;
+
+        if ($locationTaxRules !== []) {
+            $payload['tax_rules'] = $locationTaxRules;
+        }
         $payload['priced_participants'] = $participants;
         $payload['priced_duration_minutes'] = $duration;
         $payload['priced_on'] = $on->toDateString();
@@ -221,6 +228,26 @@ final class BookingPricer
             'disclosure' => $disclosure,
             'payload' => $payload,
         ];
+    }
+
+    /**
+     * Current rates for this location. An empty list leaves tax on the caller's single rate.
+     *
+     * @return list<array{id: string, name: string, percent_bps: int, applies_to_rentals: bool, applies_to_add_ons: bool, applies_to_fees: bool}>
+     */
+    private function locationTaxRules(?string $locationId): array
+    {
+        if ($locationId === null || $locationId === '') {
+            return [];
+        }
+
+        return LocationTaxRule::query()
+            ->where('location_id', $locationId)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->map(fn (LocationTaxRule $rule): array => $rule->toPricingRule())
+            ->all();
     }
 
     private function channelFrom(PricingSnapshot $snapshot): FeeChannel

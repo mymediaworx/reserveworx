@@ -26,6 +26,14 @@ class Access
         );
     }
 
+    public function hasRole(User $user, string $tenantId, string ...$slugs): bool
+    {
+        $membership = $this->membership($user, $tenantId);
+        $slug = $membership?->role?->slug;
+
+        return is_string($slug) && in_array($slug, $slugs, true);
+    }
+
     public function membership(User $user, string $tenantId): ?Membership
     {
         return Membership::query()

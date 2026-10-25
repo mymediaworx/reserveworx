@@ -64,6 +64,7 @@
                         'operatorFees' => $operatorFees,
                         'bookingFeeCents' => $p['customer_fee_line_cents'] ?? null,
                         'taxCents' => (int) ($p['tax_cents'] ?? 0),
+                        'taxLines' => is_array($p['tax_lines'] ?? null) ? $p['tax_lines'] : [],
                         'totalCents' => (int) ($p['customer_total_cents'] ?? 0),
                         'currency' => $currency,
                         'refundTerms' => $disclosure,
@@ -74,10 +75,14 @@
                 @elseif ($canManage && $open)
                     <p class="muted">Price this booking before taking payment.</p>
                     <form wire:submit="price" class="form-row">
-                        <label class="field compact">
-                            <span>Sales tax (%)</span>
-                            <input type="number" min="0" max="100" step="0.01" wire:model="taxPercent">
-                        </label>
+                        @if ($hasLocationTax)
+                            <p class="muted">Tax comes from this location's rates.</p>
+                        @else
+                            <label class="field compact">
+                                <span>Sales tax (%)</span>
+                                <input type="number" min="0" max="100" step="0.01" wire:model="taxPercent">
+                            </label>
+                        @endif
                         <label class="field compact">
                             <span>Deposit (%)</span>
                             <input type="number" min="1" max="100" wire:model="depositPercent">

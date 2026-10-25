@@ -25,6 +25,7 @@ use App\Models\Hold;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
+use App\Models\LocationTaxRule;
 use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
@@ -266,6 +267,7 @@ class TenantExporter
             Membership::class,
             SignupAcceptance::class,
             Location::class,
+            LocationTaxRule::class,
             ResourceCategory::class,
             Asset::class,
             Pool::class,

@@ -12,6 +12,23 @@
     @if ($copy['pickupFeeNote'] !== '')
         <p>{{ $copy['pickupFeeNote'] }}</p>
     @endif
+    @php
+        $shownTaxes = [];
+
+        foreach ((isset($taxLines) && is_array($taxLines) ? $taxLines : []) as $taxLine) {
+            if (is_array($taxLine) && is_string($taxLine['name'] ?? null) && is_numeric($taxLine['cents'] ?? null)) {
+                $shownTaxes[] = $taxLine;
+            }
+        }
+    @endphp
+    @if ($shownTaxes !== [])
+        <h2>Taxes</h2>
+        <section class="checkout-summary">
+            <dl>
+                @include('disclosures.tax-lines', ['taxLines' => $shownTaxes, 'currency' => $currency ?? 'USD'])
+            </dl>
+        </section>
+    @endif
     @if ($booking->status->value === 'confirmed')
         <p>Your booking is confirmed.</p>
     @else

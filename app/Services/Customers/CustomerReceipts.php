@@ -24,6 +24,7 @@ final class CustomerReceipts
      *     operator_fees: list<array{name: string, total_cents: int}>,
      *     booking_fee_cents: int|null,
      *     tax_cents: int,
+     *     tax_lines: list<array{name: string, cents: int}>,
      *     total_cents: int,
      *     paid_cents: int,
      *     refunded_cents: int|null,
@@ -47,6 +48,7 @@ final class CustomerReceipts
         $subtotal = $this->subtotal($payload, $operatorCents);
         $bookingFee = $this->nullableCents($payload, 'customer_fee_line_cents');
         $tax = $this->cents($payload, 'tax_cents');
+        $taxLines = $this->taxLines($payload);
         $total = $this->cents($payload, 'customer_total_cents');
         $currency = $snapshot instanceof PricingSnapshot && $snapshot->currency !== ''
             ? $snapshot->currency
@@ -63,7 +65,7 @@ final class CustomerReceipts
         $refunded = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_refund_cents');
         $refundedFee = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_fee_refund_cents');
         $terms = $this->terms($snapshot);
-        $html = $this->html($subtotal, $operatorFees, $bookingFee, $tax, $total, $paid, $refunded, $refundedFee, $currency, $terms);
+        $html = $this->html($subtotal, $operatorFees, $bookingFee, $tax, $taxLines, $total, $paid, $refunded, $refundedFee, $currency, $terms);
         $ends = $booking->ends_at;
 
         return [
@@ -78,6 +80,7 @@ final class CustomerReceipts
             'operator_fees' => $operatorFees,
             'booking_fee_cents' => $bookingFee,
             'tax_cents' => $tax,
+            'tax_lines' => $taxLines,
             'total_cents' => $total,
             'paid_cents' => $paid,
             'refunded_cents' => $refunded > 0 ? $refunded : null,
@@ -113,6 +116,34 @@ final class CustomerReceipts
         }
 
         return $fees;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return list<array{name: string, cents: int}>
+     */
+    private function taxLines(array $payload): array
+    {
+        $lines = $payload['tax_lines'] ?? null;
+
+        if (! is_array($lines)) {
+            return [];
+        }
+
+        $taxes = [];
+
+        foreach ($lines as $line) {
+            if (! is_array($line) || ! is_string($line['name'] ?? null) || ! is_numeric($line['cents'] ?? null)) {
+                continue;
+            }
+
+            $taxes[] = [
+                'name' => $line['name'],
+                'cents' => (int) $line['cents'],
+            ];
+        }
+
+        return $taxes;
     }
 
     /**
@@ -182,12 +213,14 @@ final class CustomerReceipts
 
     /**
      * @param  list<array{name: string, total_cents: int}>  $operatorFees
+     * @param  list<array{name: string, cents: int}>  $taxLines
      */
     private function html(
         int $subtotal,
         array $operatorFees,
         ?int $bookingFee,
         int $tax,
+        array $taxLines,
         int $total,
         int $paid,
         int $refunded,
@@ -204,6 +237,7 @@ final class CustomerReceipts
             'operatorFees' => $operatorFees,
             'bookingFeeCents' => $bookingFee,
             'taxCents' => $tax,
+            'taxLines' => $taxLines,
             'totalCents' => $total,
             'paidCents' => $paid,
             'refundedCents' => $refunded > 0 ? $refunded : null,

@@ -25,6 +25,7 @@
         'operatorFees' => $operatorFees,
         'bookingFeeCents' => $snapshot->payload['customer_fee_line_cents'],
         'taxCents' => (int) $snapshot->payload['tax_cents'],
+        'taxLines' => is_array($priced['tax_lines'] ?? null) ? $priced['tax_lines'] : [],
         'totalCents' => (int) $snapshot->payload['customer_total_cents'],
         'currency' => $snapshot->currency,
         'refundTerms' => $terms,

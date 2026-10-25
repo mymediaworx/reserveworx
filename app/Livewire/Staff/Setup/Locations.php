@@ -8,6 +8,7 @@ use App\Livewire\Concerns\WithinTenant;
 use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
 use App\Models\Location;
+use App\Tenancy\Access;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -193,6 +194,7 @@ class Locations extends Component
                 ->orderBy('starts_on')
                 ->get(),
             'canManage' => $this->allows('inventory.manage'),
+            'canSetTax' => app(Access::class)->hasRole($this->currentUser(), $this->tenant()->id, 'owner', 'manager'),
             'zones' => timezone_identifiers_list(),
             'weekdays' => [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 0 => 'Sun'],
         ]);

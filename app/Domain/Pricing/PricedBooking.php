@@ -11,6 +11,7 @@ final readonly class PricedBooking
      * @param  list<array<string, mixed>>  $addOnLines
      * @param  list<array<string, mixed>>  $timeWindows
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null, quantity: int, total_cents: int}>  $operatorFeeLines
+     * @param  list<array<string, mixed>>  $taxLines
      */
     public function __construct(
         public int $servicesCents,
@@ -24,6 +25,7 @@ final readonly class PricedBooking
         public array $timeWindows = [],
         public int $operatorFeesCents = 0,
         public array $operatorFeeLines = [],
+        public array $taxLines = [],
     ) {}
 
     /**
@@ -31,7 +33,7 @@ final readonly class PricedBooking
      */
     public function toSnapshot(): array
     {
-        return $this->quote->toSnapshot() + [
+        $snapshot = $this->quote->toSnapshot() + [
             'services_cents' => $this->servicesCents,
             'add_ons_cents' => $this->addOnsCents,
             'add_ons' => $this->addOnLines,
@@ -45,5 +47,11 @@ final readonly class PricedBooking
             'deposit_was_raised' => $this->payment->depositWasRaised(),
             'time_windows' => $this->timeWindows,
         ];
+
+        if ($this->taxLines !== []) {
+            $snapshot['tax_lines'] = $this->taxLines;
+        }
+
+        return $snapshot;
     }
 }

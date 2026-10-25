@@ -304,6 +304,10 @@ final class CheckoutService
             'operator_fees_delta_cents' => $increase->operatorFeesDeltaCents,
             'operator_fees' => $increase->operatorFeeLines,
         ];
+
+        if (is_array($increase->taxLines)) {
+            $payload['pending_increase']['tax_lines'] = $increase->taxLines;
+        }
         $snapshot->payload = $payload;
         $snapshot->save();
 
@@ -547,6 +551,7 @@ final class CheckoutService
                 $addOnsCents,
                 $quotedOperatorFees,
                 $operatorDefinitions,
+                $this->locationTaxRules($payload),
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -598,6 +603,7 @@ final class CheckoutService
                 $addOnsCents,
                 $quotedOperatorFees,
                 $operatorDefinitions,
+                $this->locationTaxRules($payload),
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -639,6 +645,10 @@ final class CheckoutService
         $payload['discount_cents'] = $decrease->discountCents;
         $payload['basis_cents'] = max(0, $this->cents($payload, 'basis_cents') - $decrease->basisReductionCents);
         $payload['tax_cents'] = max(0, $this->cents($payload, 'tax_cents') - $decrease->taxReductionCents);
+
+        if (is_array($decrease->taxLines)) {
+            $payload['tax_lines'] = $decrease->taxLines;
+        }
         $payload['fee_cents'] = max(0, $this->cents($payload, 'fee_cents') - $refund->application_fee_refund_cents);
         $payload['customer_total_cents'] = max(0, $this->cents($payload, 'customer_total_cents') - $refund->customer_refund_cents);
 
@@ -743,8 +753,30 @@ final class CheckoutService
     }
 
     /**
+     * Rates frozen on the snapshot. Missing rates keep the single tax basis points.
+     *
      * @param  array<string, mixed>  $payload
+     * @return list<array<string, mixed>>
      */
+    private function locationTaxRules(array $payload): array
+    {
+        $rules = $payload['tax_rules'] ?? null;
+
+        if (! is_array($rules)) {
+            return [];
+        }
+
+        $clean = [];
+
+        foreach ($rules as $rule) {
+            if (is_array($rule)) {
+                $clean[] = $rule;
+            }
+        }
+
+        return $clean;
+    }
+
     private function cents(array $payload, string $key): int
     {
         $value = $payload[$key] ?? 0;
