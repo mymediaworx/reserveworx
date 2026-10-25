@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ResourceFlag;
 use App\Enums\ResourceStatus;
 use App\Models\Concerns\BelongsToTenant;
 use Database\Factories\PoolFactory;
@@ -23,6 +24,7 @@ class Pool extends Model
         'name',
         'quantity',
         'status',
+        'condition_flag',
         'prep_buffer_minutes',
         'return_buffer_minutes',
         'turnaround_minutes',
@@ -43,6 +45,7 @@ class Pool extends Model
 
     protected $casts = [
         'status' => ResourceStatus::class,
+        'condition_flag' => ResourceFlag::class,
         'quantity' => 'integer',
         'prep_buffer_minutes' => 'integer',
         'return_buffer_minutes' => 'integer',

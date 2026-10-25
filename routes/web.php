@@ -31,6 +31,7 @@ use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Manifest;
 use App\Livewire\Staff\Menu;
 use App\Livewire\Staff\NewBooking;
+use App\Livewire\Staff\Returns;
 use App\Livewire\Staff\Schedule;
 use App\Livewire\Staff\Settings;
 use App\Livewire\Staff\Setup\Locations;
@@ -136,6 +137,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/manifest', Manifest::class)->name('staff.manifest');
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/check-in', CheckIn::class)->name('staff.check-in');
+        Route::get('/returns', Returns::class)->name('staff.returns');
         Route::get('/check-in/{booking}', [StaffCheckInController::class, 'show'])
             ->whereUlid('booking')
             ->middleware('signed')

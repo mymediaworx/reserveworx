@@ -3,6 +3,7 @@
 namespace App\Services\Schedule;
 
 use App\Enums\BookingStatus;
+use App\Enums\ResourceFlag;
 use App\Enums\ResourceStatus;
 use App\Models\Allocation;
 use App\Models\Asset;
@@ -141,9 +142,16 @@ final class ResourceSchedule
                 $detail[] = ucfirst($asset->status->value);
             }
 
+            $flag = '';
+
+            if ($asset->condition_flag instanceof ResourceFlag) {
+                $detail[] = $asset->condition_flag->label();
+                $flag = $asset->condition_flag->value;
+            }
+
             $key = $asset->resource_category_id ?? '';
             $groups[$key]['name'] = $key === '' ? 'Uncategorized' : (string) ($categoryNames[$key] ?? 'Uncategorized');
-            $row = $this->row('asset:'.$asset->id, $asset->name, implode(' · ', $detail), $filled);
+            $row = $this->row('asset:'.$asset->id, $asset->name, implode(' · ', $detail), $filled, $flag);
             $row['shades'] = $this->shades($closures, $location, $days, $asset->resource_category_id, 'asset', $asset->id);
             $groups[$key]['rows'][] = $row;
         }
@@ -167,9 +175,16 @@ final class ResourceSchedule
                 $detail .= ' · '.ucfirst($pool->status->value);
             }
 
+            $flag = '';
+
+            if ($pool->condition_flag instanceof ResourceFlag) {
+                $detail .= ' · '.$pool->condition_flag->label();
+                $flag = $pool->condition_flag->value;
+            }
+
             $key = $pool->resource_category_id ?? '';
             $groups[$key]['name'] = $key === '' ? 'Uncategorized' : (string) ($categoryNames[$key] ?? 'Uncategorized');
-            $row = $this->row('pool:'.$pool->id, $pool->name, $detail, $filled);
+            $row = $this->row('pool:'.$pool->id, $pool->name, $detail, $filled, $flag);
             $row['shades'] = $this->shades($closures, $location, $days, $pool->resource_category_id, 'pool', $pool->id);
             $groups[$key]['rows'][] = $row;
         }
@@ -203,12 +218,13 @@ final class ResourceSchedule
      * @param  array{lanes: int, has_blocks: bool, cells: array<string, array{blocks: list<array<string, mixed>>}>}  $filled
      * @return array<string, mixed>
      */
-    private function row(string $key, string $name, string $detail, array $filled): array
+    private function row(string $key, string $name, string $detail, array $filled, string $flag = ''): array
     {
         return [
             'key' => $key,
             'name' => $name,
             'detail' => $detail,
+            'flag' => $flag,
             'lanes' => $filled['lanes'],
             'has_blocks' => $filled['has_blocks'],
             'cells' => $filled['cells'],

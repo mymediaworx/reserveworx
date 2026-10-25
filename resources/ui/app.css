@@ -356,6 +356,7 @@ a.stat-card:hover { border-color: var(--line-strong); }
 .tone-ok { background: var(--ok-soft); color: var(--ok); }
 .tone-brand { background: var(--brand-soft); color: var(--brand-soft-ink); }
 .tone-accent { background: var(--accent-soft); color: var(--accent-soft-ink); }
+.tone-late { background: var(--danger-soft); color: var(--danger); }
 .tone-neutral { background: var(--page); color: var(--ink-soft); }
 
 .app-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.1rem 0.5rem; }
