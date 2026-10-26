@@ -94,7 +94,7 @@
                     @foreach ($service->durations as $duration)
                         <label>
                             <input type="radio" name="duration_id" value="{{ $duration->id }}" @checked(($old['duration_id'] ?? '') === $duration->id || ($loop->first && ($old['duration_id'] ?? '') === '')) required>
-                            {{ $duration->name }} ({{ $duration->duration_minutes }} minutes)
+                            {{ $duration->name }} ({{ \App\Support\Display::minutes($duration->duration_minutes) }})
                         </label>
                     @endforeach
                 </fieldset>

@@ -73,6 +73,10 @@ When a link exists, these changes queue `SyncBookingToGoHighLevel`. A booking is
 
 Requests use `https://services.leadconnectorhq.com`, `Authorization: Bearer`, and `Version: 2021-07-28` unless `GHL_BASE_URL` or `GHL_VERSION` is set. A non-2xx response throws `GhlRequestFailed` with the status and the call kind. The message does not include the response body. The job allows 5 tries. Backoff is 60, 300, 900, 3600, then 10800 seconds. Each attempt is a `ghl_sync_logs` row for that workspace. The production queue is `database`, so the job row is not visible to the worker until the booking transaction commits, and a GoHighLevel failure stays in the worker. The generic outbox still does not call HighLevel. `webhook_delivery_attempts` is the tenant endpoint delivery log. It requires an endpoint, stores response bodies, and does not call GoHighLevel, so these attempts stay on `ghl_sync_logs`.
 
+### Integration logs
+
+`integration_logs` keeps one row each time an outbound try happens: an outbox retry, a webhook delivery, a GoHighLevel contact sync, and a GoHighLevel message. The diagnostics page at `/admin/integrations` and `GET /api/v1/integrations/outbox` list the latest 20 for the current workspace. The list shows the channel, kind, try, status, HTTP status, and a short error. It does not show the payload, the response body, the webhook secret, or the private integration token. A member of another workspace is refused. The detailed webhook and GoHighLevel tables are unchanged.
+
 ### Booking messages
 
 Spec Section 10 sends confirmations, receipts, reminders, cancellations, refunds (with the booking-fee refund itemized), and overdue rentals through GoHighLevel when the workspace is linked. The platform workspace page at `/platform/tenants/{id}` is where a platform administrator types the Location ID and Private Integration Token. The same platform API still accepts them. The token is cleared from the Livewire snapshot before the response and is not written to the audit row. Tenant staff cannot open that page.

@@ -15,20 +15,47 @@
     @if ($summary['events'] === [])
         <p>No integration events.</p>
     @else
-        <table>
-            <thead>
-                <tr><th>Kind</th><th>Status</th><th>Attempts</th><th>Last error</th></tr>
-            </thead>
-            <tbody>
-                @foreach ($summary['events'] as $event)
-                    <tr>
-                        <td>{{ $event['kind'] }}</td>
-                        <td>{{ $event['status'] }}</td>
-                        <td>{{ $event['attempts'] }}</td>
-                        <td>{{ $event['last_error'] }}</td>
-                    </tr>
-                @endforeach
-            </tbody>
-        </table>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Kind</th><th>Status</th><th>Attempts</th><th>Last error</th></tr>
+                </thead>
+                <tbody>
+                    @foreach ($summary['events'] as $event)
+                        <tr>
+                            <td>{{ $event['kind'] }}</td>
+                            <td>{{ $event['status'] }}</td>
+                            <td>{{ $event['attempts'] }}</td>
+                            <td>{{ $event['last_error'] }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+    <h2>Attempts</h2>
+    <p class="muted">Each try is kept. Deferred means the outbox is still waiting. Held means it stopped after five tries. Payloads, response bodies, and secrets are not stored here.</p>
+    @if (($summary['logs'] ?? []) === [])
+        <p>No attempts yet.</p>
+    @else
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Channel</th><th>Kind</th><th>Try</th><th>Status</th><th>HTTP</th><th>Error</th></tr>
+                </thead>
+                <tbody>
+                    @foreach ($summary['logs'] as $log)
+                        <tr>
+                            <td>{{ $log['channel_label'] }}</td>
+                            <td>{{ $log['kind'] }}</td>
+                            <td>{{ $log['attempt'] }}</td>
+                            <td>{{ $log['status'] }}</td>
+                            <td>{{ $log['http_status'] ?? '' }}</td>
+                            <td>{{ $log['error'] }}</td>
+                        </tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
     @endif
 @endsection

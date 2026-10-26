@@ -930,6 +930,157 @@ grant_platform_admin() {
   fi
 }
 
+
+# Read-only, count-only (approved by Michael 2026-10-26): inode counts for the
+# main marketing site folder and home top-level dirs. Lists directory names and
+# counts only; reads no file contents, changes nothing.
+report_site_inodes() {
+  local site="$HOME/www/reserveworx.com" n entry
+  echo "inodes_site_begin"
+  if [[ -d "$site" && ! -L "$site" ]]; then
+    n="$(du --inodes -s -x "$site" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_site_total=${n:-?} path=www/reserveworx.com"
+    du --inodes -x -d2 "$site" 2>/dev/null | sort -nr | head -40 | while read -r n entry; do
+      echo "inodes_site_d2 ${n} ${entry#"${HOME}/"}"
+    done
+  else
+    echo "inodes_site_total=absent"
+  fi
+  du --inodes -x -d1 "$HOME" 2>/dev/null | sort -nr | head -30 | while read -r n entry; do
+    echo "inodes_home_d1 ${n} ${entry#"${HOME}/"}"
+  done
+  du --inodes -x -d1 "$HOME/www" 2>/dev/null | sort -nr | head -30 | while read -r n entry; do
+    echo "inodes_www_d1 ${n} ${entry#"${HOME}/"}"
+  done
+  echo "inodes_site_end"
+}
+
+# Inode cleanup for app.reserveworx.com only. Every path is checked against
+# the app's laravel dir before anything is removed. Nothing outside
+# laravel/releases and laravel/shared/storage cache dirs is deleted, and
+# .env, platform-admin.txt and demo-logins.txt are never touched.
+guard_app_path() {
+  local path="$1"
+  if [[ -z "$path" || -z "${laravel:-}" || -z "${releases:-}" || -z "${shared:-}" ]]; then
+    echo "inode_cleanup=refused empty path" >&2
+    return 1
+  fi
+  case "$path" in
+    */www/app.reserveworx.com/laravel/releases/?*|*/www/app.reserveworx.com/laravel/shared/storage/?*) ;;
+    *)
+      echo "inode_cleanup=refused ${path}" >&2
+      return 1
+      ;;
+  esac
+  case "$path" in
+    *public_html*|*www/reserveworx.com/*|*/../*|*.env*|*platform-admin.txt*|*demo-logins.txt*)
+      echo "inode_cleanup=refused ${path}" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$path" != "${laravel}/"* ]]; then
+    echo "inode_cleanup=refused ${path}" >&2
+    return 1
+  fi
+}
+
+count_files() {
+  find "$1" -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Delete regular files under one cache dir that are older than N minutes.
+prune_old_files() {
+  local dir="$1" minutes="$2" name="$3" before after
+  if [[ ! -d "$dir" || -L "$dir" ]]; then
+    echo "inode_cleanup_${name}=absent"
+    return 0
+  fi
+  guard_app_path "$dir" || return 0
+  [[ "$minutes" =~ ^[0-9]+$ ]] || return 0
+  before="$(count_files "$dir")"
+  find "$dir" -xdev -type f -mmin "+${minutes}" ! -name '.gitignore' -delete 2>/dev/null || true
+  find "$dir" -xdev -mindepth 1 -type d -empty -delete 2>/dev/null || true
+  after="$(count_files "$dir")"
+  echo "inode_cleanup_${name}_removed=$((before - after)) remaining=${after}"
+}
+
+report_inodes() {
+  local label="$1" entry n total
+  echo "inodes_${label}_begin"
+  shopt -s nullglob dotglob
+  for entry in "$domain"/* "$laravel"/* "$shared"/* "$shared"/storage/* "$shared"/storage/framework/*; do
+    [[ -e "$entry" && ! -L "$entry" ]] || continue
+    case "$entry" in *.env|*platform-admin.txt|*demo-logins.txt|*.mail-password) continue ;; esac
+    n="$(du --inodes -s -x "$entry" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_${label} ${n:-?} ${entry#"${domain}/"}"
+  done
+  shopt -u nullglob dotglob
+  total="$(du --inodes -s -x "$domain" 2>/dev/null | cut -f1 || true)"
+  echo "inodes_${label}_total=${total:-?} path=www/app.reserveworx.com"
+  echo "release_count=$(find "$releases" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+  echo "inodes_${label}_end"
+}
+
+# Read-only: reports inode use of app-owned paths and common home caches so
+# the account-wide count can be explained. Deletes nothing and never descends
+# into www/reserveworx.com or any other site.
+report_home_inodes() {
+  local entry n
+  echo "inodes_home_begin"
+  for entry in "$HOME/.composer" "$HOME/.cache" "$HOME/.npm" "$HOME/.config/composer" "$HOME/tmp" "$HOME/.local" "$HOME/www/harbor.reserveworx.com"; do
+    [[ -e "$entry" && ! -L "$entry" ]] || { echo "inodes_home - ${entry#"${HOME}/"} (absent)"; continue; }
+    n="$(du --inodes -s -x "$entry" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_home ${n:-?} ${entry#"${HOME}/"}"
+  done
+  shopt -s nullglob dotglob
+  for entry in "$HOME/.cache"/* "$HOME/.composer"/* "$HOME/tmp"/*; do
+    [[ -e "$entry" && ! -L "$entry" ]] || continue
+    n="$(du --inodes -s -x "$entry" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_home ${n:-?} ${entry#"${HOME}/"}"
+  done
+  shopt -u nullglob dotglob
+  du --inodes -x -d2 "$domain" 2>/dev/null | sort -nr | head -40 | while read -r n entry; do
+    case "$entry" in *.env|*platform-admin.txt|*demo-logins.txt) continue ;; esac
+    echo "inodes_app_d2 ${n} ${entry#"${HOME}/"}"
+  done
+  echo "inodes_home_end"
+}
+
+# Keeps current plus one rollback release, removes build leftovers and stale
+# framework caches, sessions and old logs, then reports inode counts.
+inode_cleanup() {
+  local dir rel
+  report_inodes before
+  prune_releases
+  shopt -s nullglob
+  for rel in "$releases"/*; do
+    [[ -d "$rel" && ! -L "$rel" ]] || continue
+    for dir in "$rel/node_modules" "$rel/.composer" "$rel/.cache" "$rel/tests"; do
+      if [[ -d "$dir" && ! -L "$dir" ]] && guard_app_path "$dir"; then
+        echo "inode_cleanup_build_removed=${dir#"${laravel}/"} files=$(count_files "$dir")"
+        rm -rf -- "$dir"
+      fi
+    done
+  done
+  shopt -u nullglob
+  # Compiled views are rebuilt by view:cache on each deploy and lazily after.
+  prune_old_files "${shared}/storage/framework/views" 180 views
+  # Session lifetime is 120 minutes, so file sessions older than a day are dead.
+  prune_old_files "${shared}/storage/framework/sessions" 1440 sessions
+  prune_old_files "${shared}/storage/framework/cache/data" 10080 cache
+  prune_old_files "${shared}/storage/framework/testing" 0 testing
+  prune_old_files "${shared}/storage/pail" 1440 pail
+  prune_old_files "${shared}/storage/logs" 20160 logs
+  if [[ -d "${shared}/vendor" || -d "${laravel}/vendor" ]]; then
+    echo "vendor_outside_releases=present (not removed, review)"
+  else
+    echo "vendor_outside_releases=none"
+  fi
+  report_inodes after
+  report_home_inodes || true
+  report_site_inodes || true
+}
+
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
   return 0
 fi
@@ -1072,6 +1223,7 @@ if ! health_check; then
   swap_to_previous || true
   exit 1
 fi
+inode_cleanup || echo "inode_cleanup=failed" >&2
 grant_platform_admin
 install_harbor_front_controller
 (cd "$current" && "$php_bin" artisan reserveworx:attach-verified-domain harbor-demo harbor.reserveworx.com --no-interaction)

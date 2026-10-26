@@ -37,6 +37,9 @@
         'currency' => $snapshot->currency,
         'refundTerms' => $terms,
     ])
+    @foreach ($cancellationLines as $line)
+        <p>{{ $line }}</p>
+    @endforeach
     @if ($promoUrl)
         <form method="post" action="{{ $promoUrl }}" class="promo-form">
             <label>

@@ -9,10 +9,15 @@ use App\Enums\OperationalStatus;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Customer;
+use App\Models\GhlMessageLog;
+use App\Models\GhlSyncLog;
+use App\Models\IntegrationOutbox;
 use App\Models\Payment;
 use App\Models\Pool;
 use App\Models\Refund;
 use App\Models\Tenant;
+use App\Models\WebhookDeliveryAttempt;
+use App\Observers\IntegrationLogObserver;
 use App\Observers\StaffSearchObserver;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Branding\WorkspaceProfiles;
@@ -82,6 +87,12 @@ class AppServiceProvider extends ServiceProvider
         Booking::observe($search);
         Asset::observe($search);
         Pool::observe($search);
+
+        $attempts = IntegrationLogObserver::class;
+        IntegrationOutbox::observe($attempts);
+        WebhookDeliveryAttempt::observe($attempts);
+        GhlSyncLog::observe($attempts);
+        GhlMessageLog::observe($attempts);
 
         Tenant::created(function (Tenant $tenant): void {
             app(WorkspaceProfiles::class)->provision($tenant);

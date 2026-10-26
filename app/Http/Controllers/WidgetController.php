@@ -32,6 +32,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\CancellationPolicies;
 use App\Services\Booking\NamedParty;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
@@ -68,6 +69,7 @@ class WidgetController extends Controller
         private readonly BookingAddOnLines $addOnLines,
         private readonly CheckInPass $checkInPass,
         private readonly SlotFinder $slots,
+        private readonly CancellationPolicies $policies,
         private readonly NamedParty $party,
         private readonly WaiverForm $waivers,
     ) {}
@@ -1159,6 +1161,7 @@ class WidgetController extends Controller
             'pickupLabel' => $pickupLabel,
             'promoUrl' => $this->promoUrl($token, $booking, $hold),
             'promoValue' => $promoValue,
+            'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => $error,
             'waiverRequired' => $presented['required'],
             'waiverComplete' => $presented['complete'],
