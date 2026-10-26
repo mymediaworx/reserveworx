@@ -3,7 +3,16 @@
     use App\Support\Display;
     use App\Support\Lateness;
 @endphp
-<div class="page">
+<div class="page home-page">
+    <style>
+        @media (max-width: 390px) {
+            .home-page { min-width: 0; }
+            .home-page .below-minimum-list,
+            .home-page .below-minimum-list li,
+            .home-page .below-minimum-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .home-page .below-minimum-list .badge { white-space: normal; }
+        }
+    </style>
     <div class="welcome">
         <h1>Welcome{{ $firstName !== '' ? ', '.$firstName : '' }}</h1>
         <button type="button" class="icon-button" wire:click="$refresh" aria-label="Refresh">
@@ -107,6 +116,31 @@
         </section>
     @endif
 
+    @if ($belowMinimum->isNotEmpty())
+        <section class="panel" aria-labelledby="below-minimum-heading" data-below-minimum-count="{{ $belowMinimum->count() }}">
+            <div class="panel-head">
+                <h2 id="below-minimum-heading">Tours below minimum</h2>
+            </div>
+            <p>These departures are still short of the minimum. They stay on the schedule for you to decide.</p>
+            <ul class="plain-list below-minimum-list">
+                @foreach ($belowMinimum as $departure)
+                    @php
+                        $fact = $departureSummary[$departure->id] ?? ['participants' => 0, 'minimum' => null, 'belowMinimum' => false];
+                        $departureZone = $zones->get($departure->location_id, $zone);
+                        $departureDate = \Carbon\CarbonImmutable::instance($departure->starts_at)->timezone($departureZone)->toDateString();
+                    @endphp
+                    <li data-below-minimum="{{ $departure->id }}">
+                        <strong>{{ Display::dateTime($departure->starts_at, $departureZone) }}</strong>
+                        <span>{{ $departure->service?->name }}</span>
+                        <span class="muted">{{ $fact['participants'] }} of {{ $fact['minimum'] }}</span>
+                        <span class="badge badge-below-minimum">Below minimum</span>
+                        <a href="/staff/manifest?date={{ $departureDate }}&amp;location={{ $departure->location_id }}" wire:navigate>Open manifest</a>
+                    </li>
+                @endforeach
+            </ul>
+        </section>
+    @endif
+
     <section class="panel" aria-labelledby="shortcuts-heading">
         <div class="panel-head">
             <h2 id="shortcuts-heading">Shortcuts</h2>
@@ -136,10 +170,23 @@
                 <h3>Tour departures</h3>
                 <ul class="plain-list">
                     @foreach ($departures as $departure)
-                        <li>
-                            <strong>{{ Display::time($departure->starts_at, $zones->get($departure->location_id, $zone)) }}</strong>
+                        @php
+                            $fact = $departureSummary[$departure->id] ?? ['participants' => $departure->headcount(), 'minimum' => $departure->service?->min_participants, 'belowMinimum' => false];
+                            $departureZone = $zones->get($departure->location_id, $zone);
+                        @endphp
+                        <li @if ($fact['belowMinimum']) data-below-minimum="{{ $departure->id }}" @endif>
+                            <strong>{{ Display::time($departure->starts_at, $departureZone) }}</strong>
                             {{ $departure->service?->name }}
-                            <span class="muted">{{ $departure->headcount() }}{{ $departure->seats ? ' of '.$departure->seats : '' }} booked</span>
+                            <span class="muted">
+                                @if ($fact['belowMinimum'] && is_int($fact['minimum']))
+                                    {{ $fact['participants'] }} of {{ $fact['minimum'] }}
+                                @else
+                                    {{ $fact['participants'] }}{{ $departure->seats ? ' of '.$departure->seats : '' }} booked
+                                @endif
+                            </span>
+                            @if ($fact['belowMinimum'])
+                                <span class="badge badge-below-minimum">Below minimum</span>
+                            @endif
                         </li>
                     @endforeach
                 </ul>

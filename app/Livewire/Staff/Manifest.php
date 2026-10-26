@@ -4,8 +4,10 @@ namespace App\Livewire\Staff;
 
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
+use App\Models\Departure;
 use App\Models\Location;
 use App\Services\Dispatch\DispatchManifest;
+use App\Services\Scheduling\TourMinimum;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -94,11 +96,16 @@ class Manifest extends Component
 
         $shown = $selected instanceof Location ? new Collection([$selected]) : $locations;
         $sections = $manifest->sections($this->date, $shown);
+        $departureRows = $this->departureRows($this->date, $shown);
+
+        foreach ($sections as $index => $section) {
+            $sections[$index]['departures'] = $departureRows[$section['id']] ?? [];
+        }
 
         if (! $selected instanceof Location) {
             $sections = array_values(array_filter(
                 $sections,
-                fn (array $section): bool => $section['bookings'] !== [],
+                fn (array $section): bool => $section['bookings'] !== [] || $section['departures'] !== [],
             ));
         }
 
@@ -111,6 +118,73 @@ class Manifest extends Component
             'canManage' => $this->allows('bookings.manage'),
             'headingDate' => $heading instanceof CarbonImmutable ? $heading->format('l, F j, Y') : $this->date,
         ]);
+    }
+
+    /**
+     * Departures that start on this local day, with the below-minimum flag
+     * already decided. A short tour stays scheduled.
+     *
+     * @param  Collection<int, Location>  $locations
+     * @return array<string, list<array{departure: Departure, participants: int, minimum: int|null, belowMinimum: bool, timezone: string}>>
+     */
+    private function departureRows(string $date, Collection $locations): array
+    {
+        if (! DispatchManifest::validDate($date)) {
+            return [];
+        }
+
+        $found = new Collection;
+        $grouped = [];
+
+        foreach ($locations as $location) {
+            $zone = $this->zone($location);
+            $start = CarbonImmutable::createFromFormat('!Y-m-d', $date, $zone);
+
+            if (! $start instanceof CarbonImmutable) {
+                $grouped[$location->id] = ['zone' => $zone, 'rows' => new Collection];
+
+                continue;
+            }
+
+            $start = $start->startOfDay();
+            $rows = Departure::query()
+                ->with('service')
+                ->where('location_id', $location->id)
+                ->where('starts_at', '>=', $start->utc())
+                ->where('starts_at', '<', $start->addDay()->utc())
+                ->orderBy('starts_at')
+                ->orderBy('id')
+                ->get();
+            $grouped[$location->id] = ['zone' => $zone, 'rows' => $rows];
+            $found = $found->concat($rows);
+        }
+
+        $summary = app(TourMinimum::class)->summarize($found, CarbonImmutable::now('UTC'));
+        $result = [];
+
+        foreach ($grouped as $locationId => $group) {
+            $result[$locationId] = [];
+
+            foreach ($group['rows'] as $departure) {
+                $fact = $summary[$departure->id] ?? ['participants' => 0, 'minimum' => null, 'belowMinimum' => false];
+                $result[$locationId][] = [
+                    'departure' => $departure,
+                    'participants' => $fact['participants'],
+                    'minimum' => $fact['minimum'],
+                    'belowMinimum' => $fact['belowMinimum'],
+                    'timezone' => $group['zone'],
+                ];
+            }
+        }
+
+        return $result;
+    }
+
+    private function zone(?Location $location): string
+    {
+        $zone = $location?->timezone;
+
+        return is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
     }
 
     private function booking(string $id): Booking

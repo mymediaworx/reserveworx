@@ -7,6 +7,7 @@ use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\LimitsStaffLocations;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -187,5 +188,26 @@ class Booking extends Model
     public function feedbackRequest(): HasOne
     {
         return $this->hasOne(FeedbackRequest::class);
+    }
+
+    /**
+     * Seats that still count toward a departure: an active hold or an allocation,
+     * on a booking that has not been cancelled or marked a no-show.
+     *
+     * @param  Builder<Booking>  $query
+     * @return Builder<Booking>
+     */
+    public function scopeOccupyingSeats(Builder $query): Builder
+    {
+        return $query
+            ->whereIn('status', [
+                BookingStatus::Held->value,
+                BookingStatus::Confirmed->value,
+                BookingStatus::PendingPayment->value,
+            ])
+            ->where(function (Builder $query): void {
+                $query->whereHas('allocations')
+                    ->orWhereHas('holds', fn (Builder $holds): Builder => $holds->where('expires_at', '>', now()));
+            });
     }
 }
