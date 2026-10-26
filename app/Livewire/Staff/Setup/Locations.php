@@ -7,8 +7,11 @@ use App\Enums\ScheduleOwnerType;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
+use App\Models\FleetItem;
 use App\Models\Location;
+use App\Models\LocationFleetReserve;
 use App\Tenancy\Access;
+use App\Tenancy\StaffLocationScope;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -32,6 +35,13 @@ class Locations extends Component
     public string $editTimezone = '';
 
     public string $editStatus = 'active';
+
+    public bool $editDelivered = false;
+
+    public bool $editWalkIns = false;
+
+    /** @var array<string, int|string> */
+    public array $editReserves = [];
 
     public string $hoursLocationId = '';
 
@@ -83,6 +93,17 @@ class Locations extends Component
         $this->editName = $location->name;
         $this->editTimezone = $location->timezone;
         $this->editStatus = $location->status->value;
+        $this->editDelivered = $location->delivered_from_fleet;
+        $this->editWalkIns = $location->walk_ins_enabled;
+        $this->editReserves = [];
+
+        foreach (FleetItem::query()->orderBy('name')->get() as $item) {
+            $quantity = LocationFleetReserve::query()
+                ->where('location_id', $location->id)
+                ->where('fleet_item_id', $item->id)
+                ->value('quantity');
+            $this->editReserves[$item->id] = (int) ($quantity ?? 0);
+        }
     }
 
     public function save(): void
@@ -95,15 +116,94 @@ class Locations extends Component
             'editStatus' => ['required', Rule::enum(LocationStatus::class)],
         ]);
 
+        $delivered = $this->editDelivered;
+        $walkIns = $delivered && $this->editWalkIns;
+        $reserves = $this->reserveQuantities();
+
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        if ($walkIns && $this->reservesExceedFleet($location, $reserves)) {
+            return;
+        }
+
         $location->fill([
             'name' => $validated['editName'],
             'timezone' => $validated['editTimezone'],
             'status' => $validated['editStatus'],
+            'delivered_from_fleet' => $delivered,
+            'walk_ins_enabled' => $walkIns,
         ])->save();
 
-        $this->audit('location.updated', $location);
+        if ($delivered) {
+            foreach (FleetItem::query()->orderBy('name')->get() as $item) {
+                LocationFleetReserve::query()->updateOrCreate(
+                    [
+                        'location_id' => $location->id,
+                        'fleet_item_id' => $item->id,
+                    ],
+                    [
+                        'tenant_id' => $location->tenant_id,
+                        'quantity' => $walkIns ? ($reserves[$item->id] ?? 0) : 0,
+                    ],
+                );
+            }
+        }
+
+        $this->audit('location.updated', $location, [
+            'delivered_from_fleet' => $delivered,
+            'walk_ins_enabled' => $walkIns,
+        ]);
         $this->editingId = '';
         $this->flash = 'Location saved.';
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function reserveQuantities(): array
+    {
+        $quantities = [];
+
+        foreach ($this->editReserves as $id => $quantity) {
+            if (! is_numeric($quantity) || (int) $quantity < 0 || (int) $quantity > 100000) {
+                $this->addError('editReserves.'.$id, 'Enter a hold between 0 and 100,000.');
+
+                continue;
+            }
+
+            $quantities[(string) $id] = (int) $quantity;
+        }
+
+        return $quantities;
+    }
+
+    /**
+     * @param  array<string, int>  $reserves
+     */
+    private function reservesExceedFleet(Location $location, array $reserves): bool
+    {
+        foreach (FleetItem::query()->orderBy('name')->get() as $item) {
+            $others = (int) LocationFleetReserve::query()
+                ->where('fleet_item_id', $item->id)
+                ->where('location_id', '!=', $location->id)
+                ->whereIn('location_id', Location::query()
+                    ->withoutGlobalScope(StaffLocationScope::class)
+                    ->where('walk_ins_enabled', true)
+                    ->where('delivered_from_fleet', true)
+                    ->select('id'))
+                ->sum('quantity');
+            $held = $others + ($reserves[$item->id] ?? 0);
+
+            if ($held > $item->quantity) {
+                $this->addError('editReserves.'.$item->id, 'Walk-in holds for '.$item->name.' are more than the fleet count of '.$item->quantity.'.');
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function addHours(): void
@@ -197,6 +297,7 @@ class Locations extends Component
                 ->where('location_id', $this->hoursLocationId)
                 ->orderBy('starts_on')
                 ->get(),
+            'fleetItems' => FleetItem::query()->orderBy('name')->get(),
             'canManage' => $this->allows('inventory.manage'),
             'canSetTax' => app(Access::class)->hasRole($this->currentUser(), $this->tenant()->id, 'owner', 'manager'),
             'zones' => timezone_identifiers_list(),

@@ -69,6 +69,12 @@ final class VariantResourceWriter
             ? (int) $row['capacity']
             : null;
 
+        if ($type === ResourceType::Fleet) {
+            throw ValidationException::withMessages([
+                "resources.$index.resource_type" => 'Link a shared fleet item on the service.',
+            ]);
+        }
+
         if ($type === ResourceType::Asset) {
             $asset = Asset::query()->find($resourceId);
 

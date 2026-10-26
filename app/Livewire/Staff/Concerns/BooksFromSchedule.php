@@ -505,6 +505,7 @@ trait BooksFromSchedule
             $lines,
             $this->bookVariant !== '' ? $this->bookVariant : null,
             $this->bookCustomerId !== '' ? $this->bookCustomerId : null,
+            counterSale: true,
         );
 
         try {

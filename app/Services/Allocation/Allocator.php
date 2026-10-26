@@ -19,6 +19,7 @@ use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
 use App\Models\Customer;
 use App\Models\Departure;
+use App\Models\FleetItem;
 use App\Models\Hold;
 use App\Models\Location;
 use App\Models\MaintenanceWindow;
@@ -34,6 +35,7 @@ use App\Services\Booking\GuideRoster;
 use App\Services\Booking\SlotFinder;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Customers\CustomerAccountLinker;
+use App\Services\Fleet\FleetCapacity;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Operations\ReturnConditions;
@@ -52,7 +54,7 @@ use InvalidArgumentException;
 
 /**
  * @phpstan-type Demand array{type: ResourceType, id: string, quantity: int, buffer_start: CarbonImmutable, buffer_end: CarbonImmutable, name: string, buckets: list<int>}
- * @phpstan-type Plan array{demands: list<Demand>, bucket_minutes: int, location: Location, starts_at: CarbonImmutable, ends_at: CarbonImmutable, guide_user_id: ?string, departure_id: ?string}
+ * @phpstan-type Plan array{demands: list<Demand>, bucket_minutes: int, location: Location, starts_at: CarbonImmutable, ends_at: CarbonImmutable, guide_user_id: ?string, departure_id: ?string, counter_sale: bool}
  */
 class Allocator
 {
@@ -67,6 +69,7 @@ class Allocator
         private readonly CustomerAccountLinker $customerAccounts,
         private readonly PromoCodes $promoCodes,
         private readonly GuideRoster $guideRoster,
+        private readonly FleetCapacity $fleetCapacity,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -146,7 +149,7 @@ class Allocator
             $unexpired = $holds->isNotEmpty() && $holds->every(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
             $seatOnly = $booking->departure_id !== null
                 && $holds->isNotEmpty()
-                && $holds->every(fn (Hold $hold): bool => $hold->asset_id === null && $hold->pool_id === null);
+                && $holds->every(fn (Hold $hold): bool => $hold->asset_id === null && $hold->pool_id === null && $hold->fleet_item_id === null);
 
             if ($unexpired && $seatOnly) {
                 Hold::query()->where('booking_id', $booking->id)->delete();
@@ -743,6 +746,7 @@ class Allocator
                     ->where('booking_id', $booking->id)
                     ->whereNull('asset_id')
                     ->whereNull('pool_id')
+                    ->whereNull('fleet_item_id')
                     ->update(['quantity' => $participants]);
                 $this->webhooks->bookingChanged($booking);
 
@@ -866,10 +870,14 @@ class Allocator
                     $released = true;
                 }
 
-                BookingLineItem::query()
-                    ->where('booking_id', $booking->id)
-                    ->where('resource_id', $allocation->asset_id ?? $allocation->pool_id)
-                    ->update(['buffered_ends_at' => $updatedEnd]);
+                $resourceId = $allocation->asset_id ?? $allocation->pool_id ?? $allocation->fleet_item_id;
+
+                if (is_string($resourceId) && $resourceId !== '') {
+                    BookingLineItem::query()
+                        ->where('booking_id', $booking->id)
+                        ->where('resource_id', $resourceId)
+                        ->update(['buffered_ends_at' => $updatedEnd]);
+                }
             }
 
             RentalCheckout::query()
@@ -1001,15 +1009,7 @@ class Allocator
         }
 
         $demands = $plan['demands'];
-        usort($demands, function (array $left, array $right): int {
-            $type = [$left['type'] === ResourceType::Pool ? 0 : 1, $right['type'] === ResourceType::Pool ? 0 : 1];
-
-            if ($type[0] !== $type[1]) {
-                return $type[0] <=> $type[1];
-            }
-
-            return $left['id'] <=> $right['id'];
-        });
+        usort($demands, $this->compareDemands(...));
         $plan['demands'] = $demands;
 
         return $plan;
@@ -1185,12 +1185,43 @@ class Allocator
         foreach ($requirements as $requirement) {
             $units = $requirement->unitsFor($intent->participants);
             $resource = $this->resource($requirement);
+
+            if ($requirement->resourceType() === ResourceType::Fleet) {
+                if (! $resource instanceof FleetItem || $resource->status !== ResourceStatus::Active || ! $service->location->delivered_from_fleet) {
+                    throw new AllocationUnavailableException('A required resource is not available.');
+                }
+
+                $key = ResourceType::Fleet->value.':'.$resource->id;
+
+                if (isset($merged[$key])) {
+                    $merged[$key]['quantity'] += $units;
+
+                    continue;
+                }
+
+                $merged[$key] = [
+                    'type' => ResourceType::Fleet,
+                    'id' => $resource->id,
+                    'quantity' => $units,
+                    'buffer_start' => $intent->startsAt,
+                    'buffer_end' => $intent->endsAt,
+                    'name' => $resource->name,
+                    'buckets' => [],
+                ];
+
+                continue;
+            }
+
+            if (! $resource instanceof Asset && ! $resource instanceof Pool) {
+                throw new AllocationUnavailableException('A required resource is not available.');
+            }
+
             $movingOffRetired = $resource instanceof Asset
                 && $reassignFromAssetId !== null
                 && $resource->id === $reassignFromAssetId
                 && $resource->status === ResourceStatus::Retired;
 
-            if ($resource === null || $resource->location_id !== $service->location_id || ($resource->status !== ResourceStatus::Active && ! $movingOffRetired)) {
+            if ($resource->location_id !== $service->location_id || ($resource->status !== ResourceStatus::Active && ! $movingOffRetired)) {
                 throw new AllocationUnavailableException('A required resource is not available.');
             }
 
@@ -1233,15 +1264,7 @@ class Allocator
         }
 
         $demands = array_values($merged);
-        usort($demands, function (array $left, array $right): int {
-            $type = [$left['type'] === ResourceType::Pool ? 0 : 1, $right['type'] === ResourceType::Pool ? 0 : 1];
-
-            if ($type[0] !== $type[1]) {
-                return $type[0] <=> $type[1];
-            }
-
-            return $left['id'] <=> $right['id'];
-        });
+        usort($demands, $this->compareDemands(...));
 
         return [
             'demands' => $demands,
@@ -1251,6 +1274,7 @@ class Allocator
             'ends_at' => $intent->endsAt,
             'guide_user_id' => $guideUserId,
             'departure_id' => $departureId,
+            'counter_sale' => $intent->counterSale,
         ];
     }
 
@@ -1282,6 +1306,7 @@ class Allocator
             'starts_at' => $intent->startsAt->utc(),
             'ends_at' => $intent->endsAt->utc(),
             'participants' => $intent->participants,
+            'counter_sale' => $intent->counterSale,
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
@@ -1347,13 +1372,39 @@ class Allocator
         }
     }
 
-    private function resource(ConsumesInventory $requirement): Asset|Pool|null
+    private function resource(ConsumesInventory $requirement): Asset|Pool|FleetItem|null
     {
-        if ($requirement->resourceType() === ResourceType::Asset) {
-            return Asset::query()->find($requirement->resourceId());
+        return match ($requirement->resourceType()) {
+            ResourceType::Asset => Asset::query()->find($requirement->resourceId()),
+            ResourceType::Pool => Pool::query()->find($requirement->resourceId()),
+            ResourceType::Fleet => FleetItem::query()->find($requirement->resourceId()),
+        };
+    }
+
+    /**
+     * Fleet rows lock before pools, and pools lock before assets.
+     *
+     * @param  Demand  $left
+     * @param  Demand  $right
+     */
+    private function compareDemands(array $left, array $right): int
+    {
+        $rank = $this->demandRank($left['type']) <=> $this->demandRank($right['type']);
+
+        if ($rank !== 0) {
+            return $rank;
         }
 
-        return Pool::query()->find($requirement->resourceId());
+        return $left['id'] <=> $right['id'];
+    }
+
+    private function demandRank(ResourceType $type): int
+    {
+        return match ($type) {
+            ResourceType::Fleet => 0,
+            ResourceType::Pool => 1,
+            ResourceType::Asset => 2,
+        };
     }
 
     /**
@@ -1361,6 +1412,18 @@ class Allocator
      */
     private function lock(array $plan): void
     {
+        foreach ($plan['demands'] as $demand) {
+            if ($demand['type'] !== ResourceType::Fleet) {
+                continue;
+            }
+
+            $locked = DB::select('select id from fleet_items where id = ? for update', [$demand['id']]);
+
+            if ($locked === []) {
+                throw new AllocationUnavailableException;
+            }
+        }
+
         foreach ($plan['demands'] as $demand) {
             if ($demand['type'] !== ResourceType::Pool) {
                 continue;
@@ -1449,6 +1512,26 @@ class Allocator
         $this->refuseClosed($open, false);
 
         foreach ($plan['demands'] as $demand) {
+            if ($demand['type'] === ResourceType::Fleet) {
+                $item = FleetItem::query()->find($demand['id']);
+
+                if (! $item instanceof FleetItem || $item->status !== ResourceStatus::Active || ! $plan['location']->delivered_from_fleet) {
+                    throw new AllocationUnavailableException('A required resource is not available.');
+                }
+
+                $this->fleetCapacity->assertFits(
+                    $item,
+                    $plan['location'],
+                    $plan['starts_at'],
+                    $plan['ends_at'],
+                    $demand['quantity'],
+                    $plan['counter_sale'],
+                    $ignoreBookingId,
+                );
+
+                continue;
+            }
+
             if ($honorMaintenance && $this->underMaintenance($demand['type'], $demand['id'], $demand['buffer_start'], $demand['buffer_end'])) {
                 throw new AllocationUnavailableException('That resource is out of service for maintenance at that time.');
             }
@@ -1488,6 +1571,10 @@ class Allocator
 
     private function underMaintenance(ResourceType $type, string $resourceId, CarbonImmutable $start, CarbonImmutable $end): bool
     {
+        if ($type === ResourceType::Fleet) {
+            return false;
+        }
+
         return MaintenanceWindow::query()
             ->where($type === ResourceType::Asset ? 'asset_id' : 'pool_id', $resourceId)
             ->where('starts_at', '<', $end)
@@ -1557,6 +1644,7 @@ class Allocator
             'starts_at' => $intent->startsAt->utc(),
             'ends_at' => $intent->endsAt->utc(),
             'participants' => $intent->participants,
+            'counter_sale' => $intent->counterSale,
             'idempotency_key' => $intent->idempotencyKey !== '' ? $intent->idempotencyKey : null,
             'payload_hash' => $intent->payloadHash(),
         ]);
@@ -1634,6 +1722,7 @@ class Allocator
                 'booking_id' => $booking->id,
                 'asset_id' => $demand['type'] === ResourceType::Asset ? $demand['id'] : null,
                 'pool_id' => $demand['type'] === ResourceType::Pool ? $demand['id'] : null,
+                'fleet_item_id' => $demand['type'] === ResourceType::Fleet ? $demand['id'] : null,
                 'quantity' => $demand['quantity'],
                 'starts_at' => $demand['buffer_start'],
                 'ends_at' => $demand['buffer_end'],
@@ -1775,6 +1864,7 @@ class Allocator
             $booking->departure_id,
             $booking->guide_user_id,
             variantId: $booking->service_variant_id,
+            counterSale: (bool) $booking->counter_sale,
         );
     }
 
@@ -1792,6 +1882,7 @@ class Allocator
             $booking->departure_id,
             $booking->guide_user_id,
             variantId: $booking->service_variant_id,
+            counterSale: (bool) $booking->counter_sale,
         );
     }
 
@@ -2055,7 +2146,7 @@ class Allocator
         $allocated = Allocation::query()
             ->whereIn('booking_id', $ids)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->exists();
 
@@ -2067,7 +2158,7 @@ class Allocator
             ->whereIn('booking_id', $ids)
             ->where('expires_at', '>', now())
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->exists();
     }
@@ -2129,6 +2220,7 @@ class Allocator
                     'booking_id' => $to->id,
                     'asset_id' => $allocation->asset_id,
                     'pool_id' => $allocation->pool_id,
+                    'fleet_item_id' => $allocation->fleet_item_id,
                     'quantity' => $allocation->quantity,
                     'starts_at' => $allocation->starts_at,
                     'ends_at' => $allocation->ends_at,
@@ -2143,7 +2235,7 @@ class Allocator
         Hold::query()
             ->where('booking_id', $from->id)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->update(['booking_id' => $to->id]);
         BookingLineItem::query()
@@ -2160,7 +2252,7 @@ class Allocator
         Hold::query()
             ->where('booking_id', $booking->id)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->delete();
         BookingLineItem::query()
@@ -2178,7 +2270,7 @@ class Allocator
         return Allocation::query()
             ->where('booking_id', $bookingId)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             });
     }
 
@@ -2266,7 +2358,7 @@ class Allocator
         $allocated = Allocation::query()
             ->where('booking_id', $booking->id)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->exists();
 
@@ -2277,7 +2369,7 @@ class Allocator
         return ! Hold::query()
             ->where('booking_id', $booking->id)
             ->where(function ($query): void {
-                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id')->orWhereNotNull('fleet_item_id');
             })
             ->exists();
     }
@@ -2530,6 +2622,7 @@ class Allocator
             $departureId,
             $intent->guideUserId,
             variantId: $intent->variantId,
+            counterSale: $intent->counterSale,
         ))['available'];
     }
 
@@ -2537,6 +2630,7 @@ class Allocator
     {
         return in_array($exception->getMessage(), [
             'That time is no longer available.',
+            'That day is fully booked.',
             'That guide is already booked.',
             'That departure is full.',
             'That private departure already has a booking.',

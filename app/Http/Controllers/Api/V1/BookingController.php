@@ -154,6 +154,7 @@ class BookingController extends Controller
             $this->customerPhone($validated['customer_phone'] ?? null),
             $addOns,
             $variantId,
+            counterSale: true,
         );
 
         try {

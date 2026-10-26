@@ -24,6 +24,7 @@ readonly class AllocationIntent
         public array $addOns = [],
         public ?string $variantId = null,
         public ?string $customerId = null,
+        public bool $counterSale = false,
     ) {}
 
     public function payloadHash(): string

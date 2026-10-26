@@ -59,6 +59,7 @@ class AvailabilityController extends Controller
                 null,
                 null,
                 variantId: $variantId,
+                counterSale: true,
             ));
             $durationOk = $hint['duration_ok'];
             $offered = $hint['offered_durations'];

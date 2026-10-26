@@ -45,7 +45,7 @@ final class SlotFinder
      *
      * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
      */
-    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null): array
+    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null, bool $counterSale = false): array
     {
         $location = $service->location;
 
@@ -87,6 +87,7 @@ final class SlotFinder
                     null,
                     null,
                     null,
+                    counterSale: $counterSale,
                 ))['available'];
 
             $slots[] = [

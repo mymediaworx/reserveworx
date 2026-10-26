@@ -20,26 +20,42 @@
                     @foreach ($locations as $location)
                         <li class="row">
                             @if ($editingId === $location->id)
-                                <form wire:submit="save" class="form-row grow">
-                                    <label class="field compact grow"><span>Name</span><input type="text" wire:model="editName" required maxlength="120"></label>
-                                    <label class="field compact"><span>Time zone</span>
+                                <form wire:submit="save" class="stack grow">
+                                    <label class="field"><span>Name</span><input type="text" wire:model="editName" required maxlength="120"></label>
+                                    <label class="field"><span>Time zone</span>
                                         <select wire:model="editTimezone">
                                             @foreach ($zones as $z)<option value="{{ $z }}">{{ $z }}</option>@endforeach
                                         </select>
                                     </label>
-                                    <label class="field compact"><span>Status</span>
+                                    <label class="field"><span>Status</span>
                                         <select wire:model="editStatus">
                                             <option value="active">Open</option>
                                             <option value="inactive">Closed</option>
                                         </select>
                                     </label>
-                                    <button type="submit" class="button primary">Save</button>
-                                    <button type="button" class="button" wire:click="$set('editingId', '')">Cancel</button>
+                                    <label class="check"><input type="checkbox" wire:model.live="editDelivered"><span>Delivered from fleet. Gear for this location comes from the shared fleet, not from equipment kept here.</span></label>
+                                    @if ($editDelivered)
+                                        <label class="check"><input type="checkbox" wire:model.live="editWalkIns"><span>Hold units for walk-ins. Off closes booking once the day is fully committed. On keeps units here for the counter to sell.</span></label>
+                                        @if ($editWalkIns)
+                                            @forelse ($fleetItems as $item)
+                                                <label class="field"><span>Walk-in hold for {{ $item->name }}</span>
+                                                    <input type="number" min="0" max="100000" wire:model="editReserves.{{ $item->id }}">
+                                                </label>
+                                                @error('editReserves.'.$item->id)<p class="error">{{ $message }}</p>@enderror
+                                            @empty
+                                                <p class="muted">Add a fleet item under Equipment before holding walk-in units.</p>
+                                            @endforelse
+                                        @endif
+                                    @endif
+                                    <div class="form-row">
+                                        <button type="submit" class="button primary">Save</button>
+                                        <button type="button" class="button" wire:click="$set('editingId', '')">Cancel</button>
+                                    </div>
                                 </form>
                             @else
                                 <div class="grow">
                                     <strong>{{ $location->name }}</strong>
-                                    <span class="muted">{{ $location->timezone }}{{ $location->status->value !== 'active' ? ', closed' : '' }}</span>
+                                    <span class="muted">{{ $location->timezone }}{{ $location->status->value !== 'active' ? ', closed' : '' }}{{ $location->delivered_from_fleet ? ', delivered from fleet' : '' }}{{ $location->walk_ins_enabled ? ', walk-ins held' : '' }}</span>
                                 </div>
                                 @if ($canSetTax)
                                     <a class="button small" href="/staff/locations/{{ $location->id }}/tax" wire:navigate>Tax</a>

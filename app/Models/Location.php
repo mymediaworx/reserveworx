@@ -27,11 +27,15 @@ class Location extends Model
         'timezone',
         'status',
         'booking_fee_taxable',
+        'delivered_from_fleet',
+        'walk_ins_enabled',
     ];
 
     protected $casts = [
         'status' => LocationStatus::class,
         'booking_fee_taxable' => 'boolean',
+        'delivered_from_fleet' => 'boolean',
+        'walk_ins_enabled' => 'boolean',
     ];
 
     /**
@@ -56,5 +60,13 @@ class Location extends Model
     public function taxRules(): HasMany
     {
         return $this->hasMany(LocationTaxRule::class);
+    }
+
+    /**
+     * @return HasMany<LocationFleetReserve, $this>
+     */
+    public function fleetReserves(): HasMany
+    {
+        return $this->hasMany(LocationFleetReserve::class);
     }
 }

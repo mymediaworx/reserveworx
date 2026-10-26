@@ -36,6 +36,7 @@ use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Import;
 use App\Livewire\Staff\Incidents;
+use App\Livewire\Staff\LoadSheet;
 use App\Livewire\Staff\LocationTax;
 use App\Livewire\Staff\Maintenance;
 use App\Livewire\Staff\Manifest;
@@ -155,6 +156,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/feedback', Feedback::class);
         Route::get('/waitlist', Waitlist::class);
         Route::get('/manifest', Manifest::class)->name('staff.manifest');
+        Route::get('/load-sheet', LoadSheet::class)->name('staff.load-sheet');
         Route::get('/manifest.csv', [StaffManifestController::class, 'export'])->name('staff.manifest.export');
         Route::get('/reports', Reports::class)->name('staff.reports');
         Route::get('/reports.csv', [StaffReportController::class, 'export'])->name('staff.reports.export');
