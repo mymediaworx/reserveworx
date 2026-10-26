@@ -5,12 +5,14 @@ namespace Tests\Feature\Web;
 use App\Enums\BookingStatus;
 use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
+use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\Location;
 use App\Models\Payment;
 use App\Models\PricingSnapshot;
+use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Notifications\CustomerSignInLink;
 use App\Services\Customers\CustomerAccounts;
@@ -42,17 +44,32 @@ class CustomerAccountPageTest extends TestCase
 
     public function test_guest_checkout_links_to_an_optional_account_and_still_asks_for_a_name(): void
     {
+        Carbon::setTestNow(Carbon::parse('2026-10-26 12:00:00', 'UTC'));
         $workspace = $this->workspace('dock.test', 'owner', ['name' => 'Harbor Demo']);
         $location = Location::factory()->create([
             'tenant_id' => $workspace['tenant']->id,
             'timezone' => 'America/New_York',
         ]);
+        $asset = Asset::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $location->id,
+            'name' => 'Kayak 1',
+        ]);
+        app(TenantManager::class)->set($workspace['tenant']);
         $service = Service::query()->create([
             'tenant_id' => $workspace['tenant']->id,
             'location_id' => $location->id,
             'name' => 'Kayak',
             'kind' => 'rental',
         ]);
+        ResourceRequirement::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'service_id' => $service->id,
+            'resource_type' => 'asset',
+            'resource_id' => $asset->id,
+            'quantity' => 1,
+        ]);
+        app(TenantManager::class)->forget();
 
         $home = $this->get($this->tenantUrl('dock.test', '/'));
         $home->assertOk()
@@ -66,13 +83,14 @@ class CustomerAccountPageTest extends TestCase
         $this->assertStringNotContainsString('laravel_session', (string) $home->headers->get('set-cookie'));
 
         $plain = $this->hostedToken((string) $home->getContent());
-        $this->get($this->tenantUrl('dock.test', '/book/'.$plain.'/services/'.$service->id))
-            ->assertOk()
+        $form = $this->get($this->tenantUrl('dock.test', '/book/'.$plain.'/services/'.$service->id.'?date=2026-10-27&duration_minutes=60&participants=1'));
+        $form->assertOk()
             ->assertSee('Your name')
             ->assertSee('name="customer_name"', false)
             ->assertSee('name="customer_email"', false)
             ->assertDontSee('type="password"', false)
             ->assertDontSee('Open an account');
+        $this->assertStringNotContainsString('laravel_session', (string) $form->headers->get('set-cookie'));
     }
 
     public function test_a_staff_session_does_not_list_the_customer_bookings(): void
@@ -150,14 +168,13 @@ class CustomerAccountPageTest extends TestCase
         $this->get($accountUrl)->assertSee(CustomerAccounts::REQUEST_STATUS);
         $this->assertSame(1, CustomerAccount::withoutGlobalScope(TenantScope::class)->count());
 
-        $this->from($accountUrl)
+        $denied = $this->from($accountUrl)
+            ->followingRedirects()
             ->post($this->tenantUrl('dock.test', '/account/login'), [
                 'email' => 'ada@example.com',
                 'password' => self::PASSWORD,
-            ])
-            ->assertSessionHasErrors(['email' => CustomerAccounts::INVALID_CREDENTIALS]);
-        $this->get($accountUrl)
-            ->assertSee(CustomerAccounts::INVALID_CREDENTIALS)
+            ]);
+        $denied->assertSee(CustomerAccounts::INVALID_CREDENTIALS)
             ->assertSee('Email me a sign-in link')
             ->assertDontSee($upcoming->id);
 

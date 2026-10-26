@@ -212,7 +212,7 @@ class CustomerAccountPageController extends Controller
             $rows[] = [
                 'id' => $booking->id,
                 'reference' => BookingReference::short($booking->id),
-                'service' => $booking->service?->name ?? 'Booking',
+                'service' => $booking->service->name,
                 'when' => $this->localStart($booking),
                 'total' => Money::format($receipt['total_cents'], $receipt['currency']),
                 'receipt' => is_string($html) ? $html : '',
@@ -224,15 +224,10 @@ class CustomerAccountPageController extends Controller
 
     private function localStart(Booking $booking): string
     {
-        $start = $booking->starts_at;
         $zone = $booking->location?->timezone;
         $zone = is_string($zone) && $zone !== '' ? $zone : 'UTC';
 
-        if (! $start instanceof CarbonInterface) {
-            return '';
-        }
-
-        return $start->copy()->timezone($zone)->format('D, M j, Y g:i A');
+        return $booking->starts_at->copy()->timezone($zone)->format('D, M j, Y g:i A');
     }
 
     /**
