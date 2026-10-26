@@ -56,7 +56,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax, $timeWindows] = $this->components(
+        [$services, $discount, $tax, $timeWindows, $partyBands] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -96,6 +96,7 @@ final class PricingEngine
             $operatorCents,
             $operatorLines,
             $taxLines,
+            $partyBands,
         );
     }
 
@@ -148,7 +149,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax, $timeWindows] = $this->components(
+        [$services, $discount, $tax, $timeWindows, $partyBands] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -199,6 +200,7 @@ final class PricingEngine
             $operatorDelta,
             $operatorLines,
             $replacement,
+            $partyBands,
         );
     }
 
@@ -235,7 +237,7 @@ final class PricingEngine
             throw new InvalidArgumentException('Add-ons must not be negative.');
         }
 
-        [$services, $discount, $tax, $timeWindows] = $this->components(
+        [$services, $discount, $tax, $timeWindows, $partyBands] = $this->components(
             $rules,
             $participants,
             $durationMinutes,
@@ -268,7 +270,7 @@ final class PricingEngine
 
         $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
 
-        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows, $operatorCents, $operatorLines, $replacement);
+        return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows, $operatorCents, $operatorLines, $replacement, $partyBands);
     }
 
     /**
@@ -288,7 +290,7 @@ final class PricingEngine
 
     /**
      * @param  list<PriceRuleInput>  $rules
-     * @return array{0: int, 1: int, 2: int, 3: list<array<string, mixed>>}
+     * @return array{0: int, 1: int, 2: int, 3: list<array<string, mixed>>, 4: list<array<string, mixed>>}
      */
     private function components(
         array $rules,
@@ -310,6 +312,7 @@ final class PricingEngine
         $services = 0;
         $matched = false;
         $timeWindows = [];
+        $partyBands = [];
         $peakPresent = false;
 
         foreach ($rules as $rule) {
@@ -320,16 +323,9 @@ final class PricingEngine
         }
 
         if ($peakPresent) {
-            [$services, $matched, $timeWindows] = $this->pricedWithPeaks($rules, $participants, $durationMinutes, $on);
+            [$services, $matched, $timeWindows, $partyBands] = $this->pricedWithPeaks($rules, $participants, $durationMinutes, $on);
         } else {
-            foreach ($rules as $rule) {
-                if (! $rule->applies($on, $durationMinutes)) {
-                    continue;
-                }
-
-                $matched = true;
-                $services += $rule->kind === 'per_person' ? $rule->amountCents * $participants : $rule->amountCents;
-            }
+            [$services, $matched, $partyBands] = $this->pricedFlat($rules, $participants, $durationMinutes, $on);
         }
 
         if (! $matched) {
@@ -348,7 +344,64 @@ final class PricingEngine
 
         $discount = min($discount, $services);
 
-        return [$services, $discount, Rounding::basisPointsOf($services - $discount, $taxBasisPoints), $timeWindows];
+        return [$services, $discount, Rounding::basisPointsOf($services - $discount, $taxBasisPoints), $timeWindows, $partyBands];
+    }
+
+    /**
+     * A party-size price replaces every open price of the same kind. Overlapping
+     * sizes keep the higher minimum, then the narrower maximum, then the earlier rule.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>}
+     */
+    private function pricedFlat(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): array
+    {
+        /** @var array<string, int> $open */
+        $open = [];
+        /** @var array<string, true> $openMatched */
+        $openMatched = [];
+        /** @var array<string, list<array{index: int, rule: PriceRuleInput}>> $bands */
+        $bands = [];
+
+        foreach ($rules as $index => $rule) {
+            if (! $rule->applies($on, $durationMinutes)) {
+                continue;
+            }
+
+            if ($rule->hasPartyBand()) {
+                if ($rule->containsParty($participants)) {
+                    $bands[$rule->kind][] = ['index' => $index, 'rule' => $rule];
+                }
+
+                continue;
+            }
+
+            $open[$rule->kind] = ($open[$rule->kind] ?? 0) + $rule->amountCents;
+            $openMatched[$rule->kind] = true;
+        }
+
+        $services = 0;
+        $matched = false;
+        $partyBands = [];
+
+        foreach (['base', 'per_person', 'duration'] as $kind) {
+            $winner = $this->winningParty($bands[$kind] ?? []);
+
+            if ($winner !== null) {
+                $matched = true;
+                $amount = $winner->amountCents;
+                $partyBands[] = $winner->partyBandSnapshot();
+            } elseif ($openMatched[$kind] ?? false) {
+                $matched = true;
+                $amount = $open[$kind] ?? 0;
+            } else {
+                continue;
+            }
+
+            $services += $kind === 'per_person' ? $amount * $participants : $amount;
+        }
+
+        return [$services, $matched, $partyBands];
     }
 
     /**
@@ -358,8 +411,12 @@ final class PricingEngine
      * minutes use the rates with no clock. One half-up average is the charge.
      * A per-person rate is multiplied by the party size before that rounding.
      *
+     * A party-size price replaces the open rate of that kind. Minutes inside a
+     * clock window still use the winning peak. The party size is recorded when
+     * at least one minute uses that open rate.
+     *
      * @param  list<PriceRuleInput>  $rules
-     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>}
+     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>, 3: list<array<string, mixed>>}
      */
     private function pricedWithPeaks(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): array
     {
@@ -377,6 +434,7 @@ final class PricingEngine
         $services = 0;
         $matched = false;
         $windows = [];
+        $partyBands = [];
         $startUtc = $on->utc();
         $timezone = $on->getTimezone();
 
@@ -384,9 +442,18 @@ final class PricingEngine
             $openAmount = 0;
             $openMatched = false;
             $peaks = [];
+            $bandRows = [];
 
             foreach ($indexed as $row) {
                 $rule = $row['rule'];
+
+                if ($rule->hasPartyBand()) {
+                    if ($rule->applies($on, $durationMinutes) && $rule->containsParty($participants)) {
+                        $bandRows[] = $row;
+                    }
+
+                    continue;
+                }
 
                 if ($rule->hasTimeWindow()) {
                     if ($rule->kind === 'duration' && $rule->durationMinutes !== $durationMinutes) {
@@ -404,6 +471,13 @@ final class PricingEngine
                 }
             }
 
+            $band = $this->winningParty($bandRows);
+
+            if ($band !== null) {
+                $openMatched = true;
+                $openAmount = $band->amountCents;
+            }
+
             if ($peaks === []) {
                 if (! $openMatched) {
                     continue;
@@ -411,6 +485,10 @@ final class PricingEngine
 
                 $matched = true;
                 $services += $kind === 'per_person' ? $openAmount * $participants : $openAmount;
+
+                if ($band !== null) {
+                    $partyBands[] = $band->partyBandSnapshot();
+                }
 
                 continue;
             }
@@ -423,6 +501,7 @@ final class PricingEngine
             }
 
             $pricedMinutes = 0;
+            $openMinutes = 0;
 
             for ($minute = 0; $minute < $durationMinutes; $minute++) {
                 $local = $startUtc->addMinutes($minute)->timezone($timezone);
@@ -438,6 +517,7 @@ final class PricingEngine
 
                 if ($openMatched) {
                     $numerator += $openAmount;
+                    $openMinutes++;
                     $pricedMinutes++;
                 }
             }
@@ -458,9 +538,36 @@ final class PricingEngine
 
                 $windows[] = $row['rule']->timeWindowSnapshot($peakMinutes[$position]);
             }
+
+            if ($band !== null && $openMinutes > 0) {
+                $partyBands[] = $band->partyBandSnapshot();
+            }
         }
 
-        return [$services, $matched, $windows];
+        return [$services, $matched, $windows, $partyBands];
+    }
+
+    /**
+     * @param  list<array{index: int, rule: PriceRuleInput}>  $bands
+     */
+    private function winningParty(array $bands): ?PriceRuleInput
+    {
+        $winner = null;
+        $bestSpecificity = -1;
+        $bestIndex = PHP_INT_MAX;
+
+        foreach ($bands as $row) {
+            $specificity = $row['rule']->partySpecificity();
+            $index = $row['index'];
+
+            if ($winner === null || $specificity > $bestSpecificity || ($specificity === $bestSpecificity && $index < $bestIndex)) {
+                $winner = $row['rule'];
+                $bestSpecificity = $specificity;
+                $bestIndex = $index;
+            }
+        }
+
+        return $winner;
     }
 
     /**

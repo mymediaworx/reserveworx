@@ -348,6 +348,7 @@ final class CheckoutService
             'priced_on' => $this->pricedOn($booking),
             'priced_local_start' => $this->pricedLocalStart($booking),
             'time_windows' => $increase->timeWindows,
+            'party_bands' => $increase->partyBands,
             'operator_fees_delta_cents' => $increase->operatorFeesDeltaCents,
             'operator_fees' => $increase->operatorFeeLines,
         ];
@@ -710,6 +711,7 @@ final class CheckoutService
         $payload['priced_on'] = $this->pricedOn($booking);
         $payload['priced_local_start'] = $this->pricedLocalStart($booking);
         $payload['time_windows'] = $decrease->timeWindows;
+        $payload['party_bands'] = $decrease->partyBands;
         $payload['mandatory_operator_fees_cents'] = $decrease->operatorFeesCents;
         $payload['operator_fees'] = $this->operatorFees->replace($booking, $decrease->operatorFeeLines);
         $snapshot->payload = $payload;

@@ -4,6 +4,7 @@ namespace App\Services\Privacy;
 
 use App\Models\AuditLog;
 use App\Models\Booking;
+use App\Models\BookingMutation;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
@@ -127,6 +128,7 @@ class CustomerDataEraser
                 $this->scrubStaffNotes($bookingIds, $names, $fragments);
                 $this->scrubHooks($bookingIds, $names, $fragments);
                 $this->scrubOutbox($bookingIds, $names, $fragments);
+                $this->scrubMutations($bookingIds, $names, $fragments);
             }
 
             if ($waitlist->isNotEmpty()) {
@@ -461,6 +463,24 @@ class CustomerDataEraser
             if ($scrubbed !== $payload || $error !== $row->last_error) {
                 $row->payload = is_array($scrubbed) ? $scrubbed : $payload;
                 $row->last_error = $error;
+                $row->save();
+            }
+        }
+    }
+
+    /**
+     * @param  list<string>  $bookingIds
+     * @param  list<string>  $names
+     * @param  list<string>  $fragments
+     */
+    private function scrubMutations(array $bookingIds, array $names, array $fragments): void
+    {
+        foreach (BookingMutation::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->get() as $row) {
+            $response = $row->response;
+            $scrubbed = $this->scrubValue($response, $names, $fragments);
+
+            if ($scrubbed !== $response && is_array($scrubbed)) {
+                $row->response = $scrubbed;
                 $row->save();
             }
         }

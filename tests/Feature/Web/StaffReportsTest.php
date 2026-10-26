@@ -118,6 +118,11 @@ class StaffReportsTest extends TestCase
             ->assertDontSee('99999')
             ->assertDontSee('$111.11');
 
+        $css = (string) file_get_contents(resource_path('ui/app.css'));
+        $this->assertStringContainsString('body.app:has(.fab) .app-main', $css);
+        $this->assertStringContainsString('max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem)', $css);
+        $this->assertStringContainsString('.tab-bar, .fab { display: none; }', $css);
+
         $html = (string) $page->getContent();
         $this->assertSame('21000', $this->figure($html, 'gross'));
         $this->assertSame('10800', $this->figure($html, 'card'));
