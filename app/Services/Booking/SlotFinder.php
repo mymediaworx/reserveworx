@@ -34,6 +34,15 @@ final class SlotFinder
     ) {}
 
     /**
+     * Pickup times on one local date.
+     *
+     * A length that finishes before close only lists starts that end inside
+     * that window. A longer length, such as a multi-day rental, lists every
+     * start while the shop is open for pickup. Opening hours then accept a
+     * start only when the return instant is open and no blackout covers a
+     * local date in between. The return is that many elapsed minutes later,
+     * including across a daylight-saving change.
+     *
      * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
      */
     public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null): array
@@ -55,9 +64,10 @@ final class SlotFinder
         $day = $day->startOfDay();
         $earliest = ($notBefore ?? CarbonImmutable::now())->utc();
         [$open, $close] = $this->window($location, $day);
+        $overnight = $open->addMinutes($durationMinutes)->greaterThan($close);
         $slots = [];
 
-        for ($start = $open; $start->addMinutes($durationMinutes)->lessThanOrEqualTo($close); $start = $start->addMinutes(self::STEP_MINUTES)) {
+        for ($start = $open; $this->offersStart($start, $close, $durationMinutes, $overnight); $start = $start->addMinutes(self::STEP_MINUTES)) {
             $startUtc = $start->utc();
 
             if ($startUtc->lessThan($earliest)) {
@@ -203,6 +213,19 @@ final class SlotFinder
         }
 
         return false;
+    }
+
+    /**
+     * A same-day length must finish by close. A longer length may start any
+     * time the shop is open for pickup; the return is checked separately.
+     */
+    private function offersStart(CarbonImmutable $start, CarbonImmutable $close, int $durationMinutes, bool $overnight): bool
+    {
+        if ($overnight) {
+            return $start->lessThan($close);
+        }
+
+        return $start->addMinutes($durationMinutes)->lessThanOrEqualTo($close);
     }
 
     /**
