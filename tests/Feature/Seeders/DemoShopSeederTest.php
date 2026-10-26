@@ -9,12 +9,17 @@ use App\Models\CancellationPolicy;
 use App\Models\Departure;
 use App\Models\Location;
 use App\Models\LocationTaxRule;
+use App\Models\Payment;
+use App\Models\PlatformFee;
 use App\Models\PriceRule;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\RentalCheckout;
 use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Models\User;
 use App\Models\WaiverVersion;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
@@ -192,6 +197,77 @@ class DemoShopSeederTest extends TestCase
         $this->assertTrue($booking->ends_at->equalTo($checkout->due_at), 'A rerun lines the booking up with the checkout.');
         $this->assertTrue($booking->starts_at->isPast());
         $this->assertSame(1, Booking::query()->where('idempotency_key', 'demo-harbor-demo-checkout')->count());
+    }
+
+    public function test_harbor_demo_keeps_one_confirmed_two_day_rental_ahead_of_today(): void
+    {
+        $this->seedDemo();
+        $this->seed(DemoShopSeeder::class);
+
+        $harbor = Tenant::query()->where('slug', 'harbor-demo')->firstOrFail();
+        app(TenantManager::class)->set($harbor);
+        $booking = Booking::query()->where('idempotency_key', 'demo-harbor-demo-multiday')->firstOrFail();
+        $service = Service::query()->where('name', 'Single kayak rental')->firstOrFail();
+        $dayPrice = PriceRule::query()->where('service_id', $service->id)->where('duration_minutes', 1440)->firstOrFail();
+        $twoDayPrice = PriceRule::query()->where('service_id', $service->id)->where('duration_minutes', 2880)->firstOrFail();
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->firstOrFail();
+        $payload = $snapshot->payload;
+        $lead = CarbonImmutable::now()->utc()->addDays(7);
+
+        $customer = $booking->customer;
+        $this->assertNotNull($customer);
+        $this->assertSame('confirmed', $booking->status->value);
+        $this->assertSame($service->id, $booking->service_id);
+        $this->assertTrue($booking->starts_at->greaterThanOrEqualTo($lead));
+        $this->assertSame(2880 * 60, $booking->ends_at->utc()->getTimestamp() - $booking->starts_at->utc()->getTimestamp());
+        $this->assertSame('Avery Cole', $customer->name);
+        $this->assertSame('avery.cole@harbor-demo.test', $customer->email);
+        $this->assertSame($dayPrice->amount_cents, $twoDayPrice->amount_cents);
+        $this->assertSame($dayPrice->amount_cents, $payload['services_cents']);
+        $this->assertSame(1, ServiceDuration::query()->where('duration_minutes', 2880)->count());
+        $this->assertSame(1, Booking::query()->where('idempotency_key', 'demo-harbor-demo-multiday')->count());
+        $this->assertSame(0, Payment::query()->where('booking_id', $booking->id)->count());
+        $this->assertSame(0, Refund::query()->where('booking_id', $booking->id)->count());
+        $this->assertSame(0, PlatformFee::query()->where('booking_id', $booking->id)->count());
+
+        $owner = User::query()->where('email', 'harbor-owner@demo.reserveworx.test')->firstOrFail();
+        app(TenantManager::class)->forget();
+        $this->actingAs($owner);
+        $page = $this->get('http://harbor-demo.reserveworx.test/staff/bookings/'.$booking->id)->assertOk();
+        $page->assertSee('Guest manage link')->assertSee('Avery Cole');
+        $this->assertSame(1, preg_match('/data-guest-manage-link="1" value="([^"]+)"/', (string) $page->getContent(), $link));
+        $manage = html_entity_decode($link[1]);
+
+        $this->get($manage)
+            ->assertOk()
+            ->assertSee('Length: 2 days')
+            ->assertSee('The price stays the same.')
+            ->assertDontSee('Duration in minutes');
+
+        app(TenantManager::class)->set($harbor);
+        $booking->forceFill([
+            'starts_at' => CarbonImmutable::now('America/New_York')->addDay()->setTime(10, 0)->utc(),
+            'ends_at' => CarbonImmutable::now('America/New_York')->addDay()->setTime(10, 0)->addMinutes(2880)->utc(),
+        ])->save();
+        app(TenantManager::class)->forget();
+
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($harbor);
+        $rolled = Booking::query()->where('idempotency_key', 'demo-harbor-demo-multiday')->firstOrFail();
+        $this->assertSame($booking->id, $rolled->id);
+        $this->assertSame(1, Booking::query()->where('idempotency_key', 'demo-harbor-demo-multiday')->count());
+        $this->assertTrue($rolled->starts_at->greaterThanOrEqualTo($lead));
+        $this->assertSame(2880 * 60, $rolled->ends_at->utc()->getTimestamp() - $rolled->starts_at->utc()->getTimestamp());
+        $this->assertSame($payload, PricingSnapshot::query()->where('booking_id', $rolled->id)->firstOrFail()->payload);
+        $this->assertSame(0, Payment::query()->where('booking_id', $rolled->id)->count());
+        $this->assertSame(0, Refund::query()->where('booking_id', $rolled->id)->count());
+        $this->assertSame(0, PlatformFee::query()->where('booking_id', $rolled->id)->count());
+        $this->assertSame(1, PriceRule::query()->where('duration_minutes', 2880)->count());
+
+        $inland = Tenant::query()->where('slug', 'inland-demo')->firstOrFail();
+        app(TenantManager::class)->set($inland);
+        $this->assertSame(0, Booking::query()->where('idempotency_key', 'demo-harbor-demo-multiday')->count());
+        $this->assertSame(0, ServiceDuration::query()->where('duration_minutes', 2880)->count());
     }
 
     private function seedDemo(): void
