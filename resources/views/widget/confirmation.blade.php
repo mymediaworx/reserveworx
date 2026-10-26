@@ -41,6 +41,7 @@
     @else
         <p>A card payment is confirmed only after Stripe notifies ReserveWorx. This page does not complete the payment.</p>
     @endif
+    @include('widget.partials.party')
     @if (is_string($waiverUrl ?? null))
         <div class="card" data-waiver-link>
             <h2>Sign your waiver</h2>

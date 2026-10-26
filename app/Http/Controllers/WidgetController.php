@@ -18,6 +18,7 @@ use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\Participant;
 use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
@@ -31,6 +32,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\NamedParty;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
 use App\Services\Catalog\BookingAddOnLines;
@@ -65,6 +67,7 @@ class WidgetController extends Controller
         private readonly BookingAddOnLines $addOnLines,
         private readonly CheckInPass $checkInPass,
         private readonly SlotFinder $slots,
+        private readonly NamedParty $party,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -278,22 +281,43 @@ class WidgetController extends Controller
 
         $pickup = $this->pickupOffer($this->tenant($request), $token, $booking, $snapshot, $hold);
 
-        return view('widget.checkout', [
-            'token' => $token,
-            'booking' => $booking->load('service'),
-            'snapshot' => $snapshot,
-            'terms' => $this->terms($snapshot),
-            'hold' => $hold,
-            'payUrl' => $hold instanceof Hold ? URL::temporarySignedRoute('widget.pay', $hold->expires_at, [
+        return $this->checkoutView(
+            $token,
+            $booking,
+            $snapshot,
+            $hold,
+            $hold instanceof Hold ? URL::temporarySignedRoute('widget.pay', $hold->expires_at, [
                 'token' => $token,
                 'booking' => $booking->id,
             ]) : null,
-            'pickupUrl' => $pickup['url'],
-            'pickupLabel' => $pickup['label'],
-            'promoUrl' => $this->promoUrl($token, $booking, $hold),
-            'promoValue' => $this->promoValue($snapshot),
-            'error' => null,
-        ]);
+            $pickup['url'],
+            $pickup['label'],
+            null,
+            $this->promoValue($snapshot),
+        );
+    }
+
+    public function storeParticipant(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $this->activeToken($token);
+        $this->assertBookingService($booking);
+
+        return $this->saveParticipant($request, $token, $booking);
+    }
+
+    public function removeParticipant(Request $request, string $token, Booking $booking, Participant $participant): Response|RedirectResponse
+    {
+        $this->activeToken($token);
+        $this->assertBookingService($booking);
+        $return = $this->partyReturn($request);
+
+        try {
+            $this->party->remove($booking, $participant, $request);
+        } catch (AllocationUnavailableException $exception) {
+            return $this->partyFailure($request, $token, $booking, $return, $exception->getMessage(), 409);
+        }
+
+        return redirect()->to($this->partyReturnUrl($token, $booking->fresh() ?? $booking, $return));
     }
 
     public function applyPromo(Request $request, string $token, Booking $booking): Response|RedirectResponse
@@ -460,16 +484,14 @@ class WidgetController extends Controller
         $payload = $snapshot instanceof PricingSnapshot ? $snapshot->payload : [];
         $taxLines = is_array($payload['tax_lines'] ?? null) ? $payload['tax_lines'] : [];
 
-        return view('widget.confirmation', [
-            'booking' => $fresh,
-            'checkInQr' => $this->checkInPass->svg($fresh),
-            'checkInUrl' => $this->checkInPass->url($fresh),
-            'waiverUrl' => in_array($fresh->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($fresh) : null,
-            'taxLines' => $taxLines,
-            'currency' => $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
-            'serviceCents' => is_numeric($payload['services_cents'] ?? null) ? (int) $payload['services_cents'] : 0,
-            'addOnLines' => is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
-        ]);
+        return $this->confirmationView(
+            $token,
+            $fresh,
+            $taxLines,
+            $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
+            is_numeric($payload['services_cents'] ?? null) ? (int) $payload['services_cents'] : 0,
+            is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
+        );
     }
 
     private function tenant(Request $request): Tenant
@@ -1002,6 +1024,9 @@ class WidgetController extends Controller
             || Payment::query()->where('booking_id', $fresh->id)->where('status', 'paid')->exists();
     }
 
+    /**
+     * @param  array{name?: string, is_minor?: bool, guardian_name?: string}  $partyOld
+     */
     private function checkoutResponse(
         string $token,
         Booking $booking,
@@ -1013,10 +1038,45 @@ class WidgetController extends Controller
         ?string $error,
         int $status,
         string $promoValue = '',
+        ?string $partyError = null,
+        array $partyOld = [],
     ): Response {
-        return response()->view('widget.checkout', [
+        return response($this->checkoutView(
+            $token,
+            $booking,
+            $snapshot,
+            $hold,
+            $payUrl,
+            $pickupUrl,
+            $pickupLabel,
+            $error,
+            $promoValue,
+            $partyError,
+            $partyOld,
+        ), $status);
+    }
+
+    /**
+     * @param  array{name?: string, is_minor?: bool, guardian_name?: string}  $partyOld
+     */
+    private function checkoutView(
+        string $token,
+        Booking $booking,
+        PricingSnapshot $snapshot,
+        ?Hold $hold,
+        ?string $payUrl,
+        ?string $pickupUrl,
+        ?string $pickupLabel,
+        ?string $error,
+        string $promoValue = '',
+        ?string $partyError = null,
+        array $partyOld = [],
+    ): View {
+        $booking->load(['service', 'namedParticipants']);
+
+        return view('widget.checkout', [
             'token' => $token,
-            'booking' => $booking->load('service'),
+            'booking' => $booking,
             'snapshot' => $snapshot,
             'terms' => $this->terms($snapshot),
             'hold' => $hold,
@@ -1026,7 +1086,202 @@ class WidgetController extends Controller
             'promoUrl' => $this->promoUrl($token, $booking, $hold),
             'promoValue' => $promoValue,
             'error' => $error,
-        ], $status);
+            ...$this->partyState($token, $booking, 'checkout', $partyError, $partyOld),
+        ]);
+    }
+
+    /**
+     * @param  array<mixed>  $taxLines
+     * @param  array<mixed>  $addOnLines
+     * @param  array{name?: string, is_minor?: bool, guardian_name?: string}  $partyOld
+     */
+    private function confirmationView(
+        string $token,
+        Booking $booking,
+        array $taxLines,
+        string $currency,
+        int $serviceCents = 0,
+        array $addOnLines = [],
+        ?string $partyError = null,
+        array $partyOld = [],
+    ): View {
+        $booking->load(['service', 'namedParticipants']);
+
+        return view('widget.confirmation', [
+            'booking' => $booking,
+            'checkInQr' => $this->checkInPass->svg($booking),
+            'checkInUrl' => $this->checkInPass->url($booking),
+            'waiverUrl' => in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($booking) : null,
+            'taxLines' => $taxLines,
+            'currency' => $currency,
+            'serviceCents' => $serviceCents,
+            'addOnLines' => $addOnLines,
+            ...$this->partyState($token, $booking, 'confirmation', $partyError, $partyOld),
+        ]);
+    }
+
+    private function saveParticipant(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $return = $this->partyReturn($request);
+        $validator = Validator::make($request->all(), [
+            'name' => ['nullable', 'string', 'max:120'],
+            'is_minor' => ['sometimes', 'boolean'],
+            'guardian_name' => ['nullable', 'string', 'max:120'],
+            'idempotency_key' => ['nullable', 'string', 'max:80'],
+            'return' => ['nullable', 'in:checkout,confirmation'],
+        ]);
+
+        if ($validator->fails()) {
+            return $this->partyFailure($request, $token, $booking, $return, (string) $validator->errors()->first(), 422);
+        }
+
+        try {
+            $this->party->add(
+                $booking,
+                (string) $request->input('name'),
+                $request->boolean('is_minor'),
+                $request->input('guardian_name'),
+                $request->input('idempotency_key'),
+                $request,
+            );
+        } catch (ValidationException $exception) {
+            return $this->partyFailure($request, $token, $booking, $return, $this->firstError($exception), 422);
+        } catch (AllocationUnavailableException|IdempotencyConflictException $exception) {
+            return $this->partyFailure($request, $token, $booking, $return, $exception->getMessage(), 409);
+        }
+
+        return redirect()->to($this->partyReturnUrl($token, $booking->fresh() ?? $booking, $return));
+    }
+
+    /**
+     * @param  array{name?: string, is_minor?: bool, guardian_name?: string}  $partyOld
+     * @return array{partyAddUrl: string, partyReturn: string, partyError: ?string, partyOld: array{name: string, is_minor: bool, guardian_name: string}, partyRemoveUrls: array<string, string>}
+     */
+    private function partyState(string $token, Booking $booking, string $return, ?string $partyError, array $partyOld): array
+    {
+        $booking->loadMissing('namedParticipants');
+        $expires = $this->partyLinkExpiry($booking, $return);
+        $removeUrls = [];
+
+        foreach ($booking->namedParticipants as $person) {
+            $removeUrls[$person->id] = URL::temporarySignedRoute('widget.party.remove', $expires, [
+                'token' => $token,
+                'booking' => $booking->id,
+                'participant' => $person->id,
+            ]);
+        }
+
+        return [
+            'partyAddUrl' => URL::temporarySignedRoute('widget.party.store', $expires, [
+                'token' => $token,
+                'booking' => $booking->id,
+            ]),
+            'partyReturn' => $return,
+            'partyError' => $partyError,
+            'partyOld' => [
+                'name' => is_string($partyOld['name'] ?? null) ? $partyOld['name'] : '',
+                'is_minor' => (bool) ($partyOld['is_minor'] ?? false),
+                'guardian_name' => is_string($partyOld['guardian_name'] ?? null) ? $partyOld['guardian_name'] : '',
+            ],
+            'partyRemoveUrls' => $removeUrls,
+        ];
+    }
+
+    private function partyReturn(Request $request): string
+    {
+        return $request->input('return') === 'confirmation' ? 'confirmation' : 'checkout';
+    }
+
+    private function partyLinkExpiry(Booking $booking, string $return): CarbonImmutable
+    {
+        if ($return === 'confirmation') {
+            $afterVisit = CarbonImmutable::instance($booking->ends_at)->addDays(7);
+            $minimum = CarbonImmutable::now()->addDay();
+
+            return $afterVisit->greaterThan($minimum) ? $afterVisit : $minimum;
+        }
+
+        $hold = $this->openHold($booking);
+
+        if ($hold instanceof Hold) {
+            return CarbonImmutable::instance($hold->expires_at);
+        }
+
+        return CarbonImmutable::now()->addMinutes(15);
+    }
+
+    private function partyReturnUrl(string $token, Booking $booking, string $return): string
+    {
+        if ($return === 'confirmation' || $this->alreadyBooked($booking)) {
+            return $this->confirmationUrl($token, $booking);
+        }
+
+        return URL::temporarySignedRoute('widget.checkout', $this->partyLinkExpiry($booking, 'checkout'), [
+            'token' => $token,
+            'booking' => $booking->id,
+        ]);
+    }
+
+    private function partyFailure(Request $request, string $token, Booking $booking, string $return, string $error, int $status): Response
+    {
+        $fresh = $booking->fresh() ?? $booking;
+        $old = [
+            'name' => is_string($request->input('name')) ? $request->input('name') : '',
+            'is_minor' => $request->boolean('is_minor'),
+            'guardian_name' => is_string($request->input('guardian_name')) ? $request->input('guardian_name') : '',
+        ];
+
+        if ($return === 'confirmation' || $this->alreadyBooked($fresh)) {
+            $snapshot = PricingSnapshot::query()->where('booking_id', $fresh->id)->first();
+            $payload = $snapshot instanceof PricingSnapshot ? $snapshot->payload : [];
+            $taxLines = is_array($payload['tax_lines'] ?? null) ? $payload['tax_lines'] : [];
+
+            return response($this->confirmationView(
+                $token,
+                $fresh,
+                $taxLines,
+                $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
+                is_numeric($payload['services_cents'] ?? null) ? (int) $payload['services_cents'] : 0,
+                is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
+                $error,
+                $old,
+            ), $status);
+        }
+
+        $snapshot = $this->snapshot($fresh);
+        $hold = $this->openHold($fresh);
+        $pickup = $this->pickupOffer($this->tenant($request), $token, $fresh, $snapshot, $hold);
+
+        return $this->checkoutResponse(
+            $token,
+            $fresh,
+            $snapshot,
+            $hold,
+            $hold instanceof Hold ? URL::temporarySignedRoute('widget.pay', CarbonImmutable::instance($hold->expires_at), [
+                'token' => $token,
+                'booking' => $fresh->id,
+            ]) : null,
+            $pickup['url'],
+            $pickup['label'],
+            null,
+            $status,
+            $this->promoValue($snapshot),
+            $error,
+            $old,
+        );
+    }
+
+    private function firstError(ValidationException $exception): string
+    {
+        foreach ($exception->errors() as $messages) {
+            foreach ($messages as $message) {
+                if (is_string($message) && $message !== '') {
+                    return $message;
+                }
+            }
+        }
+
+        return 'Check the name and try again.';
     }
 
     private function promoUrl(string $token, Booking $booking, ?Hold $hold): ?string
