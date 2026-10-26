@@ -44,8 +44,11 @@ class PricingController extends Controller
             'local_end' => ['nullable', 'regex:/^(?:[01]\d|2[0-3]):[0-5]\d$/'],
             'weekdays' => ['nullable', 'array', 'min:1', 'max:7'],
             'weekdays.*' => ['integer', 'between:0,6', 'distinct'],
+            'min_participants' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'max_participants' => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
         $window = $this->clockWindow($validated);
+        $party = $this->partyBand($validated, $window);
 
         $rule = PriceRule::query()->create([
             'tenant_id' => $tenant->id,
@@ -60,6 +63,8 @@ class PricingController extends Controller
             'local_start_minute' => $window['local_start_minute'],
             'local_end_minute' => $window['local_end_minute'],
             'weekdays' => $window['weekdays'],
+            'min_participants' => $party['min_participants'],
+            'max_participants' => $party['max_participants'],
         ]);
 
         $this->audit->log('price_rule.created', $rule, [
@@ -67,6 +72,8 @@ class PricingController extends Controller
             'local_start' => $window['local_start'],
             'local_end' => $window['local_end'],
             'weekdays' => $window['weekdays'],
+            'min_participants' => $party['min_participants'],
+            'max_participants' => $party['max_participants'],
         ], request: $request);
 
         return response()->json(['data' => [
@@ -77,6 +84,8 @@ class PricingController extends Controller
             'local_start' => $window['local_start'],
             'local_end' => $window['local_end'],
             'weekdays' => $window['weekdays'],
+            'min_participants' => $rule->min_participants,
+            'max_participants' => $rule->max_participants,
         ]], 201);
     }
 
@@ -214,6 +223,42 @@ class PricingController extends Controller
             'local_start_minute' => $localStart === null ? null : PriceRuleInput::parseMinute($localStart),
             'local_end_minute' => $localEnd === null ? null : PriceRuleInput::parseMinute($localEnd),
             'weekdays' => $days,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @param  array{local_start: string|null, local_end: string|null, local_start_minute: int|null, local_end_minute: int|null, weekdays: list<int>|null}  $window
+     * @return array{min_participants: int|null, max_participants: int|null}
+     */
+    private function partyBand(array $validated, array $window): array
+    {
+        $min = $validated['min_participants'] ?? null;
+        $max = $validated['max_participants'] ?? null;
+        $min = is_numeric($min) ? (int) $min : null;
+        $max = is_numeric($max) ? (int) $max : null;
+
+        if ($max !== null && $min === null) {
+            throw ValidationException::withMessages([
+                'min_participants' => 'A party size needs a minimum.',
+            ]);
+        }
+
+        if ($min !== null && $window['local_start'] !== null) {
+            throw ValidationException::withMessages([
+                'min_participants' => 'A party size price cannot also name a clock window.',
+            ]);
+        }
+
+        if ($max !== null && $max < $min) {
+            throw ValidationException::withMessages([
+                'max_participants' => 'A party size maximum must be at least the minimum.',
+            ]);
+        }
+
+        return [
+            'min_participants' => $min,
+            'max_participants' => $max,
         ];
     }
 

@@ -14,6 +14,7 @@ final readonly class PriceDecrease
      * @param  list<array<string, mixed>>  $timeWindows
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null, quantity: int, total_cents: int}>  $operatorFeeLines
      * @param  list<array<string, mixed>>|null  $taxLines  Full lines after the decrease. Null leaves the stored lines alone.
+     * @param  list<array<string, mixed>>  $partyBands
      */
     public function __construct(
         public int $servicesCents,
@@ -25,5 +26,6 @@ final readonly class PriceDecrease
         public int $operatorFeesCents = 0,
         public array $operatorFeeLines = [],
         public ?array $taxLines = null,
+        public array $partyBands = [],
     ) {}
 }
