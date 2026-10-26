@@ -2,9 +2,11 @@
 
 namespace Tests\Feature\Web;
 
+use App\Enums\MaintenanceKind;
 use App\Livewire\Staff\Maintenance;
 use App\Models\Allocation;
 use App\Models\Asset;
+use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\InspectionSchedule;
 use App\Models\Location;
@@ -12,14 +14,20 @@ use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Membership;
 use App\Models\MembershipLocation;
+use App\Models\Payment;
 use App\Models\Permission;
+use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\Pool;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Operations\MaintenancePlanner;
 use App\Services\Widget\WidgetTokens;
 use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
@@ -270,6 +278,169 @@ class StaffMaintenanceTest extends TestCase
         $this->assertSame(0, MaintenanceRecord::query()->count());
     }
 
+    public function test_ending_a_window_early_frees_later_bookings_and_keeps_one_that_still_overlaps(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        app(TenantManager::class)->set($alpha['tenant']);
+        $shop = $this->rentalShop($alpha['tenant']);
+        $shop['pool']->update(['prep_buffer_minutes' => 60]);
+        $allocator = app(Allocator::class);
+        $planner = app(MaintenancePlanner::class);
+        $soon = $allocator->confirm($allocator->hold($this->intent($alpha['tenant']->id, $shop['service']->id, CarbonImmutable::parse('2026-07-01 15:30:00', 'UTC'), 'soon', 'Soon Guest')));
+        $tail = $allocator->confirm($allocator->hold($this->intent($alpha['tenant']->id, $shop['service']->id, CarbonImmutable::parse('2026-07-02 15:00:00', 'UTC'), 'tail', 'Tail Guest')));
+        $kept = $allocator->confirm($allocator->hold($this->intent($alpha['tenant']->id, $shop['service']->id, CarbonImmutable::parse('2026-07-04 15:00:00', 'UTC'), 'kept', 'Kept Guest')));
+        $money = $this->moneyState();
+        $window = $planner->schedule(
+            $shop['pool']->fresh(),
+            MaintenanceKind::Maintenance,
+            CarbonImmutable::parse('2026-07-01 14:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-07-04 18:00:00', 'UTC'),
+            'Hull repair',
+        )['window'];
+        $planner->schedule(
+            $shop['pool']->fresh(),
+            MaintenanceKind::Maintenance,
+            CarbonImmutable::parse('2026-07-04 14:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-07-04 18:00:00', 'UTC'),
+            'Hull repair',
+        );
+
+        $this->assertSame('Hull repair', $soon->fresh()->attention_reason);
+        $this->assertSame('Hull repair', $tail->fresh()->attention_reason);
+        $this->assertSame('Hull repair', $kept->fresh()->attention_reason);
+
+        $this->actingAsWorkspace($alpha);
+        $inside = ['starts_at' => '2026-07-02T15:00:00Z', 'ends_at' => '2026-07-02T16:00:00Z'];
+        $this->assertFalse($this->available($shop['service']->id, $inside));
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+        Livewire::test(Maintenance::class)
+            ->assertSee('End now')
+            ->call('endWindow', $window->id)
+            ->assertHasNoErrors()
+            ->assertSee('1 future booking is no longer flagged for this, and nothing was cancelled or moved.')
+            ->assertSee('Ended Wed, Jul 1, 11:00 AM');
+
+        $soon->refresh();
+        $tail->refresh();
+        $kept->refresh();
+        $window->refresh();
+        $this->assertSame('confirmed', $soon->status->value);
+        $this->assertSame('Hull repair', $soon->attention_reason);
+        $this->assertSame('confirmed', $tail->status->value);
+        $this->assertNull($tail->attention_reason);
+        $this->assertSame('confirmed', $kept->status->value);
+        $this->assertSame('Hull repair', $kept->attention_reason);
+        $this->assertSame('2026-07-01 15:00:00', $window->ended_at?->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-04 18:00:00', $window->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertTrue(AuditLog::query()->where('action', 'maintenance.ended')->where('subject_id', $window->id)->exists());
+        $this->assertSame($money, $this->moneyState());
+
+        try {
+            $allocator->hold($this->intent($alpha['tenant']->id, $shop['service']->id, CarbonImmutable::parse('2026-07-01 15:30:00', 'UTC'), 'still-blocked'));
+            $this->fail('A hold was placed on the part of the window that already started.');
+        } catch (AllocationUnavailableException $exception) {
+            $this->assertSame('That resource is out of service for maintenance at that time.', $exception->getMessage());
+        }
+
+        $freed = $allocator->hold($this->intent($alpha['tenant']->id, $shop['service']->id, CarbonImmutable::parse('2026-07-03 17:00:00', 'UTC'), 'freed'));
+        $this->assertSame('held', $freed->status->value);
+
+        $this->actingAsWorkspace($alpha);
+        $this->assertTrue($this->available($shop['service']->id, $inside));
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+        Livewire::test(Maintenance::class)
+            ->call('endWindow', $window->id)
+            ->assertSee('That window has already ended.');
+        $this->assertSame('2026-07-01 15:00:00', $window->fresh()->ended_at?->utc()->format('Y-m-d H:i:s'));
+
+        $block = $planner->schedule(
+            $shop['pool']->fresh(),
+            MaintenanceKind::Block,
+            CarbonImmutable::parse('2026-07-20 14:00:00', 'UTC'),
+            CarbonImmutable::parse('2026-07-20 18:00:00', 'UTC'),
+            'Private event',
+        )['window'];
+        app(TenantManager::class)->forget();
+        $this->actingAsWorkspace($alpha);
+        $this->postJson($this->tenantUrl('alpha.test', '/api/v1/maintenance-windows/'.$block->id.'/end'))
+            ->assertOk()
+            ->assertJsonPath('data.cleared_bookings', 0)
+            ->assertJsonPath('data.id', $block->id);
+        $this->postJson($this->tenantUrl('alpha.test', '/api/v1/maintenance-windows/'.$block->id.'/end'))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('window');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-07-01 15:00:00', $block->fresh()->ended_at?->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(2, AuditLog::query()->where('action', 'maintenance.ended')->count());
+        $this->assertSame($money, $this->moneyState());
+    }
+
+    public function test_ending_is_refused_for_another_workspace_a_limited_member_and_view_only_staff(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        app(TenantManager::class)->set($alpha['tenant']);
+        $north = $this->rentalShop($alpha['tenant']);
+        $south = Location::factory()->create(['tenant_id' => $alpha['tenant']->id, 'name' => 'South dock', 'timezone' => 'America/New_York']);
+        $southPool = Pool::factory()->create(['tenant_id' => $alpha['tenant']->id, 'location_id' => $south->id, 'name' => 'South kayaks']);
+        $live = MaintenanceWindow::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'pool_id' => $north['pool']->id,
+            'starts_at' => '2026-07-01 14:00:00',
+            'ends_at' => '2026-07-01 18:00:00',
+            'reason' => 'North oil change',
+        ]);
+        $southWindow = MaintenanceWindow::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'pool_id' => $southPool->id,
+            'starts_at' => '2026-07-10 14:00:00',
+            'ends_at' => '2026-07-10 16:00:00',
+            'reason' => 'South secret repair',
+        ]);
+        $past = MaintenanceWindow::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'pool_id' => $north['pool']->id,
+            'starts_at' => '2026-07-01 12:00:00',
+            'ends_at' => '2026-07-01 14:00:00',
+            'reason' => 'Already finished',
+        ]);
+        app(TenantManager::class)->forget();
+
+        $beta = $this->workspace('beta.test');
+        app(TenantManager::class)->set($beta['tenant']);
+        $this->actingAs($beta['user']);
+        Livewire::test(Maintenance::class)->call('endWindow', $live->id)->assertNotFound();
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertNull($live->fresh()->ended_at);
+
+        $manager = $this->member($alpha['tenant'], 'manager');
+        $this->limit($manager['membership'], $north['location']->id);
+        $this->actingAs($manager['user']);
+        Livewire::test(Maintenance::class)->call('endWindow', $southWindow->id)->assertNotFound();
+        $this->assertNull($southWindow->fresh()->ended_at);
+
+        $staff = $this->member($alpha['tenant'], 'staff');
+        $this->actingAs($staff['user']);
+        app(StaffLocationAccess::class)->forget();
+        Livewire::test(Maintenance::class)
+            ->assertDontSee('End now')
+            ->call('endWindow', $live->id)
+            ->assertForbidden();
+        $this->assertNull($live->fresh()->ended_at);
+
+        $this->actingAs($alpha['user']);
+        app(StaffLocationAccess::class)->forget();
+        Livewire::test(Maintenance::class)
+            ->call('endWindow', $past->id)
+            ->assertSee('That window has already ended.');
+        $this->assertNull($past->fresh()->ended_at);
+    }
+
     /**
      * @param  array{tenant: Tenant, user: User}  $workspace
      */
@@ -317,6 +488,20 @@ class StaffMaintenanceTest extends TestCase
         ]);
 
         return compact('user', 'membership');
+    }
+
+    /**
+     * @return array{snapshots: list<array<string, mixed>>, payments: int, refunds: int, fees: int, fee_refunds: int}
+     */
+    private function moneyState(): array
+    {
+        return [
+            'snapshots' => PricingSnapshot::query()->orderBy('id')->get()->map(fn (PricingSnapshot $row): array => $row->payload ?? [])->all(),
+            'payments' => Payment::query()->count(),
+            'refunds' => Refund::query()->count(),
+            'fees' => PlatformFee::query()->count(),
+            'fee_refunds' => PlatformFeeRefund::query()->count(),
+        ];
     }
 
     private function limit(Membership $membership, string ...$locationIds): void

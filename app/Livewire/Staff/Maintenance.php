@@ -10,6 +10,7 @@ use App\Models\Location;
 use App\Models\MaintenanceWindow;
 use App\Models\Pool;
 use App\Services\Operations\MaintenancePlanner;
+use App\Services\Operations\MaintenanceWindowAlreadyEndedException;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -136,6 +137,40 @@ class Maintenance extends Component
                 : ' '.$count.' future '.($count === 1 ? 'booking is' : 'bookings are').' flagged for follow-up. Nothing was cancelled or moved.');
     }
 
+    public function endWindow(string $windowId, MaintenancePlanner $planner): void
+    {
+        $this->authorize('create', Asset::class);
+        $this->reset('flash');
+        $this->resetErrorBag();
+        $window = MaintenanceWindow::query()->with(['asset.location', 'pool.location'])->find($windowId);
+        abort_unless($window instanceof MaintenanceWindow, 404);
+        $resource = $this->scopedResource($window);
+        $this->authorize('update', $resource);
+
+        try {
+            $ended = $planner->end($window);
+        } catch (MaintenanceWindowAlreadyEndedException $exception) {
+            $this->addError('window', $exception->getMessage());
+
+            return;
+        }
+
+        $saved = $ended['window'];
+        $this->audit('maintenance.ended', $saved, [
+            'kind' => $saved->kind->value,
+            'asset_id' => $saved->asset_id,
+            'pool_id' => $saved->pool_id,
+            'ends_at' => $saved->ends_at->toIso8601String(),
+            'ended_at' => $saved->ended_at?->toIso8601String(),
+            'cleared_bookings' => $ended['cleared'],
+        ]);
+        $count = $ended['cleared'];
+        $this->flash = 'Ended. It can be booked again after now. '
+            .($count === 0
+                ? 'Bookings stay where they are.'
+                : $count.' future '.($count === 1 ? 'booking is' : 'bookings are').' no longer flagged for this, and nothing was cancelled or moved.');
+    }
+
     public function addInspection(): void
     {
         $this->authorize('create', Asset::class);
@@ -230,10 +265,13 @@ class Maintenance extends Component
         }
 
         $windows = $this->windows($assets->pluck('id')->all(), $pools->pluck('id')->all());
-        $now = CarbonImmutable::now();
-        $inProgress = $windows->filter(fn (MaintenanceWindow $w): bool => $w->starts_at->lessThanOrEqualTo($now) && $w->ends_at->greaterThan($now))->values();
-        $upcoming = $windows->filter(fn (MaintenanceWindow $w): bool => $w->starts_at->greaterThan($now))->values();
-        $past = $windows->filter(fn (MaintenanceWindow $w): bool => $w->ends_at->lessThanOrEqualTo($now))->sortByDesc('ends_at')->take(20)->values();
+        $now = CarbonImmutable::now()->utc();
+        $inProgress = $windows->filter(fn (MaintenanceWindow $w): bool => CarbonImmutable::instance($w->starts_at)->utc()->lessThanOrEqualTo($now) && $w->blocksUntil()->greaterThan($now))->values();
+        $upcoming = $windows->filter(fn (MaintenanceWindow $w): bool => CarbonImmutable::instance($w->starts_at)->utc()->greaterThan($now) && $w->blocksUntil()->greaterThan($now))->values();
+        $past = $windows->filter(fn (MaintenanceWindow $w): bool => $w->blocksUntil()->lessThanOrEqualTo($now))
+            ->sortByDesc(fn (MaintenanceWindow $w): int => $w->blocksUntil()->getTimestamp())
+            ->take(20)
+            ->values();
 
         $affected = [];
 
@@ -335,6 +373,29 @@ class Maintenance extends Component
      * Resolves a boat or pool through the tenant and location scopes, so one
      * in another workspace or at a location this member cannot use is a 404.
      */
+    /**
+     * The boat or pool through the location scope, so a member limited to
+     * other locations cannot end a window they cannot see.
+     */
+    private function scopedResource(MaintenanceWindow $window): Asset|Pool
+    {
+        if ($window->asset_id !== null) {
+            $asset = Asset::query()->with('location')->find($window->asset_id);
+            abort_unless($asset instanceof Asset, 404);
+
+            return $asset;
+        }
+
+        if ($window->pool_id !== null) {
+            $pool = Pool::query()->with('location')->find($window->pool_id);
+            abort_unless($pool instanceof Pool, 404);
+
+            return $pool;
+        }
+
+        abort(404);
+    }
+
     private function resourceFromKey(string $key): Asset|Pool
     {
         [$type, $id] = array_pad(explode(':', $key, 2), 2, '');

@@ -210,6 +210,7 @@ Route::prefix('v1')->group(function (): void {
             Route::delete('/bookings/{booking}/participants/{participant}', [ParticipantController::class, 'destroy']);
             Route::get('/maintenance-windows', [OperationsController::class, 'indexMaintenance']);
             Route::post('/maintenance-windows', [OperationsController::class, 'storeMaintenance']);
+            Route::post('/maintenance-windows/{maintenance_window}/end', [OperationsController::class, 'endMaintenance']);
             Route::get('/assets/{asset}/maintenance-records', [OperationsController::class, 'indexMaintenanceRecords']);
             Route::post('/assets/{asset}/maintenance-records', [OperationsController::class, 'storeMaintenanceRecord']);
             Route::get('/notification-hooks', [NotificationHookController::class, 'index']);
