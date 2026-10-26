@@ -51,6 +51,10 @@ class Resources extends Component
 
     public int $turnaround = 0;
 
+    public int $prepMinutes = 0;
+
+    public int $returnMinutes = 0;
+
     public string $fleetName = '';
 
     public int $fleetQuantity = 1;
@@ -74,6 +78,8 @@ class Resources extends Component
             'locationId' => ['required', 'string', $owned],
             'name' => ['required', 'string', 'max:120'],
             'turnaround' => ['integer', 'between:0,1440'],
+            'prepMinutes' => ['integer', 'between:0,1440'],
+            'returnMinutes' => ['integer', 'between:0,1440'],
         ];
 
         if ($this->kind === 'asset') {
@@ -89,6 +95,8 @@ class Resources extends Component
                 'status' => ResourceStatus::Active,
                 'capacity' => $this->capacity,
                 'is_guide' => $this->isGuide,
+                'prep_buffer_minutes' => $this->prepMinutes,
+                'return_buffer_minutes' => $this->returnMinutes,
                 'turnaround_minutes' => $this->turnaround,
             ]);
             $this->audit('asset.created', $resource);
@@ -101,12 +109,14 @@ class Resources extends Component
                 'name' => $this->name,
                 'quantity' => $this->quantity,
                 'status' => ResourceStatus::Active,
+                'prep_buffer_minutes' => $this->prepMinutes,
+                'return_buffer_minutes' => $this->returnMinutes,
                 'turnaround_minutes' => $this->turnaround,
             ]);
             $this->audit('pool.created', $resource);
         }
 
-        $this->reset('name', 'quantity', 'capacity', 'isGuide', 'turnaround');
+        $this->reset('name', 'quantity', 'capacity', 'isGuide', 'turnaround', 'prepMinutes', 'returnMinutes');
         $this->flash = 'Added. Link it to a service under Services & prices so it can be booked.';
     }
 
@@ -201,6 +211,40 @@ class Resources extends Component
         $pool->save();
         $this->audit('pool.updated', $pool, ['quantity' => $quantity]);
         $this->flash = 'Count updated.';
+    }
+
+    /**
+     * Prep and return minutes are the buffers in spec Section 4.2. Turnaround
+     * is the gap after the return buffer. The allocator already reads them.
+     */
+    public function setBuffer(string $type, string $id, string $field, mixed $minutes): void
+    {
+        $column = match ($field) {
+            'prep' => 'prep_buffer_minutes',
+            'return' => 'return_buffer_minutes',
+            'turnaround' => 'turnaround_minutes',
+            default => null,
+        };
+        abort_if($column === null, 422);
+
+        $resource = $this->resource($type, $id);
+        $this->authorize('update', $resource);
+        $value = $this->wholeMinutes($minutes);
+
+        if ($value === null) {
+            $this->addError($type.'-'.$id.'-'.$field, 'Enter whole minutes from 0 to 1,440.');
+
+            return;
+        }
+
+        if ((int) $resource->getAttribute($column) === $value) {
+            return;
+        }
+
+        $resource->setAttribute($column, $value);
+        $resource->save();
+        $this->audit($type.'.updated', $resource, [$column => $value]);
+        $this->flash = 'Time around bookings updated.';
     }
 
     public function deleteResource(string $type, string $id, StaffUndo $undo): void
@@ -418,5 +462,20 @@ class Resources extends Component
         abort_unless($resource instanceof Asset || $resource instanceof Pool, 404);
 
         return $resource;
+    }
+
+    private function wholeMinutes(mixed $minutes): ?int
+    {
+        if (is_int($minutes)) {
+            return $minutes >= 0 && $minutes <= 1440 ? $minutes : null;
+        }
+
+        if (! is_string($minutes) || preg_match('/^\d{1,4}$/', $minutes) !== 1) {
+            return null;
+        }
+
+        $value = (int) $minutes;
+
+        return $value <= 1440 ? $value : null;
     }
 }
