@@ -15,6 +15,7 @@ use App\Models\RentalCheckout;
 use App\Models\Service;
 use App\Models\TenantSetting;
 use App\Models\User;
+use App\Services\Booking\BookingListFilters;
 use App\Services\Onboarding\OnboardingChecklist;
 use App\Services\Onboarding\OnboardingProgress;
 use App\Services\Scheduling\TourMinimum;
@@ -114,6 +115,7 @@ class Dashboard extends Component
             'overdueCount' => (clone $overdue)->count(),
             'overdueRentals' => $overdueRentals,
             'overdueAsOf' => CarbonImmutable::now('UTC'),
+            'attentionCount' => BookingListFilters::needsAttention(Booking::query())->count(),
             'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
             'upcomingCount' => Booking::query()
                 ->where('starts_at', '>', $end)

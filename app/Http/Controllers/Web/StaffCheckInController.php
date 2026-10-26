@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Web\Concerns\RendersStaffPage;
+use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\Pool;
 use App\Services\CheckIn\ArrivalCheckIn;
 use App\Services\CheckIn\CheckInArrival;
 use Illuminate\Http\RedirectResponse;
@@ -55,8 +57,19 @@ class StaffCheckInController extends Controller
 
     private function page(CheckInArrival $arrival): View
     {
+        $booking = $arrival->booking->loadMissing(['service', 'location', 'customer', 'allocations']);
+        $assetIds = $booking->allocations->pluck('asset_id')->filter()->unique()->values();
+        $poolRows = $booking->allocations->whereNotNull('pool_id');
+        $pools = Pool::query()->whereIn('id', $poolRows->pluck('pool_id')->unique())->pluck('name', 'id');
+        $resources = Asset::query()->whereIn('id', $assetIds)->orderBy('name')->pluck('name')
+            ->concat($poolRows->map(fn ($row): string => ($pools[$row->pool_id] ?? 'Pool').' × '.$row->quantity))
+            ->values();
+
         return $this->staffPage('Check in', 'staff.check-in-arrive', [
             'arrival' => $arrival,
+            'zone' => $booking->location?->timezone ?: 'UTC',
+            'customerName' => $booking->customer?->name ?: 'Walk-in',
+            'resources' => $resources,
         ]);
     }
 }

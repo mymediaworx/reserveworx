@@ -18,6 +18,26 @@ use Illuminate\Database\Eloquent\Builder;
  */
 final class BookingListFilters
 {
+    /**
+     * Not a booking status: flagged by maintenance, damage, or a status change,
+     * or paid after the slot was lost.
+     */
+    public const NEEDS_ATTENTION = 'attention';
+
+    /**
+     * @param  Builder<Booking>  $query
+     * @return Builder<Booking>
+     */
+    public static function needsAttention(Builder $query): Builder
+    {
+        return $query->where(function (Builder $inner): void {
+            $inner->where(function (Builder $flagged): void {
+                $flagged->whereNotNull('attention_reason')
+                    ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value]);
+            })->orWhere('status', BookingStatus::PaymentException->value);
+        });
+    }
+
     public function __construct(
         public readonly string $status,
         public readonly string $from,
@@ -90,7 +110,7 @@ final class BookingListFilters
             : '';
 
         return [
-            'status' => in_array($this->status, $statuses, true) ? $this->status : '',
+            'status' => in_array($this->status, [...$statuses, self::NEEDS_ATTENTION], true) ? $this->status : '',
             'from' => $this->blocked ? '' : $this->from,
             'to' => $this->blocked ? '' : $this->to,
             'location' => $location,
@@ -114,6 +134,8 @@ final class BookingListFilters
 
         if (in_array($this->status, $statuses, true)) {
             $query->where('status', $this->status);
+        } elseif ($this->status === self::NEEDS_ATTENTION) {
+            self::needsAttention($query);
         }
 
         if ($this->locationId !== '') {

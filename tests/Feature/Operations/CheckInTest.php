@@ -61,7 +61,11 @@ class CheckInTest extends TestCase
         $this->actingAs($alpha['user'])
             ->get($url)
             ->assertOk()
-            ->assertSee('Checked in.');
+            ->assertSee('Checked in.')
+            ->assertSee('Ada North')
+            ->assertSee('1 person')
+            ->assertSee('North dock')
+            ->assertSee('href="/staff/bookings/'.$booking->id.'"', false);
 
         $this->useTenant($alpha['tenant']);
         $checked = Booking::query()->findOrFail($booking->id);

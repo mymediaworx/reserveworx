@@ -115,6 +115,25 @@ class BookingShow extends Component
         }
     }
 
+    /**
+     * Clears the follow-up flag that maintenance, damage, or a status change
+     * set. The reason that was cleared is kept in the audit log.
+     */
+    public function clearAttention(): void
+    {
+        $booking = $this->editable();
+        $reason = $booking->attention_reason;
+
+        if ($reason === null || $reason === '') {
+            return;
+        }
+
+        $booking->attention_reason = null;
+        $booking->save();
+        $this->audit('booking.attention_cleared', $booking, ['reason' => $reason]);
+        $this->notice('Marked handled.');
+    }
+
     public function confirm(Allocator $allocator): void
     {
         $booking = $this->editable();
