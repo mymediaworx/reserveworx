@@ -19,6 +19,7 @@ use App\Services\Booking\TourDepartureChoices;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Payments\CheckoutService;
 use App\Services\Schedule\ResourceSchedule;
+use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -385,9 +386,8 @@ class Schedule extends Component
     private function zoneFor(Booking $booking): string
     {
         $booking->loadMissing('location');
-        $zone = $booking->location?->timezone;
 
-        return is_string($zone) && $zone !== '' ? $zone : $this->defaultTimezone();
+        return DisplayZone::forLocation($booking->location);
     }
 
     private function allocatedAssetId(Booking $booking): ?string
@@ -533,10 +533,10 @@ class Schedule extends Component
     private function activeTimezone(): string
     {
         if ($this->location !== '') {
-            $zone = Location::query()->whereKey($this->location)->value('timezone');
+            $selected = Location::query()->find($this->location);
 
-            if (is_string($zone) && $zone !== '') {
-                return $zone;
+            if ($selected instanceof Location) {
+                return DisplayZone::forLocation($selected);
             }
         }
 

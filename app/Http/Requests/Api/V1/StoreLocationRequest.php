@@ -24,7 +24,7 @@ class StoreLocationRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:120'],
-            'timezone' => ['required', 'string', Rule::in(timezone_identifiers_list())],
+            'timezone' => ['sometimes', 'nullable', 'string', Rule::in(timezone_identifiers_list())],
             'status' => ['sometimes', Rule::enum(LocationStatus::class)],
         ];
     }

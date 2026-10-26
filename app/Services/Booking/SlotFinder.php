@@ -12,6 +12,7 @@ use App\Models\Service;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\Allocator;
 use App\Services\Inventory\OpeningHours;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -55,7 +56,7 @@ final class SlotFinder
         }
 
         $service->loadMissing('requirements');
-        $zone = $location->timezone;
+        $zone = DisplayZone::forLocation($location);
         $day = $this->parseDate($date, $zone);
 
         if ($day === null) {
@@ -110,7 +111,7 @@ final class SlotFinder
      */
     public function departures(Service $service, string $date, ?CarbonImmutable $notBefore = null): Collection
     {
-        $zone = $service->location !== null ? $service->location->timezone : 'UTC';
+        $zone = DisplayZone::forLocation($service->location);
         $day = $this->parseDate($date, $zone);
 
         if ($day === null) {

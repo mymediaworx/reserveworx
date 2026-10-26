@@ -18,6 +18,7 @@ use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Integrations\GhlSyncLogger;
 use App\Services\Integrations\GoHighLevelClient;
 use App\Support\BookingReference;
+use App\Support\DisplayZone;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Bus\Queueable;
@@ -315,9 +316,9 @@ class SyncBookingToGoHighLevel implements ShouldQueue
 
     private function note(Booking $booking, Customer $customer, ?Service $service, ?Location $location, ?string $paymentId): string
     {
-        $timezone = $location instanceof Location && $location->timezone !== ''
-            ? $location->timezone
-            : 'UTC';
+        $timezone = $location instanceof Location && $location->tenant_id === $booking->tenant_id
+            ? DisplayZone::forLocation($location)
+            : DisplayZone::forTenantId($booking->tenant_id);
         $start = $booking->starts_at->copy()->timezone($timezone)->toDateTimeString();
         $serviceName = $service instanceof Service ? $service->name : '';
         $marker = 'reserveworx:'.$this->kind.':'.$booking->id.':'.($paymentId ?? '');

@@ -18,6 +18,7 @@ use App\Services\Booking\GuideRoster;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
 use App\Services\Pricing\BookingPricer;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
@@ -300,7 +301,7 @@ class NewBooking extends Component
             'service' => $service,
             'times' => $times,
             'departures' => $departures,
-            'zone' => $service->location->timezone ?? $this->defaultTimezone(),
+            'zone' => $service instanceof Service ? DisplayZone::forLocation($service->location) : $this->defaultTimezone(),
             'guides' => app(GuideRoster::class)->active(),
             'accounts' => CorporateAccount::query()->where('active', true)->orderBy('name')->get(),
             'quote' => $service instanceof Service ? $this->liveQuote($service) : null,
@@ -372,7 +373,7 @@ class NewBooking extends Component
                 $this->tenant(),
                 $service->id,
                 $service->location_id,
-                $service->location->timezone ?? 'UTC',
+                DisplayZone::forLocation($service->location),
                 null,
                 $start,
                 $end,

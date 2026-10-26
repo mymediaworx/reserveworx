@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Location;
 use App\Models\WaitlistEntry;
 use App\Services\AuditLogger;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
@@ -43,11 +44,7 @@ class WaitlistLeaveController extends Controller
 
     private function when(WaitlistEntry $entry): string
     {
-        $zone = $entry->service?->location instanceof Location ? $entry->service->location->timezone : 'UTC';
-
-        if (! in_array($zone, timezone_identifiers_list(), true)) {
-            $zone = 'UTC';
-        }
+        $zone = DisplayZone::forLocation($entry->service?->location instanceof Location ? $entry->service->location : null);
 
         return CarbonImmutable::instance($entry->starts_at)->timezone($zone)->format('D, M j, g:i A');
     }

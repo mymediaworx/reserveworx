@@ -5,6 +5,7 @@ namespace App\Livewire\Staff\Concerns;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Location;
+use App\Support\DisplayZone;
 use Illuminate\Support\Collection;
 
 trait LoadsBookingRows
@@ -33,6 +34,7 @@ trait LoadsBookingRows
      */
     protected function zones(): Collection
     {
-        return Location::query()->pluck('timezone', 'id');
+        return Location::query()->pluck('timezone', 'id')
+            ->map(fn (mixed $zone): string => DisplayZone::resolve($zone));
     }
 }

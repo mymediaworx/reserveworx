@@ -12,6 +12,7 @@ use App\Models\WaitlistEntry;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Staff\StaffUndo;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -204,6 +205,6 @@ class Waitlist extends Component
 
     private function zone(?string $timezone): string
     {
-        return is_string($timezone) && in_array($timezone, timezone_identifiers_list(), true) ? $timezone : 'UTC';
+        return DisplayZone::resolve($timezone, $this->tenant());
     }
 }

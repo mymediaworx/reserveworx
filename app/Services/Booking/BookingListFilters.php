@@ -7,9 +7,8 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Service;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
-use DateTimeZone;
-use Exception;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -273,17 +272,7 @@ final class BookingListFilters
 
     private function zone(mixed $timezone): string
     {
-        if (! is_string($timezone) || $timezone === '') {
-            return 'UTC';
-        }
-
-        try {
-            new DateTimeZone($timezone);
-        } catch (Exception) {
-            return 'UTC';
-        }
-
-        return $timezone;
+        return DisplayZone::resolve($timezone);
     }
 
     private static function validDate(string $value): bool

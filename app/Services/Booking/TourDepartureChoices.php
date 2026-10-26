@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Service;
 use App\Support\Display;
+use App\Support\DisplayZone;
 
 /**
  * Other departures a tour booking can move to. Availability is a hint.
@@ -53,11 +54,10 @@ final class TourDepartureChoices
                 $note = 'Full';
             }
 
-            $zone = $departure->location?->timezone;
             $label = Display::range(
                 $departure->starts_at,
                 $departure->ends_at,
-                is_string($zone) && $zone !== '' ? $zone : 'UTC',
+                DisplayZone::forLocation($departure->location),
             );
 
             if ($note !== '') {

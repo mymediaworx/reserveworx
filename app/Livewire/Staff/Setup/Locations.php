@@ -10,6 +10,7 @@ use App\Models\Blackout;
 use App\Models\FleetItem;
 use App\Models\Location;
 use App\Models\LocationFleetReserve;
+use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use App\Tenancy\StaffLocationScope;
 use Illuminate\Validation\Rule;
@@ -63,6 +64,7 @@ class Locations extends Component
     public function mount(): void
     {
         $this->authorize('viewAny', Location::class);
+        $this->timezone = DisplayZone::forTenant($this->tenant());
     }
 
     public function create(): void
@@ -82,6 +84,7 @@ class Locations extends Component
 
         $this->audit('location.created', $location);
         $this->reset('name');
+        $this->timezone = DisplayZone::forTenant($this->tenant());
         $this->flash = 'Location added. Next, add the boats and gear kept there.';
     }
 

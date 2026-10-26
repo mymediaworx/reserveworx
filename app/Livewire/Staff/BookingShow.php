@@ -33,6 +33,7 @@ use App\Services\Pricing\BookingPricer;
 use App\Services\Staff\StaffUndo;
 use App\Services\Widget\GuestManageLink;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
@@ -598,9 +599,9 @@ class BookingShow extends Component
 
     private function zoneFor(Booking $booking): string
     {
-        $zone = $booking->location?->timezone;
+        $booking->loadMissing('location');
 
-        return is_string($zone) && $zone !== '' ? $zone : $this->defaultTimezone();
+        return DisplayZone::forLocation($booking->location);
     }
 
     private function notice(string $message): void

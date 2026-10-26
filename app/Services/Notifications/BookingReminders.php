@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\DB;
  * Queues one reminder per confirmed booking and configured offset.
  * An offset is elapsed minutes before the stored UTC start, so a daylight-saving
  * transition does not turn it into a calendar day. The location timezone is
- * copied onto the hook for the local start. Tenants do not have a timezone.
+ * copied onto the hook for the local start. A missing location zone uses the
+ * workspace zone.
  */
 final class BookingReminders
 {

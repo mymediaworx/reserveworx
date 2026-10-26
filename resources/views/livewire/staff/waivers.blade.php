@@ -22,7 +22,7 @@
                         <li class="row" wire:key="waiver-{{ $waiver->id }}">
                             <div class="grow">
                                 <strong>{{ $waiver->name }}</strong>
-                                <span class="muted">Version {{ $waiver->version }} · published {{ Display::date($waiver->created_at, 'UTC') }} · {{ (int) ($signatureCounts[$waiver->id] ?? 0) }} {{ (int) ($signatureCounts[$waiver->id] ?? 0) === 1 ? 'signature' : 'signatures' }}</span>
+                                <span class="muted">Version {{ $waiver->version }} · published {{ Display::date($waiver->created_at, \App\Support\DisplayZone::resolve(null)) }} · {{ (int) ($signatureCounts[$waiver->id] ?? 0) }} {{ (int) ($signatureCounts[$waiver->id] ?? 0) === 1 ? 'signature' : 'signatures' }}</span>
                             </div>
                             @if ($canManage)
                                 <button type="button" class="button small" wire:click="edit('{{ $waiver->id }}')">New version</button>
@@ -36,7 +36,7 @@
                     <summary>Earlier versions</summary>
                     <ul class="rows compact">
                         @foreach ($history as $old)
-                            <li class="row"><span class="grow">{{ $old->name }} <span class="muted">version {{ $old->version }} · {{ Display::date($old->created_at, 'UTC') }}</span></span></li>
+                            <li class="row"><span class="grow">{{ $old->name }} <span class="muted">version {{ $old->version }} · {{ Display::date($old->created_at, \App\Support\DisplayZone::resolve(null)) }}</span></span></li>
                         @endforeach
                     </ul>
                 </details>

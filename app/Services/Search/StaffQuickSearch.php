@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\Pool;
 use App\Models\StaffSearchToken;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -120,8 +121,7 @@ final class StaffQuickSearch
             $name = $customer?->anonymized_at === null
                 ? ($customer?->name ?: ($customer?->email ?: 'Walk-in'))
                 : $booking->id;
-            $zone = $booking->location?->timezone;
-            $zone = is_string($zone) && $zone !== '' ? $zone : 'UTC';
+            $zone = DisplayZone::forLocation($booking->location);
             $when = Display::dateTime($booking->starts_at, $zone);
             $place = $booking->location?->name ?: 'Location';
             $service = $booking->service?->name ?: 'Booking';

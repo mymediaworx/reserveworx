@@ -44,7 +44,7 @@
     <header class="page-head">
         <div>
             <h1>Daily load sheet</h1>
-            <p class="lede">How many of each fleet item to take to each location on {{ $sheet['date'] }}. Built from that day’s bookings.</p>
+            <p class="lede">How many of each fleet item to take to each location on {{ $sheet['date'] }} ({{ $zone }}). Built from that day’s bookings. Each stop uses that location’s time zone when it has one.</p>
         </div>
     </header>
 

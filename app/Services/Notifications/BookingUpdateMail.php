@@ -7,6 +7,7 @@ use App\Models\Booking;
 use App\Models\NotificationHook;
 use App\Models\PricingSnapshot;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use DateTimeImmutable;
 use Throwable;
 
@@ -41,7 +42,7 @@ final class BookingUpdateMail
     public function compose(NotificationHook $hook, Booking $booking, string $businessName): ?array
     {
         $service = trim((string) $booking->service?->name) ?: 'your booking';
-        $zone = $booking->location?->timezone ?: 'UTC';
+        $zone = DisplayZone::forLocation($booking->location);
         $when = Display::dateTime($booking->starts_at, $zone);
         $reference = 'Reference: '.strtoupper(substr($booking->id, -8)).'.';
         $payload = $hook->payload;

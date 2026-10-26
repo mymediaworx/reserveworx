@@ -10,6 +10,23 @@
     </div>
 
     <section class="panel">
+        <h2>Business time zone</h2>
+        <p>Booking pages, the guest manage page, the schedule, the load sheet, and emails use a location’s time zone when that location has one. Otherwise they use this zone.</p>
+        <form wire:submit="saveTimezone" class="stack">
+            <label class="field compact">
+                <span>Time zone</span>
+                <select wire:model="timezone" @disabled(! $canUpdate)>
+                    @foreach ($timezones as $zone)
+                        <option value="{{ $zone }}">{{ $zone }}</option>
+                    @endforeach
+                </select>
+            </label>
+            @error('timezone')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdate)<button type="submit" class="button primary">Save time zone</button>@endif
+        </form>
+    </section>
+
+    <section class="panel">
         <h2>Booking fee</h2>
         <p>
             ReserveWorx charges a booking fee of {{ rtrim(rtrim(number_format($directRate->basisPoints / 100, 2), '0'), '.') }}%

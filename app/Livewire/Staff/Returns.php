@@ -14,6 +14,7 @@ use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Operations\ResourceReturn;
+use App\Support\DisplayZone;
 use App\Support\LateFee;
 use App\Support\Lateness;
 use App\Tenancy\StaffLocationAccess;
@@ -293,7 +294,7 @@ class Returns extends Component
     {
         foreach ($checkouts as $checkout) {
             $booking = $checkout->booking;
-            $zone = $booking instanceof Booking ? $this->zone($booking->location) : 'UTC';
+            $zone = $booking instanceof Booking ? $this->zone($booking->location) : DisplayZone::forTenant($this->tenant());
 
             if (! isset($this->returnedAt[$checkout->id]) || $this->returnedAt[$checkout->id] === '') {
                 $this->returnedAt[$checkout->id] = CarbonImmutable::now($zone)->format('Y-m-d\TH:i');
@@ -307,8 +308,6 @@ class Returns extends Component
 
     private function zone(?Location $location): string
     {
-        $zone = $location?->timezone;
-
-        return is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        return DisplayZone::forLocation($location);
     }
 }

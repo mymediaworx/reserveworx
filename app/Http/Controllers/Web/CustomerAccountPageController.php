@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use App\Services\Customers\CustomerAccounts;
 use App\Services\Customers\CustomerReceipts;
 use App\Support\BookingReference;
+use App\Support\DisplayZone;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -224,8 +225,7 @@ class CustomerAccountPageController extends Controller
 
     private function localStart(Booking $booking): string
     {
-        $zone = $booking->location?->timezone;
-        $zone = is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        $zone = DisplayZone::forLocation($booking->location);
 
         return $booking->starts_at->copy()->timezone($zone)->format('D, M j, Y g:i A');
     }

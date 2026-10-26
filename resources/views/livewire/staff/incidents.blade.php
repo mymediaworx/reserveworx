@@ -85,8 +85,7 @@
             @foreach ($incidents as $incident)
                 @php
                     $booking = $incident->booking;
-                    $zoneName = $booking?->location?->timezone;
-                    $zone = is_string($zoneName) && in_array($zoneName, timezone_identifiers_list(), true) ? $zoneName : 'UTC';
+                    $zone = \App\Support\DisplayZone::forLocation($booking?->location);
                     $text = is_string($incident->notes) && $incident->notes !== '' ? $incident->notes : $incident->summary;
                 @endphp
                 <li @class(['incident-card', 'is-serious' => $incident->severity === IncidentSeverity::Serious]) data-incident="{{ $incident->id }}" data-severity="{{ $incident->severity?->value ?? '' }}" data-status="{{ $incident->status->value }}" @if (is_int($incident->damage_cents)) data-damage="{{ $incident->damage_cents }}" @endif wire:key="incident-{{ $incident->id }}">

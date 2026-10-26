@@ -10,6 +10,7 @@ use App\Models\Location;
 use App\Models\MaintenanceWindow;
 use App\Models\Pool;
 use App\Services\Operations\MaintenancePlanner;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -203,7 +204,7 @@ class Maintenance extends Component
         ]);
         unset($this->doneNote[$schedule->id]);
 
-        $zone = $schedule->asset->location->timezone ?? 'UTC';
+        $zone = DisplayZone::forLocation($schedule->asset->location);
         $this->flash = $schedule->next_due_at !== null
             ? $schedule->name.' done. Next due '.$schedule->next_due_at->setTimezone($zone)->format('M j, Y').'.'
             : $schedule->name.' done. The count of uses starts again now.';
@@ -349,9 +350,7 @@ class Maintenance extends Component
 
     private function zoneOf(Asset|Pool $resource): string
     {
-        $zone = $resource->location?->timezone;
-
-        return is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        return DisplayZone::forLocation($resource->location);
     }
 
     private function localTime(string $value, string $zone): CarbonImmutable

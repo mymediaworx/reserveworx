@@ -7,7 +7,7 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 
 /**
- * Formatting for screens. Times are always shown in the location's own zone.
+ * Formatting for screens. Callers pass the location zone, or the business zone when that location has none.
  */
 final class Display
 {

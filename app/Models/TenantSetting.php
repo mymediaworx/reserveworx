@@ -27,8 +27,11 @@ class TenantSetting extends Model
         'third_party_fee_minimum_cents',
         'currency',
         'pay_at_pickup',
+        'timezone',
         'reminder_offsets_minutes',
     ];
+
+    public const DEFAULT_TIMEZONE = 'America/New_York';
 
     /**
      * Elapsed minutes before a confirmed booking starts. Null in the database uses this list.
@@ -36,6 +39,10 @@ class TenantSetting extends Model
      * @var list<int>
      */
     public const DEFAULT_REMINDER_OFFSETS_MINUTES = [1440, 120];
+
+    protected $attributes = [
+        'timezone' => self::DEFAULT_TIMEZONE,
+    ];
 
     /** @use HasFactory<TenantSettingFactory> */
     use BelongsToTenant, HasFactory, HasUlids;

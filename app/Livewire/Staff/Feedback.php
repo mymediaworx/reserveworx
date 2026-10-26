@@ -10,6 +10,7 @@ use App\Models\Service;
 use App\Services\Branding\WorkspaceProfiles;
 use App\Services\Feedback\FeedbackRequests;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use DateTimeInterface;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -100,8 +101,7 @@ class Feedback extends Component
 
     public function whenLabel(FeedbackRequest $request): string
     {
-        $zone = $request->booking?->location?->timezone;
-        $zone = is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        $zone = DisplayZone::forLocation($request->booking?->location);
         $at = $request->rated_at;
 
         if (! $at instanceof DateTimeInterface) {

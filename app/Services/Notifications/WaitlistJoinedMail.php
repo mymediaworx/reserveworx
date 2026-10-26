@@ -8,6 +8,7 @@ use App\Models\TenantNotificationSetting;
 use App\Models\WaitlistEntry;
 use App\Notifications\WaitlistJoinedNotification;
 use App\Services\Tenancy\WorkspaceOrigin;
+use App\Support\DisplayZone;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
@@ -97,8 +98,7 @@ final class WaitlistJoinedMail
             $serviceName = 'your booking';
         }
 
-        $zone = $entry->service?->location?->timezone;
-        $zone = is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        $zone = DisplayZone::forLocation($entry->service?->location);
         $when = CarbonImmutable::instance($entry->starts_at)->timezone($zone)->format('D, M j, g:i A');
         $setting = TenantNotificationSetting::query()->where('tenant_id', $entry->tenant_id)->first();
         $replyTo = $setting instanceof TenantNotificationSetting ? $setting->reply_to : null;

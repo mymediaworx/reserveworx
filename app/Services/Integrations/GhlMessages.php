@@ -18,6 +18,7 @@ use App\Models\RentalCheckout;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\Notifications\TransactionalEmailPreferences;
+use App\Support\DisplayZone;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Database\QueryException;
@@ -296,9 +297,9 @@ final class GhlMessages
         $service = Service::withoutGlobalScope(TenantScope::class)->find($booking->service_id);
         $location = Location::withoutGlobalScope(TenantScope::class)->find($booking->location_id);
         $serviceName = $service instanceof Service && $service->tenant_id === $log->tenant_id ? trim($service->name) : '';
-        $timezone = $location instanceof Location && $location->tenant_id === $log->tenant_id && in_array($location->timezone, timezone_identifiers_list(), true)
-            ? $location->timezone
-            : 'UTC';
+        $timezone = $location instanceof Location && $location->tenant_id === $log->tenant_id
+            ? DisplayZone::forLocation($location)
+            : DisplayZone::forTenantId($log->tenant_id);
         $snapshot = PricingSnapshot::withoutGlobalScope(TenantScope::class)
             ->where('tenant_id', $log->tenant_id)
             ->where('booking_id', $booking->id)

@@ -16,6 +16,7 @@ use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Models\Service;
 use App\Services\Inventory\ClosureCalendar;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
@@ -62,7 +63,7 @@ final class ResourceSchedule
         $utcEnd = null;
 
         foreach ($locations as $location) {
-            $window = $this->window($date, $view, $location->timezone);
+            $window = $this->window($date, $view, $this->zone($location));
             $windows[$location->id] = $window;
             $startUtc = $window['start']->utc();
             $endUtc = $window['end']->utc();
@@ -112,7 +113,7 @@ final class ResourceSchedule
             'location:'.$location->id,
             'All bookings',
             '',
-            $this->fill($this->collapse($entries), $days, $location->timezone, 'location:'.$location->id, false),
+            $this->fill($this->collapse($entries), $days, $this->zone($location), 'location:'.$location->id, false),
         );
         $summary['shades'] = $this->shades($closures, $location, $days, null, null, null);
 
@@ -123,7 +124,7 @@ final class ResourceSchedule
             $filled = $this->fill(
                 $this->forResource($entries, $asset->id, null),
                 $days,
-                $location->timezone,
+                $this->zone($location),
                 'asset:'.$asset->id,
                 true,
             );
@@ -160,7 +161,7 @@ final class ResourceSchedule
             $filled = $this->fill(
                 $this->forResource($entries, null, $pool->id),
                 $days,
-                $location->timezone,
+                $this->zone($location),
                 'pool:'.$pool->id,
                 true,
             );
@@ -198,7 +199,7 @@ final class ResourceSchedule
         return [
             'id' => $location->id,
             'name' => $location->name,
-            'timezone' => $location->timezone,
+            'timezone' => $this->zone($location),
             'abbreviation' => $window['start']->format('T'),
             'days' => array_map(fn (array $day): array => [
                 'date' => $day['date'],
@@ -230,6 +231,11 @@ final class ResourceSchedule
             'cells' => $filled['cells'],
             'shades' => [],
         ];
+    }
+
+    private function zone(Location $location): string
+    {
+        return DisplayZone::forLocation($location);
     }
 
     /**
@@ -266,7 +272,7 @@ final class ResourceSchedule
                 continue;
             }
 
-            foreach ($this->closures->windows($closure, $location->timezone, $first->utc(), $last->utc()) as $window) {
+            foreach ($this->closures->windows($closure, $this->zone($location), $first->utc(), $last->utc()) as $window) {
                 foreach ($days as $day) {
                     $start = $day['start'] ?? null;
                     $end = $day['end'] ?? null;
