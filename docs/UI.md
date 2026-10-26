@@ -40,7 +40,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Platform | `/platform/login`, `/platform` | Master admin, platform admins only: counts, filters, list, and add workspaces |
 | Platform | `/platform/forgot-password`, `/platform/reset-password/{token}` | Request a reset link and choose a new password. The link expires in 60 minutes. |
 | Platform | `/platform/tenants/{id}` | Industry, domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, the GoHighLevel Location ID and Private Integration Token, a private data export, status |
-| Tenant domain | `/` | Public booking page for that workspace |
+| Tenant domain | `/` | Public booking page for that workspace. A rental service asks for a date, length, and party size (a GET form), then lists the open start times, with booked and closed times marked, before the name, email, and hold (a POST form) |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
 | Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
 | Tenant domain | `/staff` | Today: schedule, overdue rentals, bookings that need attention, holds waiting on payment, booking fees. The overdue count links to `/staff/returns`, and the page lists each rental still out past its due time. While the workspace is onboarding, the owner also sees the setup checklist and Go live |

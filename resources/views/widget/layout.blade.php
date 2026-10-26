@@ -42,6 +42,15 @@
         fieldset input[type="radio"] { width: 1.15rem; height: 1.15rem; min-height: 0; margin: 0; accent-color: var(--brand); flex: none; }
         button { font: inherit; font-weight: 600; padding: .75rem 1.1rem; min-height: 3rem; background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 10px; cursor: pointer; }
         button:hover { background: var(--brand-strong); }
+        button.secondary { background: #fff; color: var(--brand-text); border: 1px solid var(--brand); }
+        button.secondary:hover { background: var(--brand-soft); }
+        .muted { color: var(--muted); }
+        .notice { background: #FEF3C7; color: #78350F; border-radius: 10px; padding: .75rem 1rem; }
+        .slots { grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); }
+        .slots legend { grid-column: 1 / -1; }
+        .slots label { justify-content: flex-start; padding: .55rem .6rem; flex-wrap: wrap; gap: .2rem .45rem; }
+        .slots label.is-full { color: var(--muted); background: #F9FAFB; cursor: not-allowed; }
+        .slots .slot-note { font-size: .75rem; font-weight: 400; width: 100%; }
         .error { background: #FEE2E2; color: var(--danger); border-radius: 10px; padding: .75rem 1rem; }
         .optional { font-weight: 400; color: var(--muted); }
         .waitlist-join { margin: 0 0 .75rem; }
