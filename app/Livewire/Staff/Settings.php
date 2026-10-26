@@ -12,7 +12,11 @@ use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
 use App\Models\StripeAccount;
 use App\Models\TenantSetting;
+use App\Models\User;
+use App\Services\Booking\CancellationPolicies;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -36,7 +40,14 @@ class Settings extends Component
 
     public ?string $problem = null;
 
-    public function mount(): void
+    /**
+     * @var list<array{lead_minutes: string, refund_percent: string}>
+     */
+    public array $cancelTiers = [];
+
+    public string $noShowPercent = '';
+
+    public function mount(CancellationPolicies $policies): void
     {
         $setting = $this->setting();
         $this->authorize('view', $setting);
@@ -44,6 +55,7 @@ class Settings extends Component
         $this->holdMinutes = $setting->hold_minutes;
         $this->stripeName = $this->tenant()->name;
         $this->stripeEmail = (string) auth()->user()?->email;
+        $this->loadPolicy($policies);
     }
 
     public function save(): void
@@ -101,6 +113,84 @@ class Settings extends Component
         $this->redirect($link['url']);
     }
 
+    public function addCancelTier(): void
+    {
+        $this->authorize('update', $this->setting());
+
+        if (count($this->cancelTiers) >= 8) {
+            return;
+        }
+
+        $this->cancelTiers[] = ['lead_minutes' => '', 'refund_percent' => ''];
+    }
+
+    public function removeCancelTier(int $index): void
+    {
+        $this->authorize('update', $this->setting());
+        unset($this->cancelTiers[$index]);
+        $this->cancelTiers = array_values($this->cancelTiers);
+
+        if ($this->cancelTiers === []) {
+            $this->cancelTiers = [['lead_minutes' => '', 'refund_percent' => '']];
+        }
+    }
+
+    public function saveCancellationPolicy(CancellationPolicies $policies): void
+    {
+        $this->authorize('update', $this->setting());
+        $rows = [];
+        $rules = [
+            'noShowPercent' => ['nullable', 'integer', 'between:0,100'],
+        ];
+        $data = [
+            'noShowPercent' => trim($this->noShowPercent) === '' ? null : trim($this->noShowPercent),
+        ];
+
+        foreach ($this->cancelTiers as $index => $row) {
+            $lead = trim((string) $row['lead_minutes']);
+            $percent = trim((string) $row['refund_percent']);
+
+            if ($lead === '' && $percent === '') {
+                continue;
+            }
+
+            $rules['cancelTiers.'.$index.'.lead_minutes'] = ['required', 'integer', 'between:0,525600'];
+            $rules['cancelTiers.'.$index.'.refund_percent'] = ['required', 'integer', 'between:0,100'];
+            $data['cancelTiers'][$index] = [
+                'lead_minutes' => $lead,
+                'refund_percent' => $percent,
+            ];
+            $rows[] = [
+                'lead_minutes' => (int) $lead,
+                'refund_percent' => (int) $percent,
+            ];
+        }
+
+        $validator = Validator::make($data, $rules);
+
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
+        $actor = auth()->user();
+
+        try {
+            $policies->replace(
+                $rows,
+                $data['noShowPercent'] === null ? null : (int) $data['noShowPercent'],
+                $actor instanceof User ? $actor : null,
+            );
+        } catch (ValidationException $exception) {
+            $message = $exception->validator->errors()->first() ?: 'That cancellation policy could not be saved.';
+
+            throw ValidationException::withMessages(['cancelTiers' => $message]);
+        }
+
+        $this->loadPolicy($policies);
+        $this->flash = 'Cancellation policy saved. It applies the next time a customer cancels or is marked as a no-show.';
+        $this->problem = null;
+    }
+
     public function render(): View
     {
         $setting = $this->setting();
@@ -112,6 +202,19 @@ class Settings extends Component
             'account' => $account,
             'canUpdate' => $this->allows('settings.update'),
         ]);
+    }
+
+    private function loadPolicy(CancellationPolicies $policies): void
+    {
+        $tiers = $policies->customerTiers();
+        $this->cancelTiers = $tiers === []
+            ? [['lead_minutes' => '', 'refund_percent' => '']]
+            : array_map(fn (array $tier): array => [
+                'lead_minutes' => (string) $tier['lead_minutes'],
+                'refund_percent' => (string) $tier['refund_percent'],
+            ], $tiers);
+        $noShow = $policies->noShowPercent();
+        $this->noShowPercent = $noShow === null ? '' : (string) $noShow;
     }
 
     private function setting(): TenantSetting

@@ -3,13 +3,24 @@
         <div>
             <p class="crumb"><a href="/staff/setup/locations" wire:navigate>Locations</a></p>
             <h1>Tax · {{ $location->name }}</h1>
-            <p class="lede">Named rates for this location. Each one can apply to rentals, add-ons, and required fees. No rates means no tax. The booking fee is not taxed.</p>
+            <p class="lede">Named rates for this location. Each one can apply to rentals, add-ons, and required fees. No rates means no tax.</p>
         </div>
     </header>
 
     <div aria-live="polite">
         @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
     </div>
+
+    <section class="panel" data-booking-fee-tax="{{ $bookingFeeTaxable ? 'on' : 'off' }}">
+        <h2>Booking fee</h2>
+        <fieldset class="tax-applies">
+            <label class="check">
+                <input type="checkbox" wire:model.live="bookingFeeTaxable">
+                <span>Tax the booking fee</span>
+            </label>
+        </fieldset>
+        <p class="muted small">Off until you turn it on. Each rate that applies to rentals then also applies to the customer booking fee. Required charges such as cleaning stay on their own rates. An operator-absorbed booking has no customer booking-fee line, so this adds no tax. Whether a jurisdiction taxes that fee is still open.</p>
+    </section>
 
     <div class="split">
         <section class="panel">
@@ -51,7 +62,7 @@
                     <label class="check"><input type="checkbox" wire:model="appliesToAddOns"><span>Add-ons</span></label>
                     <label class="check"><input type="checkbox" wire:model="appliesToFees"><span>Fees</span></label>
                 </fieldset>
-                <p class="muted small">Fees are required charges such as cleaning or fuel. The booking fee stays on the subtotal without tax.</p>
+                <p class="muted small">Fees are required charges such as cleaning or fuel. The booking fee is taxed only when the switch above is on, and only by rates that apply to rentals.</p>
                 @error('name')<p class="error">{{ $message }}</p>@enderror
                 @error('percent')<p class="error">{{ $message }}</p>@enderror
                 @error('appliesToRentals')<p class="error">{{ $message }}</p>@enderror

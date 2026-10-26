@@ -629,6 +629,16 @@ PY);
         return ['exit' => proc_close($process), 'output' => $output];
     }
 
+    public function test_deploy_cleanup_keeps_two_releases_and_reports_inodes_only_for_the_app(): void
+    {
+        $script = (string) file_get_contents(base_path('scripts/remote-deploy.sh'));
+        $this->assertStringContainsString('inode_cleanup || echo "inode_cleanup=failed" >&2', $script);
+        $this->assertStringContainsString('du --inodes -s -x "$domain"', $script);
+        $this->assertStringContainsString('*/www/app.reserveworx.com/laravel/releases/?*|*/www/app.reserveworx.com/laravel/shared/storage/?*) ;;', $script);
+        $this->assertStringContainsString('inode_cleanup=refused empty path', $script);
+        $this->assertStringNotContainsString('demo-logins.txt"', $script);
+    }
+
     public function test_ci_declares_the_required_checks(): void
     {
         $contents = (string) file_get_contents(base_path('.github/workflows/ci.yml'));

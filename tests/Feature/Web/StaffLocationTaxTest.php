@@ -195,6 +195,47 @@ class StaffLocationTaxTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_an_owner_can_tax_the_booking_fee_at_one_location(): void
+    {
+        $workspace = $this->signedIn();
+        $shop = $this->rentalShop($workspace['tenant'], 4, 'UTC');
+        $other = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'name' => 'South dock',
+        ]);
+
+        $this->get($this->tenantUrl('alpha.test', '/staff/locations/'.$shop['location']->id.'/tax'))
+            ->assertOk()
+            ->assertSee('Tax the booking fee')
+            ->assertSee('data-booking-fee-tax="off"', false)
+            ->assertSee('Whether a jurisdiction taxes that fee is still open.');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+
+        Livewire::test(LocationTax::class, ['location' => $shop['location']])
+            ->assertSet('bookingFeeTaxable', false)
+            ->set('bookingFeeTaxable', true)
+            ->assertSet('bookingFeeTaxable', true)
+            ->assertSee('The booking fee is taxed at this location.')
+            ->assertSee('data-booking-fee-tax="on"', false);
+
+        $this->assertTrue($shop['location']->fresh()->booking_fee_taxable);
+        $this->assertFalse($other->fresh()->booking_fee_taxable);
+
+        $log = AuditLog::withoutGlobalScope(TenantScope::class)
+            ->where('action', 'location.booking_fee_tax_updated')
+            ->sole();
+        $this->assertFalse($log->properties['before']);
+        $this->assertTrue($log->properties['after']);
+
+        Livewire::test(LocationTax::class, ['location' => $shop['location']])
+            ->set('bookingFeeTaxable', false)
+            ->assertSee('The booking fee is not taxed at this location.');
+
+        $this->assertFalse($shop['location']->fresh()->booking_fee_taxable);
+        $this->assertSame(2, AuditLog::withoutGlobalScope(TenantScope::class)->where('action', 'location.booking_fee_tax_updated')->count());
+    }
+
     public function test_booking_review_uses_the_location_rates_instead_of_a_typed_percent(): void
     {
         $workspace = $this->signedIn();

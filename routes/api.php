@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\BlackoutController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\BookingReminderOffsetController;
 use App\Http\Controllers\Api\V1\BrandingLogoController;
+use App\Http\Controllers\Api\V1\CancellationPolicyController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\CustomerAccountController;
 use App\Http\Controllers\Api\V1\CustomerBookingController;
@@ -109,6 +110,8 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/tenant', [CurrentTenantController::class, 'show']);
             Route::get('/settings', [TenantSettingController::class, 'show']);
             Route::patch('/settings', [TenantSettingController::class, 'update']);
+            Route::get('/cancellation-policy', [CancellationPolicyController::class, 'show']);
+            Route::put('/cancellation-policy', [CancellationPolicyController::class, 'update']);
             Route::get('/branding', [TenantBrandingController::class, 'show']);
             Route::patch('/branding', [TenantBrandingController::class, 'update']);
             Route::get('/notification-settings', [NotificationSettingController::class, 'show']);

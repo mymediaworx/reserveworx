@@ -7,9 +7,10 @@ use InvalidArgumentException;
 
 /**
  * Named per-location tax rates. Each rate is a percent of the bases it names:
- * the discounted rental, add-ons, and required operator fees. The booking fee
- * is not a base. An empty rule list is the caller's signal to keep the older
- * single rate.
+ * the discounted rental, add-ons, and required operator fees. The customer
+ * booking fee is added only when the caller passes it, and only onto rates
+ * that already apply to rentals. An empty rule list is the caller's signal
+ * to keep the older single rate.
  */
 final class LocationTax
 {
@@ -17,9 +18,9 @@ final class LocationTax
      * @param  list<array<string, mixed>>  $rules
      * @return array{cents: int, lines: list<array<string, mixed>>}
      */
-    public static function assess(array $rules, int $rentalCents, int $addOnCents, int $feeCents): array
+    public static function assess(array $rules, int $rentalCents, int $addOnCents, int $feeCents, int $bookingFeeCents = 0): array
     {
-        if ($rentalCents < 0 || $addOnCents < 0 || $feeCents < 0) {
+        if ($rentalCents < 0 || $addOnCents < 0 || $feeCents < 0 || $bookingFeeCents < 0) {
             throw new InvalidArgumentException('Tax bases must not be negative.');
         }
 
@@ -28,7 +29,7 @@ final class LocationTax
         $lines = [];
 
         foreach ($rules as $rule) {
-            $line = self::line($rule, $rentalCents, $addOnCents, $feeCents);
+            $line = self::line($rule, $rentalCents, $addOnCents, $feeCents, $bookingFeeCents);
             $total += $line['cents'];
             $lines[] = $line;
         }
@@ -40,7 +41,7 @@ final class LocationTax
      * @param  array<string, mixed>  $rule
      * @return array{location_tax_rule_id: string, name: string, percent_bps: int, applies_to_rentals: bool, applies_to_add_ons: bool, applies_to_fees: bool, basis_cents: int, cents: int}
      */
-    private static function line(array $rule, int $rentalCents, int $addOnCents, int $feeCents): array
+    private static function line(array $rule, int $rentalCents, int $addOnCents, int $feeCents, int $bookingFeeCents): array
     {
         $id = $rule['id'] ?? null;
         $name = $rule['name'] ?? null;
@@ -63,6 +64,10 @@ final class LocationTax
         }
 
         $basis = ($rentals ? $rentalCents : 0) + ($addOns ? $addOnCents : 0) + ($fees ? $feeCents : 0);
+
+        if ($rentals) {
+            $basis += $bookingFeeCents;
+        }
         $cents = Rounding::basisPointsOf($basis, $basisPoints);
 
         return [
