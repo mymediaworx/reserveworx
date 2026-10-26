@@ -2,26 +2,36 @@
 
 namespace Database\Seeders;
 
+use App\Enums\AddOnKind;
+use App\Enums\AddOnPricing;
+use App\Enums\CancellationPolicyKind;
 use App\Enums\DepartureStatus;
 use App\Enums\LocationStatus;
 use App\Enums\ResourceStatus;
 use App\Enums\ScheduleOwnerType;
+use App\Models\AddOn;
 use App\Models\Asset;
 use App\Models\AvailabilitySchedule;
+use App\Models\Booking;
+use App\Models\CancellationPolicy;
 use App\Models\Departure;
 use App\Models\Location;
+use App\Models\LocationTaxRule;
 use App\Models\Pool;
 use App\Models\PriceRule;
 use App\Models\PromoCode;
+use App\Models\RentalCheckout;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Models\WaiverVersion;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Tenancy\DemoWorkspaceIdentity;
+use App\Services\Waivers\WaiverSigner;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
@@ -55,6 +65,10 @@ class DemoShopSeeder extends Seeder
                 $this->enablePayAtPickup($tenant);
                 $shop === 'marina' ? $this->marina($tenant) : $this->livery($tenant);
                 $added = $shop === 'marina' ? $this->ensureTourWindow($tenant) : 0;
+
+                if ($shop === 'marina') {
+                    $this->harborSamples($tenant);
+                }
                 $this->command?->line("demo_shop={$slug} ready=yes departures_added={$added}");
             } finally {
                 $manager->forget();
@@ -142,6 +156,158 @@ class DemoShopSeeder extends Seeder
             $this->bookings($tenant, $canoe, $zone, [
                 [2, '09:00', 180, 2, 'Riley Adams', 'confirm'],
             ]);
+        }
+    }
+
+    private const DEMO_WAIVER = 'Harbor demo waiver';
+
+    private const DEMO_CHECKOUT_KEY = 'demo-harbor-demo-checkout';
+
+    /**
+     * Harbor demo only (approved sample values): a waiver, add-ons, a one-day
+     * length, a cancellation and no-show policy, a sample tax rate and one
+     * rental that is out and due back a few hours from now. Every step checks
+     * for its own row first, so reruns change nothing except rolling the
+     * demo checkout's due time forward.
+     */
+    private function harborSamples(Tenant $tenant): void
+    {
+        if ($tenant->slug !== 'harbor-demo') {
+            return;
+        }
+
+        if (! WaiverVersion::query()->where('name', self::DEMO_WAIVER)->exists()) {
+            app(WaiverSigner::class)->publish($tenant->id, self::DEMO_WAIVER, 'Sample waiver for the Harbor demo shop. I understand paddling on open water carries risk, I will wear the life jacket provided, and I will follow the guide and staff instructions. This is demo text only.');
+        }
+
+        foreach ([
+            ['Life jacket', AddOnKind::Equipment, AddOnPricing::Each, 500, 'Coast Guard approved, sized on site.'],
+            ['Dry bag', AddOnKind::Equipment, AddOnPricing::Each, 800, 'Keeps phones and keys dry.'],
+            ['Cooler with ice', AddOnKind::Addon, AddOnPricing::Flat, 1200, 'Packed and ready at the dock.'],
+        ] as [$name, $kind, $pricing, $cents, $description]) {
+            if (AddOn::query()->where('name', $name)->exists()) {
+                continue;
+            }
+
+            AddOn::query()->create([
+                'tenant_id' => $tenant->id,
+                'name' => $name,
+                'description' => $description,
+                'kind' => $kind,
+                'pricing' => $pricing,
+                'amount_cents' => $cents,
+                'active' => true,
+                'max_quantity' => 10,
+            ]);
+        }
+
+        $kayak = Service::query()->where('name', 'Single kayak rental')->first();
+
+        if ($kayak instanceof Service && ! ServiceDuration::query()->where('service_id', $kayak->id)->where('duration_minutes', 1440)->exists()) {
+            ServiceDuration::query()->create([
+                'tenant_id' => $tenant->id,
+                'service_id' => $kayak->id,
+                'name' => '1 day',
+                'quantity' => 24,
+                'unit' => 'hours',
+                'duration_minutes' => 1440,
+            ]);
+            PriceRule::query()->create([
+                'tenant_id' => $tenant->id,
+                'service_id' => $kayak->id,
+                'name' => '1 day',
+                'kind' => 'duration',
+                'amount_cents' => 9500,
+                'window' => 'always',
+                'duration_minutes' => 1440,
+            ]);
+        }
+
+        foreach ([
+            [CancellationPolicyKind::CustomerCancel, 1440, 100],
+            [CancellationPolicyKind::CustomerCancel, 0, 50],
+            [CancellationPolicyKind::NoShow, 0, 0],
+        ] as [$kind, $lead, $percent]) {
+            if (CancellationPolicy::query()->where('kind', $kind)->where('lead_minutes', $lead)->exists()) {
+                continue;
+            }
+
+            CancellationPolicy::query()->create([
+                'tenant_id' => $tenant->id,
+                'kind' => $kind,
+                'lead_minutes' => $lead,
+                'refund_percent' => $percent,
+            ]);
+        }
+
+        $location = Location::query()->where('name', 'Harbor Point Marina')->first();
+
+        if ($location instanceof Location && ! LocationTaxRule::query()->where('location_id', $location->id)->exists()) {
+            LocationTaxRule::query()->create([
+                'tenant_id' => $tenant->id,
+                'location_id' => $location->id,
+                'name' => 'Sample KY sales tax',
+                'percent_bps' => 600,
+                'applies_to_rentals' => true,
+                'applies_to_add_ons' => true,
+                'applies_to_fees' => true,
+            ]);
+            $location->forceFill(['booking_fee_taxable' => true])->save();
+        }
+
+        $this->rollingCheckout($tenant);
+    }
+
+    private function rollingCheckout(Tenant $tenant): void
+    {
+        $service = Service::query()->where('name', 'Tandem kayak rental')->first();
+        $pool = Pool::query()->where('name', 'Tandem kayak')->first();
+
+        if (! $service instanceof Service || ! $pool instanceof Pool) {
+            return;
+        }
+
+        $booking = Booking::query()->where('idempotency_key', self::DEMO_CHECKOUT_KEY)->first();
+
+        if (! $booking instanceof Booking) {
+            $allocator = app(Allocator::class);
+            $start = CarbonImmutable::now('America/New_York')->startOfDay()->addDays(1)->setTime(9, 0)->utc();
+
+            try {
+                $booking = $allocator->hold(new AllocationIntent(
+                    $tenant->id,
+                    $service->id,
+                    $start,
+                    $start->addMinutes(240),
+                    2,
+                    self::DEMO_CHECKOUT_KEY,
+                    'Casey Rivera',
+                    null,
+                ));
+                $allocator->confirm($booking);
+            } catch (AllocationUnavailableException) {
+                return;
+            }
+        }
+
+        $now = CarbonImmutable::now()->utc();
+        $checkout = RentalCheckout::query()->where('booking_id', $booking->id)->whereNull('returned_at')->first();
+
+        if (! $checkout instanceof RentalCheckout) {
+            RentalCheckout::query()->create([
+                'tenant_id' => $tenant->id,
+                'booking_id' => $booking->id,
+                'pool_id' => $pool->id,
+                'quantity' => 1,
+                'checked_out_at' => $now->subHour(),
+                'due_at' => $now->addHours(4),
+            ]);
+
+            return;
+        }
+
+        if ($checkout->due_at->lt($now->addHour())) {
+            $checkout->forceFill(['checked_out_at' => $now->subHour(), 'due_at' => $now->addHours(4)])->save();
         }
     }
 
