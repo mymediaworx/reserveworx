@@ -36,7 +36,7 @@ final class TenantOnboarding
     /**
      * @return array{tenant: Tenant, hostname: string, created: array<int, string>, link_sent: bool}
      */
-    public function apply(string $slug, string $name, ?string $ownerEmail, string $timezone): array
+    public function apply(string $slug, string $name, ?string $ownerEmail, string $timezone, ?string $hostname = null): array
     {
         $slug = $this->subdomains->normalize($slug);
         $name = trim($name);
@@ -55,7 +55,12 @@ final class TenantOnboarding
             throw new InvalidArgumentException('owner email is not valid.');
         }
 
-        $hostname = $this->subdomains->hostname($slug);
+        $apex = $this->subdomains->apex();
+        $hostname = $hostname === null || trim($hostname) === '' ? $this->subdomains->hostname($slug) : strtolower(trim($hostname));
+        $label = substr($hostname, 0, -strlen('.'.$apex));
+        if (! str_ends_with($hostname, '.'.$apex) || ! $this->subdomains->isWellFormed($label) || $this->subdomains->isReserved($label)) {
+            throw new InvalidArgumentException('hostname must be a valid, unreserved <label>.'.$apex.' address.');
+        }
         $created = [];
 
         $existingDomain = Domain::withoutGlobalScope(TenantScope::class)->where('hostname', $hostname)->first();

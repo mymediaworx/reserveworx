@@ -8,7 +8,7 @@ use InvalidArgumentException;
 
 class CreateTenant extends Command
 {
-    protected $signature = 'reserveworx:tenant:create {slug} {--name=} {--owner-email=} {--timezone=America/New_York}';
+    protected $signature = 'reserveworx:tenant:create {slug} {--name=} {--owner-email=} {--timezone=America/New_York} {--hostname=}';
 
     protected $description = 'Create (or confirm) a customer workspace, default location, owner and subdomain. Idempotent.';
 
@@ -18,7 +18,7 @@ class CreateTenant extends Command
         $name = (string) ($this->option('name') ?: $slug);
 
         try {
-            $result = $onboarding->apply($slug, $name, $this->option('owner-email') ?: null, (string) $this->option('timezone'));
+            $result = $onboarding->apply($slug, $name, $this->option('owner-email') ?: null, (string) $this->option('timezone'), $this->option('hostname') ?: null);
         } catch (InvalidArgumentException $e) {
             $this->error('tenant='.$slug.' error='.$e->getMessage());
 
