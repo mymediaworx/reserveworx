@@ -9,13 +9,15 @@
 | The command is idempotent: an existing workspace, location, owner or domain
 | is left as it is. It never sets prices, tax, fees or refund terms. The owner
 | gets one set-password link the first time they are added to the workspace.
-| See docs/ONBOARDING.md.
+| Optional 'hostname' (default <slug>.reserveworx.com) adopts an existing
+| workspace whose verified domain differs from its slug. See docs/ONBOARDING.md.
 |
 */
 
 return [
     [
-        'slug' => 'yakshack',
+        'slug' => 'yak-shack',
+        'hostname' => 'yakshack.reserveworx.com',
         'name' => 'Yak Shack',
         'owner_email' => 'michael@brandworx.ai',
         'timezone' => 'America/New_York',

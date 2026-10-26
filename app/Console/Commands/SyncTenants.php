@@ -27,6 +27,7 @@ class SyncTenants extends Command
                     (string) ($entry['name'] ?? $slug),
                     isset($entry['owner_email']) ? (string) $entry['owner_email'] : null,
                     (string) ($entry['timezone'] ?? 'America/New_York'),
+                    isset($entry['hostname']) ? (string) $entry['hostname'] : null,
                 );
             } catch (HostnameTaken $e) {
                 // Read-only report; nothing is changed and the deploy is not failed.

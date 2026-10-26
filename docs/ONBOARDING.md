@@ -13,6 +13,8 @@ app.reserveworx.com. Only step 1 is manual.
    ```php
    ['slug' => 'yakshack', 'name' => 'Yak Shack', 'owner_email' => 'owner@example.com', 'timezone' => 'America/New_York'],
    ```
+   Optional `'hostname' => 'yakshack.reserveworx.com'` when the address differs from the slug
+   (for example a workspace that already exists as `yak-shack`; the sync adopts it and only adds what is missing).
    Slug: 3–63 lowercase letters, digits and hyphens; reserved words are refused.
    Leave `owner_email` empty if not known yet; add it later in another PR.
 3. **Open a PR, wait for green CI, squash-merge.** The normal Deploy runs
