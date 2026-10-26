@@ -34,6 +34,7 @@ class DemoShopSeederTest extends TestCase
 
     protected function tearDown(): void
     {
+        CarbonImmutable::setTestNow();
         app(TenantManager::class)->forget();
         parent::tearDown();
     }
