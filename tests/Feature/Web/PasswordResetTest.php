@@ -49,6 +49,21 @@ class PasswordResetTest extends TestCase
             ->assertSee('/platform/forgot-password', false);
     }
 
+    public function test_admin_login_on_a_tenant_host_leads_to_the_staff_sign_in_with_reset_link(): void
+    {
+        $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Alpha Kayaks']);
+
+        $this->get($this->tenantUrl('alpha.test', '/admin/login'))->assertRedirect('/staff/login');
+        $this->get($this->tenantUrl('alpha.test', '/staff/login'))
+            ->assertOk()
+            ->assertSee('Forgot password?', false);
+
+        $this->post($this->tenantUrl('alpha.test', '/admin/login'), [
+            'email' => $alpha['user']->email,
+            'password' => 'wrong-password',
+        ])->assertRedirect('/staff/login')->assertSessionHasErrors('email');
+    }
+
     public function test_a_team_member_can_reset_a_password_from_the_emailed_link(): void
     {
         $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Alpha Kayaks']);

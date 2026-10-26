@@ -20,4 +20,5 @@
         </label>
         <button type="submit">Sign in</button>
     </form>
+    <p><a href="/staff/forgot-password">Forgot password?</a></p>
 @endsection
