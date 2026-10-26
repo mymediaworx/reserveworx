@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\SessionController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\GuestBookingController;
+use App\Http\Controllers\Web\CustomerAccountPageController;
 use App\Http\Controllers\Web\FeedbackController;
 use App\Http\Controllers\Web\HomeController;
 use App\Http\Controllers\Web\PlatformAuthController;
@@ -178,6 +179,26 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/businesses/new', [StaffBusinessController::class, 'create']);
         Route::post('/businesses', [StaffBusinessController::class, 'store']);
         Route::post('/switch/{tenant}', [StaffBusinessController::class, 'switch'])->middleware('throttle:10,1');
+    });
+});
+
+/*
+| Optional customer account on the workspace host. The booking widget does not
+| use this session. A JSON call to the sign-in link still returns a bearer token.
+| The account page itself is not on the sign-in limiter: that limiter is five
+| attempts per email, and reading the page would spend them.
+*/
+Route::middleware('tenant.resolve')->group(function (): void {
+    Route::get('/account', [CustomerAccountPageController::class, 'show'])->name('account.show');
+
+    Route::middleware('throttle:customer-auth')->group(function (): void {
+        Route::post('/account', [CustomerAccountPageController::class, 'store'])->name('account.store');
+        Route::post('/account/login', [CustomerAccountPageController::class, 'login'])->name('account.login');
+        Route::post('/account/logout', [CustomerAccountPageController::class, 'logout'])->name('account.logout');
+        Route::post('/account/password', [CustomerAccountPageController::class, 'password'])->name('account.password');
+        Route::get('/account/sign-in/{token}', [CustomerAccountPageController::class, 'signIn'])
+            ->where('token', '[A-Za-z0-9]{32,128}')
+            ->name('account.sign-in');
     });
 });
 
