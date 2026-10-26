@@ -16,6 +16,7 @@ use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\Service;
@@ -244,10 +245,14 @@ class WidgetController extends Controller
         ]);
     }
 
-    public function checkout(Request $request, string $token, Booking $booking): View
+    public function checkout(Request $request, string $token, Booking $booking): View|RedirectResponse
     {
         $this->activeToken($token);
         $this->assertBookingService($booking);
+
+        if ($this->alreadyBooked($booking)) {
+            return redirect()->to($this->confirmationUrl($token, $booking));
+        }
         $snapshot = $this->snapshot($booking);
         $hold = $this->openHold($booking);
 
@@ -341,7 +346,7 @@ class WidgetController extends Controller
         $hold = $this->openHold($fresh);
 
         if ($fresh->status === BookingStatus::Confirmed) {
-            return redirect()->to($this->confirmationUrl($token, $fresh, $hold));
+            return redirect()->to($this->confirmationUrl($token, $fresh));
         }
 
         $snapshot = $this->snapshot($fresh);
@@ -378,7 +383,7 @@ class WidgetController extends Controller
             );
         }
 
-        return redirect()->to($this->confirmationUrl($token, $fresh, $hold));
+        return redirect()->to($this->confirmationUrl($token, $fresh));
     }
 
     public function pay(Request $request, string $token, Booking $booking): Response|RedirectResponse
@@ -393,17 +398,16 @@ class WidgetController extends Controller
         }
 
         $expires = CarbonImmutable::instance($hold->expires_at);
-        $success = URL::temporarySignedRoute('widget.confirmation', $expires, [
-            'token' => $token,
-            'booking' => $booking->id,
-        ]);
-        $cancel = URL::temporarySignedRoute('widget.checkout', $expires, [
-            'token' => $token,
-            'booking' => $booking->id,
-        ]);
 
         try {
-            $started = $this->checkout->startCheckout($booking->load('service'), $success, $cancel);
+            $sessionEnds = $this->checkout->reserveCheckoutWindow($booking);
+            $linksEnd = ($sessionEnds ?? $expires)->addMinutes(CheckoutService::WEBHOOK_GRACE_MINUTES);
+            $success = $this->confirmationUrl($token, $booking);
+            $cancel = URL::temporarySignedRoute('widget.checkout', $linksEnd, [
+                'token' => $token,
+                'booking' => $booking->id,
+            ]);
+            $started = $this->checkout->startCheckout($booking->load('service'), $success, $cancel, null, $sessionEnds);
         } catch (AllocationUnavailableException $exception) {
             $pickup = $this->pickupOffer($this->tenant($request), $token, $booking, $snapshot, $hold);
 
@@ -888,16 +892,32 @@ class WidgetController extends Controller
         ];
     }
 
-    private function confirmationUrl(string $token, Booking $booking, ?Hold $hold): string
+    /**
+     * The confirmation page carries the check-in code the guest shows on
+     * arrival, so its link lasts until a week after the booking ends, and at
+     * least a day. It used to expire with the hold, about 15 minutes.
+     */
+    private function confirmationUrl(string $token, Booking $booking): string
     {
-        $expires = $hold instanceof Hold
-            ? CarbonImmutable::instance($hold->expires_at)
-            : CarbonImmutable::now()->addHour();
+        $afterVisit = CarbonImmutable::instance($booking->ends_at)->addDays(7);
+        $minimum = CarbonImmutable::now()->addDay();
 
-        return URL::temporarySignedRoute('widget.confirmation', $expires, [
+        return URL::temporarySignedRoute('widget.confirmation', $afterVisit->greaterThan($minimum) ? $afterVisit : $minimum, [
             'token' => $token,
             'booking' => $booking->id,
         ]);
+    }
+
+    /**
+     * A booking that is confirmed, or is paid or settling, no longer belongs on
+     * the checkout page. Showing "hold expired" there invited a second booking.
+     */
+    private function alreadyBooked(Booking $booking): bool
+    {
+        $fresh = $booking->fresh() ?? $booking;
+
+        return in_array($fresh->status, [BookingStatus::Confirmed, BookingStatus::NoShow, BookingStatus::PaymentException], true)
+            || Payment::query()->where('booking_id', $fresh->id)->where('status', 'paid')->exists();
     }
 
     private function checkoutResponse(

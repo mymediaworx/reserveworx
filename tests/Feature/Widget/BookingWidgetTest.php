@@ -6,6 +6,7 @@ use App\Domain\Payments\StripeGateway;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Domain;
+use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Membership;
 use App\Models\Payment;
@@ -127,6 +128,63 @@ class BookingWidgetTest extends TestCase
             ->assertRedirect('https://checkout.stripe.test/pay/cs_test_123');
         $this->assertSame(300, $fake->sessions[0]['params']['payment_intent_data']['application_fee_amount']);
         $this->assertArrayNotHasKey('payment_method_types', $fake->sessions[0]['params']);
+    }
+
+    public function test_a_card_session_cannot_outlive_its_hold(): void
+    {
+        $fake = new FakeStripeGateway;
+        $this->app->instance(StripeGateway::class, $fake);
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+        $token = $this->token($workspace);
+
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-window'));
+        $bookingId = $this->bookingId((string) $held->headers->get('Location'));
+        $checkout = $this->get((string) $held->headers->get('Location'))->assertOk();
+        $this->travel(5)->minutes();
+        $this->post($this->formAction((string) $checkout->getContent(), 'Pay with card'))->assertRedirect();
+
+        $params = $fake->sessions[0]['params'];
+        $this->assertSame(Carbon::parse('2026-06-15 12:36:00', 'UTC')->getTimestamp(), $params['expires_at']);
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('2026-06-15 12:41:00', Hold::query()->where('booking_id', $bookingId)->firstOrFail()->expires_at->utc()->format('Y-m-d H:i:s'));
+        app(TenantManager::class)->forget();
+
+        $this->travel(20)->minutes();
+        $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-window-2'))
+            ->assertStatus(409)
+            ->assertSee('That time is no longer available.');
+
+        $this->travel(3)->hours();
+        $this->get((string) $params['success_url'])->assertOk()->assertSee('Booking '.$bookingId);
+    }
+
+    public function test_a_finished_booking_leaves_the_checkout_page_for_a_lasting_confirmation(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        app(TenantManager::class)->set($workspace['tenant']);
+        TenantSetting::query()->update(['pay_at_pickup' => true]);
+        app(TenantManager::class)->forget();
+        $token = $this->token($workspace);
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('widget-back'));
+        $checkoutUrl = (string) $held->headers->get('Location');
+        $checkout = $this->get($checkoutUrl)->assertOk();
+        $confirmed = $this->post($this->formAction((string) $checkout->getContent(), 'Pay at pickup'))->assertRedirect();
+        $confirmation = (string) $confirmed->headers->get('Location');
+
+        $back = $this->get($checkoutUrl)->assertRedirect();
+        $this->assertStringContainsString('/confirmation/', (string) $back->headers->get('Location'));
+        $this->get((string) $back->headers->get('Location'))->assertOk()->assertSee('Your booking is confirmed.')->assertDontSee('This hold has expired.');
+
+        $this->travel(5)->hours();
+        $this->get($confirmation)->assertOk()->assertSee('Check-in code');
     }
 
     public function test_pay_at_pickup_stays_hidden_until_the_workspace_allows_it(): void

@@ -19,6 +19,7 @@ use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
 use App\Models\Booking;
+use App\Models\Hold;
 use App\Models\Payment;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
@@ -40,6 +41,16 @@ use InvalidArgumentException;
 
 final class CheckoutService
 {
+    /**
+     * Stripe rejects a Checkout Session that expires sooner than 30 minutes.
+     */
+    public const STRIPE_MINIMUM_SESSION_MINUTES = 31;
+
+    /**
+     * Time after the session ends for a late webhook to still find the hold.
+     */
+    public const WEBHOOK_GRACE_MINUTES = 5;
+
     public function __construct(
         private readonly StripeGateway $stripe,
         private readonly Allocator $allocator,
@@ -53,7 +64,7 @@ final class CheckoutService
     /**
      * @return array{payment: Payment, url: string|null}
      */
-    public function startCheckout(Booking $booking, string $successUrl, string $cancelUrl, ?string $idempotencyKey = null): array
+    public function startCheckout(Booking $booking, string $successUrl, string $cancelUrl, ?string $idempotencyKey = null, ?CarbonImmutable $sessionEndsAt = null): array
     {
         $hash = $this->payloadHash('checkout', $booking->id, $successUrl, $cancelUrl);
         $existing = $this->storedPayment($idempotencyKey, $hash);
@@ -61,6 +72,8 @@ final class CheckoutService
         if ($existing instanceof Payment) {
             return ['payment' => $existing, 'url' => null];
         }
+
+        $sessionEndsAt ??= $this->reserveCheckoutWindow($booking);
 
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
 
@@ -89,6 +102,7 @@ final class CheckoutService
             $successUrl,
             $cancelUrl,
             $identifier,
+            $sessionEndsAt?->getTimestamp(),
         );
 
         try {
@@ -113,6 +127,39 @@ final class CheckoutService
         }
 
         return ['payment' => $payment, 'url' => $session['url']];
+    }
+
+    /**
+     * A held booking's Stripe session must not outlive its hold, or a customer
+     * can pay for a slot someone else has since taken (#132). Stripe requires a
+     * session to stay open at least 30 minutes, so the session ends at the later
+     * of the hold expiry and now plus 31 minutes, and the hold is extended to
+     * that end plus a grace period for the webhook. Returns null for a booking
+     * that is not held, which keeps Stripe's default expiry.
+     */
+    public function reserveCheckoutWindow(Booking $booking): ?CarbonImmutable
+    {
+        if ($booking->status !== BookingStatus::Held) {
+            return null;
+        }
+
+        return DB::transaction(function () use ($booking): CarbonImmutable {
+            $holds = Hold::query()->where('booking_id', $booking->id)->lockForUpdate()->get();
+            $now = CarbonImmutable::now();
+
+            if ($holds->isEmpty() || $holds->contains(fn (Hold $hold): bool => ! $hold->expires_at->greaterThan($now))) {
+                throw new AllocationUnavailableException('This hold has expired. Choose another time.');
+            }
+
+            $holdEnds = CarbonImmutable::instance($holds->min('expires_at'));
+            $minimum = $now->addMinutes(self::STRIPE_MINIMUM_SESSION_MINUTES);
+            $sessionEnds = $holdEnds->greaterThan($minimum) ? $holdEnds : $minimum;
+            $holdUntil = $sessionEnds->addMinutes(self::WEBHOOK_GRACE_MINUTES);
+
+            Hold::query()->where('booking_id', $booking->id)->where('expires_at', '<', $holdUntil)->update(['expires_at' => $holdUntil]);
+
+            return $sessionEnds;
+        });
     }
 
     /**

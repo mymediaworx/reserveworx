@@ -21,6 +21,7 @@ final class CheckoutSessionSpec
         string $successUrl,
         string $cancelUrl,
         string $integrationIdentifier,
+        ?int $expiresAt = null,
     ): array {
         $intent = [
             'metadata' => [
@@ -33,7 +34,7 @@ final class CheckoutSessionSpec
             $intent['application_fee_amount'] = $applicationFeeCents;
         }
 
-        return [
+        $params = [
             'mode' => 'payment',
             'success_url' => $successUrl,
             'cancel_url' => $cancelUrl,
@@ -53,5 +54,11 @@ final class CheckoutSessionSpec
             'payment_intent_data' => $intent,
             'integration_identifier' => $integrationIdentifier,
         ];
+
+        if ($expiresAt !== null) {
+            $params['expires_at'] = $expiresAt;
+        }
+
+        return $params;
     }
 }
