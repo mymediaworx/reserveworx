@@ -46,8 +46,9 @@ The replay is covered by the test suite. A restore has not been run on the live 
 
 ## Tenant is unavailable or a user cannot sign in
 
-- Suspended and terminated tenants return 403 on tenant routes.
-- Unknown hosts and unverified domains return the same 404 text.
+- Suspended and terminated tenants return 403 on tenant routes, including `POST /api/v1/login`.
+- Unknown hosts and unverified domains return the same 404 text, including staff API sign-in.
+- `POST /api/v1/login` on a workspace address requires an active member of that workspace. The same reply is used for a wrong password and for someone who is not on the team. `GET /api/v1/me` on that address lists only that workspace.
 - A platform administrator has no tenant API access without a membership.
 - Login is limited to 5 attempts per minute per email and IP.
 - The last active owner cannot be revoked or demoted. Add another owner first.
