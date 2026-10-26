@@ -1139,6 +1139,8 @@ class WidgetController extends Controller
         $booking->load(['service', 'namedParticipants']);
         $presented = $this->waivers->present($booking);
         $unsigned = $hold instanceof Hold && $presented['required'] && ! $presented['complete'];
+        $lockedPay = $unsigned && $payUrl !== null;
+        $lockedPickup = $unsigned && $pickupUrl !== null;
 
         if ($unsigned) {
             $payUrl = null;
@@ -1163,6 +1165,8 @@ class WidgetController extends Controller
             'promoValue' => $promoValue,
             'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => $error,
+            'payLocked' => $lockedPay,
+            'pickupLocked' => $lockedPickup,
             'waiverRequired' => $presented['required'],
             'waiverComplete' => $presented['complete'],
             'waiverVersions' => $presented['waivers'],
