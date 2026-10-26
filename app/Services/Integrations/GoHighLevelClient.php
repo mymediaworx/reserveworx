@@ -169,7 +169,14 @@ class GoHighLevelClient
         }
 
         if (! $response->successful()) {
-            throw new GhlRequestFailed($response->status(), $kind);
+            throw new GhlRequestFailed(
+                httpStatus: $response->status(),
+                kind: $kind,
+                retryAfter: $this->headerValue($response, 'Retry-After'),
+                rateLimitRemaining: $this->headerValue($response, 'X-RateLimit-Remaining'),
+                dailyRemaining: $this->headerValue($response, 'X-RateLimit-Daily-Remaining'),
+                intervalMilliseconds: $this->headerValue($response, 'X-RateLimit-Interval-Milliseconds'),
+            );
         }
 
         return $response;
@@ -224,5 +231,12 @@ class GoHighLevelClient
         }
 
         return $id;
+    }
+
+    private function headerValue(Response $response, string $name): ?string
+    {
+        $value = trim($response->header($name));
+
+        return $value === '' ? null : $value;
     }
 }

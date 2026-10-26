@@ -142,6 +142,30 @@ final class GhlMessages
         $this->finish($log, 'failed', max($log->attempts, 1), $log->http_status, $message, $secret, $log->channel, null, $log->location_id);
     }
 
+    /**
+     * A 429 stays on attempt 1 while automatic waits remain.
+     * A null wait means those waits are used up and the owner can send it again.
+     */
+    public function recordRateLimit(string $tenantId, string $logId, ?int $waitSeconds): void
+    {
+        $log = $this->log($tenantId, $logId);
+
+        if (! $log instanceof GhlMessageLog || in_array($log->status, ['succeeded', 'skipped'], true)) {
+            return;
+        }
+
+        $connection = GhlConnection::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId)
+            ->first();
+        $secret = $connection instanceof GhlConnection ? $connection->private_integration_token : null;
+        $error = $waitSeconds === null
+            ? GhlRateLimitPause::STOPPED
+            : 'GoHighLevel message returned HTTP 429. Waiting '.$waitSeconds.' seconds before the next try.';
+        $attempt = $waitSeconds === null ? 5 : min(max(1, $log->attempts), 4);
+
+        $this->finish($log, 'failed', $attempt, 429, $error, $secret, $log->channel, null, $log->location_id);
+    }
+
     private function queue(
         string $tenantId,
         string $bookingId,

@@ -33,7 +33,6 @@ use App\Models\TenantNotificationSetting;
 use App\Models\User;
 use App\Notifications\BookingConfirmedNotification;
 use App\Services\Integrations\GhlMessages;
-use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
@@ -274,25 +273,64 @@ class GoHighLevelMessageTest extends TestCase
             'https://services.leadconnectorhq.com/contacts/upsert' => Http::response([
                 'contact' => ['id' => 'contact-1', 'locationId' => 'loc_alpha'],
             ], 200),
-            'https://services.leadconnectorhq.com/conversations/messages' => Http::response(['message' => $token], 429),
+            'https://services.leadconnectorhq.com/conversations/messages' => Http::response(['message' => $token], 429, [
+                'Retry-After' => '120',
+            ]),
         ]);
         $log = GhlMessageLog::withoutGlobalScope(TenantScope::class)->where('booking_id', $limited->id)->firstOrFail();
+        DB::table('jobs')->delete();
 
-        try {
-            app()->call([new SendGhlBookingMessage($workspace['tenant']->id, $log->id), 'handle']);
-            $this->fail('The rate limit was not raised for the queue to retry.');
-        } catch (GhlRequestFailed $exception) {
-            $this->assertSame('GoHighLevel message returned HTTP 429.', $exception->getMessage());
-            $this->assertStringNotContainsString($token, $exception->getMessage());
-        }
+        app()->call([new SendGhlBookingMessage($workspace['tenant']->id, $log->id), 'handle']);
 
         $log->refresh();
         $this->assertSame('failed', $log->status);
         $this->assertSame(429, $log->http_status);
         $this->assertSame(1, $log->attempts);
+        $this->assertStringContainsString('Waiting 120 seconds', (string) $log->error);
         $this->assertStringNotContainsString($token, (string) $log->error);
+        $this->assertSame(1, DB::table('jobs')->count());
+        $this->assertStringContainsString('SendGhlBookingMessage', (string) DB::table('jobs')->value('payload'));
+        $this->assertStringNotContainsString($token, (string) DB::table('jobs')->value('payload'));
+        $this->assertEqualsWithDelta(now()->addSeconds(120)->getTimestamp(), (int) DB::table('jobs')->value('available_at'), 5);
         $this->assertDatabaseHas('bookings', ['id' => $limited->id]);
+        $this->assertSame(0, DB::table('payments')->count());
+        $this->assertSame(0, DB::table('refunds')->count());
+        $this->assertSame(0, DB::table('platform_fees')->count());
         $this->assertFalse($leaks());
+    }
+
+    public function test_a_rate_limit_that_outlasts_the_automatic_waits_can_be_sent_again(): void
+    {
+        Bus::fake([SyncBookingToGoHighLevel::class]);
+        $workspace = $this->workspace('alpha.test');
+        $token = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
+        $this->link($workspace['tenant']->id, 'loc_alpha', $token);
+        $booking = $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', null, 'Sunset rental');
+        app(TenantManager::class)->set($workspace['tenant']);
+        app(BookingEvents::class)->confirmed($booking);
+        app(TenantManager::class)->forget();
+        $this->replaceHttpFake([
+            'https://services.leadconnectorhq.com/contacts/upsert' => Http::response([
+                'contact' => ['id' => 'contact-1', 'locationId' => 'loc_alpha'],
+            ], 200),
+            'https://services.leadconnectorhq.com/conversations/messages' => Http::response(['message' => $token], 429, [
+                'Retry-After' => '30',
+            ]),
+        ]);
+        $log = GhlMessageLog::withoutGlobalScope(TenantScope::class)->firstOrFail();
+        DB::table('jobs')->delete();
+        $job = new SendGhlBookingMessage($workspace['tenant']->id, $log->id);
+        $job->rateLimitWaits = 8;
+
+        app()->call([$job, 'handle']);
+
+        $log->refresh();
+        $this->assertSame(5, $log->attempts);
+        $this->assertSame(429, $log->http_status);
+        $this->assertSame('GoHighLevel rate limit lasted through the automatic waits.', $log->error);
+        $this->assertStringNotContainsString($token, (string) $log->error);
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertSame(0, DB::table('payments')->count());
     }
 
     public function test_a_turned_off_message_is_skipped_and_other_communications_are_sent(): void
