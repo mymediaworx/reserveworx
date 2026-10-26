@@ -183,6 +183,8 @@ class StaffCustomerPrivacyTest extends TestCase
             ->assertSee('Ada Kayak')
             ->assertDontSee('Bea Paddle');
 
+        $this->keep($workspace);
+
         for ($number = 1; $number <= 51; $number++) {
             Customer::query()->create([
                 'tenant_id' => $tenantId,
@@ -228,8 +230,9 @@ class StaffCustomerPrivacyTest extends TestCase
 
     public function test_staff_and_a_location_limited_member_are_refused(): void
     {
-        $this->signedIn('staff');
+        $workspace = $this->signedIn('staff');
         $this->get($this->tenantUrl('alpha.test', '/staff/customers'))->assertForbidden();
+        $this->keep($workspace);
         Livewire::test(Customers::class)->assertForbidden();
     }
 
@@ -250,6 +253,7 @@ class StaffCustomerPrivacyTest extends TestCase
         app(StaffLocationAccess::class)->forget();
 
         $this->get($this->tenantUrl('alpha.test', '/staff/customers'))->assertForbidden();
+        $this->keep($owner);
         Livewire::test(Customers::class)->assertForbidden();
 
         $this->get($this->tenantUrl('alpha.test', '/staff/menu'))
@@ -309,6 +313,7 @@ class StaffCustomerPrivacyTest extends TestCase
             ->assertSee('Customer records')
             ->assertSee('/staff/customers', false);
 
+        $this->keep($workspace);
         Livewire::test(Menu::class)->assertSee('Customer records');
 
         $staff = User::factory()->create();
@@ -332,6 +337,17 @@ class StaffCustomerPrivacyTest extends TestCase
             ->assertOk()
             ->assertSee('No customers yet.')
             ->assertSee('Remove personal details even when a download file is not ready.');
+    }
+
+    /**
+     * A full HTTP request clears the workspace at the end. Livewire tests need it back.
+     *
+     * @param  array{tenant: Tenant, user: User}  $workspace
+     */
+    private function keep(array $workspace): void
+    {
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->actingAs($workspace['user']);
     }
 
     /**

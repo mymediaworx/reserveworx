@@ -10,6 +10,7 @@ use App\Services\Privacy\CustomerDataEraser;
 use App\Services\Privacy\CustomerDataExporter;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -168,9 +169,9 @@ class Customers extends Component
     }
 
     /**
-     * @return Collection<int, Customer>
+     * @return EloquentCollection<int, Customer>
      */
-    private function matchingCustomers(): Collection
+    private function matchingCustomers(): EloquentCollection
     {
         $query = Customer::query()->orderBy('name')->orderBy('id');
         $term = $this->term();
@@ -188,7 +189,7 @@ class Customers extends Component
     }
 
     /**
-     * @param  Collection<int, Customer>  $customers
+     * @param  EloquentCollection<int, Customer>  $customers
      * @return Collection<string, CustomerDataExport>
      */
     private function latestExports(Collection $customers): Collection
