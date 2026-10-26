@@ -66,6 +66,7 @@
             <span>Status</span>
             <select wire:model.live="status">
                 <option value="">Any status</option>
+                <option value="attention">Needs attention</option>
                 @foreach ($statuses as $option)
                     <option value="{{ $option->value }}">{{ Display::status($option->value) }}</option>
                 @endforeach
@@ -149,6 +150,9 @@
                         <span class="when">{{ Display::dateTime($booking->starts_at, $z) }}</span>
                         <strong>{{ $booking->service?->name }}</strong>
                         <span class="badge badge-{{ $booking->status->value }}">{{ Display::status($booking->status->value) }}</span>
+                        @if ($booking->attention_reason && in_array($booking->status->value, ['held', 'confirmed'], true))
+                            <span class="badge badge-payment" title="{{ $booking->attention_reason }}">Needs attention</span>
+                        @endif
                         <span class="muted small">{{ $who }}, {{ $booking->participants }} {{ $booking->participants === 1 ? 'person' : 'people' }}</span>
                         <span class="muted small">{{ $booking->location?->name }}</span>
                         <span class="muted small">{{ Display::status($booking->payment_status->value) }}</span>

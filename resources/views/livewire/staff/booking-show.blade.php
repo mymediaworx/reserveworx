@@ -28,6 +28,20 @@
     </div>
     @include('livewire.staff.partials.undo-toast')
 
+    @if ($status === 'payment_exception')
+        <section class="notice attention" role="alert" data-needs-attention="payment_exception">
+            <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time, or cancel it with a full refund, and let the customer know.</p>
+        </section>
+    @elseif ($booking->attention_reason && in_array($status, ['held', 'confirmed'], true))
+        <section class="notice attention" role="alert" data-needs-attention="flagged">
+            <p><strong>Needs attention:</strong> {{ $booking->attention_reason }}</p>
+            <p class="muted small">Nothing was cancelled or moved. Move the booking, change the resource, or contact the guest, then mark it handled.</p>
+            @if ($canManage)
+                <button type="button" class="button small" wire:click="clearAttention">Mark handled</button>
+            @endif
+        </section>
+    @endif
+
     @if ($status === 'held' && $holdExpires)
         <p class="notice attention">
             Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.

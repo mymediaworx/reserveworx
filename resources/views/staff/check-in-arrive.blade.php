@@ -30,7 +30,16 @@
     @endif
 
     <section class="panel">
-        <p class="wrap">Booking {{ $arrival->booking->id }}</p>
+        <h2 class="wrap">{{ $customerName }}</h2>
+        <dl class="facts">
+            <div><dt>When</dt><dd>{{ Display::range($arrival->booking->starts_at, $arrival->booking->ends_at, $zone) }}</dd></div>
+            <div><dt>Party</dt><dd>{{ $arrival->booking->participants }} {{ $arrival->booking->participants === 1 ? 'person' : 'people' }}</dd></div>
+            @if ($resources->isNotEmpty())
+                <div><dt>Assigned</dt><dd>{{ $resources->implode(', ') }}</dd></div>
+            @endif
+            <div><dt>Location</dt><dd>{{ $arrival->booking->location?->name }}</dd></div>
+        </dl>
+        <p class="muted small wrap">Booking {{ $arrival->booking->id }}</p>
         <p>Arrival: {{ Display::status($arrival->booking->operational_status->value) }}</p>
         <p>
             Balance due
@@ -53,6 +62,11 @@
             <p class="wrap">Override: {{ $arrival->booking->check_in_waiver_override_reason }}</p>
         @endif
     </section>
+
+    <p class="actions">
+        <a class="button primary" href="/staff/bookings/{{ $arrival->booking->id }}">{{ $arrival->balanceDueCents ? 'Open booking to take payment' : 'Open booking' }}</a>
+        <a class="button" href="/staff/check-in">Back to arrivals</a>
+    </p>
 
     @if ($arrival->blocked)
         <form method="POST" action="{{ request()->getRequestUri() }}">

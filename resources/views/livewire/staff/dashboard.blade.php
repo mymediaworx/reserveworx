@@ -63,6 +63,18 @@
                 @endif
             </span>
         </a>
+        <a class="stat-card" href="/staff/bookings?status=attention&when=all" wire:navigate data-attention="{{ $attentionCount }}">
+            <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
+            <span class="stat-body">
+                <span class="stat-title">Needs attention</span>
+                <span class="icon-circle {{ $attentionCount > 0 ? 'tone-late' : 'tone-ok' }}"><x-icon name="bell" size="22" /></span>
+                @if ($attentionCount === 0)
+                    <span class="stat-good">All clear</span>
+                @else
+                    <span class="stat-value">{{ $attentionCount }}</span>
+                @endif
+            </span>
+        </a>
         <a class="stat-card" href="/staff/bookings?status=held" wire:navigate>
             <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
             <span class="stat-body">
