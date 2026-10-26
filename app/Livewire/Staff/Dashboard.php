@@ -3,6 +3,7 @@
 namespace App\Livewire\Staff;
 
 use App\Enums\BookingStatus;
+use App\Enums\DepartureStatus;
 use App\Enums\TenantStatus;
 use App\Livewire\Concerns\WithinTenant;
 use App\Livewire\Staff\Concerns\LoadsBookingRows;
@@ -16,6 +17,7 @@ use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Onboarding\OnboardingChecklist;
 use App\Services\Onboarding\OnboardingProgress;
+use App\Services\Scheduling\TourMinimum;
 use App\Services\Signup\SignupVerification;
 use App\Services\TenantLifecycle;
 use App\Services\Workspaces\WorkspaceDirectory;
@@ -63,6 +65,21 @@ class Dashboard extends Component
             ->where('ends_at', '>', $start)
             ->orderBy('starts_at')
             ->get();
+        $upcomingDepartures = Departure::query()
+            ->with('service')
+            ->where('status', DepartureStatus::Scheduled)
+            ->where('starts_at', '>', $now)
+            ->where('starts_at', '<=', $now->addDays(TourMinimum::HOME_HORIZON_DAYS))
+            ->orderBy('starts_at')
+            ->orderBy('id')
+            ->get();
+        $departureSummary = app(TourMinimum::class)->summarize(
+            $departures->concat($upcomingDepartures)->unique('id')->values(),
+            $now,
+        );
+        $belowMinimum = $upcomingDepartures
+            ->filter(fn (Departure $departure): bool => $departureSummary[$departure->id]['belowMinimum'] ?? false)
+            ->values();
 
         $setting = TenantSetting::query()->first();
         $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
@@ -91,6 +108,8 @@ class Dashboard extends Component
             'firstName' => $firstName,
             'today' => $today,
             'departures' => $departures,
+            'departureSummary' => $departureSummary,
+            'belowMinimum' => $belowMinimum,
             'todayCount' => $today->count(),
             'overdueCount' => (clone $overdue)->count(),
             'overdueRentals' => $overdueRentals,

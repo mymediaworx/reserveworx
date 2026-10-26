@@ -4,7 +4,7 @@
     $status = $booking->status->value;
     $who = $customer?->name ?: ($customer?->email ?: 'Walk-in');
 @endphp
-<li class="rail-item status-{{ $status }}">
+<li class="rail-item status-{{ $status }}" data-booking="{{ $booking->id }}">
     <time class="rail-time" datetime="{{ $booking->starts_at->toIso8601String() }}">
         @if ($showDate)<span class="rail-date">{{ Display::date($booking->starts_at, $zone) }}</span>@endif
         {{ Display::time($booking->starts_at, $zone) }}

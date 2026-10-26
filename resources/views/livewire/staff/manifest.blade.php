@@ -9,6 +9,8 @@
         .manifest-facts dd { margin: 0; overflow-wrap: anywhere; }
         .manifest-location { margin-top: 1.5rem; }
         .manifest-location h2 { margin: 0; }
+        .departure-list { list-style: none; margin: 0.75rem 0; padding: 0; display: grid; gap: 0.5rem; }
+        .departure-list li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; align-items: center; min-width: 0; }
         @media (max-width: 390px) {
             .manifest-page { min-width: 0; }
             .manifest-page .manifest-card,
@@ -16,6 +18,10 @@
             .manifest-page .manifest-facts div { grid-template-columns: 1fr; }
             .manifest-page .button,
             .manifest-page .manifest-toolbar .button { width: 100%; }
+            .manifest-page .departure-list,
+            .manifest-page .departure-list li,
+            .manifest-page .departure-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .manifest-page .departure-list .badge { white-space: normal; }
         }
         @media print {
             .app-side,
@@ -117,6 +123,28 @@
                 <section class="manifest-location" data-location="{{ $section['id'] }}">
                     <h2>{{ $section['name'] }}</h2>
                     <p class="lede">{{ $section['timezone'] }}</p>
+                    @if (($section['departures'] ?? []) !== [])
+                        <h3>Departures</h3>
+                        <ul class="departure-list">
+                            @foreach ($section['departures'] as $row)
+                                <li data-departure="{{ $row['departure']->id }}" @if ($row['belowMinimum']) data-below-minimum="{{ $row['departure']->id }}" @endif>
+                                    <strong>{{ Display::time($row['departure']->starts_at, $row['timezone']) }}</strong>
+                                    <span>{{ $row['departure']->service?->name ?? 'Tour' }}</span>
+                                    <span class="muted">
+                                        @if ($row['belowMinimum'] && is_int($row['minimum']))
+                                            {{ $row['participants'] }} of {{ $row['minimum'] }}
+                                        @else
+                                            {{ $row['participants'] }}{{ $row['departure']->seats ? '/'.$row['departure']->seats : '' }}
+                                        @endif
+                                    </span>
+                                    @if ($row['belowMinimum'])
+                                        <span class="badge badge-below-minimum">Below minimum</span>
+                                    @endif
+                                    <a href="/staff/calendar?view=day&amp;date={{ $date }}&amp;location={{ $section['id'] }}" wire:navigate>Calendar</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
                     @if ($section['bookings'] === [])
                         <p class="empty">No bookings at this location on this day.</p>
                     @else
