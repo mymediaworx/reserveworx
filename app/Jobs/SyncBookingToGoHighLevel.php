@@ -2,17 +2,21 @@
 
 namespace App\Jobs;
 
+use App\Domain\Fees\FeeChannel;
 use App\Enums\TenantStatus;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\GhlConnection;
 use App\Models\Location;
 use App\Models\Payment;
+use App\Models\PricingSnapshot;
 use App\Models\Service;
 use App\Models\Tenant;
+use App\Services\Integrations\GhlContacts;
 use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Integrations\GhlSyncLogger;
 use App\Services\Integrations\GoHighLevelClient;
+use App\Support\BookingReference;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Bus\Queueable;
@@ -42,7 +46,7 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         return [60, 300, 900, 3600, 10800];
     }
 
-    public function handle(TenantManager $tenants, GoHighLevelClient $client, GhlSyncLogger $logger): void
+    public function handle(TenantManager $tenants, GoHighLevelClient $client, GhlContacts $contacts, GhlSyncLogger $logger): void
     {
         $tenant = Tenant::query()->find($this->tenantId);
 
@@ -67,7 +71,7 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         $tenants->set($tenant);
 
         try {
-            $this->sync($client, $logger);
+            $this->sync($client, $contacts, $logger);
         } finally {
             if ($previous instanceof Tenant) {
                 $tenants->set($previous);
@@ -77,7 +81,7 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         }
     }
 
-    private function sync(GoHighLevelClient $client, GhlSyncLogger $logger): void
+    private function sync(GoHighLevelClient $client, GhlContacts $contacts, GhlSyncLogger $logger): void
     {
         $connection = GhlConnection::withoutGlobalScope(TenantScope::class)
             ->where('tenant_id', $this->tenantId)
@@ -210,9 +214,9 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         $location = $location instanceof Location ? $location : null;
 
         try {
-            $contactId = $client->upsertContact($token, $locationId, $this->contact($customer->name, $email, $phone));
+            $contactId = $contacts->resolve($token, $this->tenantId, $locationId, $customer->id, $this->contact($customer->name, $email, $phone));
             $client->addTags($token, $contactId, ['reserveworx', 'reserveworx-'.str_replace('.', '-', $this->kind)]);
-            $client->addNote($token, $contactId, $this->note($booking, $service, $location, $paymentId));
+            $client->addNote($token, $contactId, $this->note($booking, $customer, $service, $location, $paymentId));
         } catch (GhlRequestFailed $exception) {
             $logger->write(
                 tenantId: $this->tenantId,
@@ -276,7 +280,7 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         return $contact;
     }
 
-    private function note(Booking $booking, ?Service $service, ?Location $location, ?string $paymentId): string
+    private function note(Booking $booking, Customer $customer, ?Service $service, ?Location $location, ?string $paymentId): string
     {
         $timezone = $location instanceof Location && $location->timezone !== ''
             ? $location->timezone
@@ -288,12 +292,41 @@ class SyncBookingToGoHighLevel implements ShouldQueue
         return implode("\n", [
             'ReserveWorx '.$this->kind,
             'Booking '.$booking->id,
+            'Reference '.BookingReference::short($booking->id),
             'Service '.$serviceName,
             'Status '.$booking->status->value,
             'Payment '.$booking->payment_status->value,
             'Starts '.$start.' '.$timezone,
             'Party '.$booking->participants,
+            'Source ReserveWorx',
+            'Attribution '.$this->attribution($booking),
+            'Consent '.$this->consent($customer),
             $marker,
         ]);
+    }
+
+    private function attribution(Booking $booking): string
+    {
+        $snapshot = PricingSnapshot::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $booking->tenant_id)
+            ->where('booking_id', $booking->id)
+            ->first();
+
+        if (! $snapshot instanceof PricingSnapshot) {
+            return 'unrecorded';
+        }
+
+        $channel = $snapshot->payload['channel'] ?? null;
+
+        if ($channel === FeeChannel::Direct->value || $channel === FeeChannel::ThirdParty->value) {
+            return $channel;
+        }
+
+        return 'unrecorded';
+    }
+
+    private function consent(Customer $customer): string
+    {
+        return $customer->feedback_opted_out_at === null ? 'feedback allowed' : 'feedback opted out';
     }
 }
