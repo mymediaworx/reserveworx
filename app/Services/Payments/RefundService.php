@@ -21,6 +21,7 @@ use App\Models\Refund;
 use App\Models\StripeAccount;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -32,6 +33,7 @@ final class RefundService
         private readonly StripeGateway $stripe,
         private readonly AuditLogger $audit,
         private readonly NotificationHooks $hooks,
+        private readonly GhlMessages $ghlMessages,
     ) {}
 
     public function issue(
@@ -114,6 +116,7 @@ final class RefundService
                     'application_fee_refund_cents' => $plan->applicationFeeRefundCents,
                 ],
             );
+            $this->ghlMessages->queueRefund($refund);
         }
 
         return $refund;

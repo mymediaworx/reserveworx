@@ -73,6 +73,16 @@ When a link exists, booking created, booking changed, booking cancelled, and pay
 
 Requests use `https://services.leadconnectorhq.com`, `Authorization: Bearer`, and `Version: 2021-07-28` unless `GHL_BASE_URL` or `GHL_VERSION` is set. A non-2xx response throws `GhlRequestFailed` with the status and the call kind. The message does not include the response body. The job allows 5 tries. Backoff is 60, 300, 900, 3600, then 10800 seconds. Each attempt is a `ghl_sync_logs` row for that workspace. The production queue is `database`, so the job row is not visible to the worker until the booking transaction commits, and a GoHighLevel failure stays in the worker. The generic outbox still does not call HighLevel. `webhook_delivery_attempts` is the tenant endpoint delivery log. It requires an endpoint, stores response bodies, and does not call GoHighLevel, so these attempts stay on `ghl_sync_logs`.
 
+### Booking messages
+
+Spec Section 10 sends confirmations, receipts, reminders, cancellations, refunds (with the booking-fee refund itemized), and overdue rentals through GoHighLevel when the workspace is linked. The platform workspace page at `/platform/tenants/{id}` is where a platform administrator types the Location ID and Private Integration Token. The same platform API still accepts them. The token is cleared from the Livewire snapshot before the response and is not written to the audit row. Tenant staff cannot open that page.
+
+`SendGhlBookingMessage` is queued on the database connection. It allows 5 tries, with backoff of 60, 300, 900, 3600, and 10800 seconds. A 429 uses that same backoff, which is longer than the documented 10-second burst. The job upserts the contact in that workspace's location, then calls `POST /conversations/messages`. Email is used when the customer has an email. SMS is used when they have only a phone. The documented `status` value sent is `pending` (open question 28). The Version header is the same value contact sync sends. Each attempt updates `ghl_message_logs` with the status, HTTP status, and a short error. The row does not store the message body, the response body, or the token. A second queue for the same booking event hits the unique `(tenant_id, dedupe_key)` and does not send again.
+
+No link leaves the existing email path alone. A linked confirmation or reminder is not also emailed. Turning the matching transactional message off records a skip and does not send. A GoHighLevel failure stays in the worker. The generic outbox still does not call HighLevel.
+
+The send-message schema was read on October 26, 2026 from https://marketplace.gohighlevel.com/docs/ghl/conversations/send-a-new-message/index.html. Required body fields there are `type`, `contactId`, and `status`. `type` is `Email` or `SMS`.
+
 The rest of this section is the research that led to the earlier OAuth proposal. It is not the implementation.
 
 Two supported auth types are documented: a Private Integration Token, and OAuth 2.0. v1 API keys are end of life. Do not build on them.

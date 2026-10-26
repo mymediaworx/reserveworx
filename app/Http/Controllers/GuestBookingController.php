@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\GhlMessageKind;
 use App\Enums\OperationalStatus;
 use App\Enums\ServiceKind;
 use App\Models\Asset;
@@ -14,6 +15,7 @@ use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Booking\RentalExtensions;
+use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
 use Carbon\CarbonImmutable;
@@ -31,6 +33,7 @@ class GuestBookingController extends Controller
         private readonly Allocator $allocator,
         private readonly NotificationHooks $hooks,
         private readonly RentalExtensions $extensions,
+        private readonly GhlMessages $ghlMessages,
     ) {}
 
     public function lookupForm(Request $request, string $token): View
@@ -94,6 +97,7 @@ class GuestBookingController extends Controller
             'booking.guest_cancelled:'.$booking->id,
             ['booking_id' => $booking->id],
         );
+        $this->ghlMessages->queueBooking($booking->fresh() ?? $booking, GhlMessageKind::GuestCancelled);
 
         return $this->manageResponse($token, $booking->fresh() ?? $booking, null, 200);
     }

@@ -30,12 +30,12 @@ class GhlSyncLogger
             'attempt' => max(1, $attempt),
             'status' => $status,
             'http_status' => $httpStatus,
-            'error' => $this->safe($error, $secret),
+            'error' => $this->redact($error, $secret),
             'location_id' => $locationId,
         ]);
     }
 
-    private function safe(?string $error, ?string $secret): ?string
+    public function redact(?string $error, ?string $secret): ?string
     {
         if ($error === null || $error === '') {
             return null;

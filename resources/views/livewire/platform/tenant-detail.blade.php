@@ -116,6 +116,47 @@
         </section>
 
         <section class="panel">
+            <h2>GoHighLevel</h2>
+            <p class="muted small">One BrandWorx sub-account for this workspace. Paste the Location ID and Private Integration Token here. The token is stored encrypted and is not shown again.</p>
+            @if ($ghlConnection)
+                <p>Linked to location <strong>{{ $ghlConnection->location_id }}</strong>.</p>
+            @else
+                <p>Not linked. Booking messages stay here until a location is saved.</p>
+            @endif
+            <form wire:submit="saveGhl" class="stack">
+                <label class="field">
+                    <span>Location ID</span>
+                    <input type="text" wire:model="ghlLocationId" maxlength="64" autocomplete="off" spellcheck="false" required>
+                </label>
+                @error('ghlLocationId')<p class="error">{{ $message }}</p>@enderror
+                <label class="field">
+                    <span>Private Integration Token</span>
+                    <input type="password" wire:model="ghlToken" maxlength="2000" autocomplete="new-password" spellcheck="false">
+                </label>
+                <p class="muted small">@if ($ghlConnection)Leave the token blank to keep the one already stored.@else Paste the token from that sub-account. It is not written to the log.@endif</p>
+                @error('ghlToken')<p class="error">{{ $message }}</p>@enderror
+                <div class="actions">
+                    <button type="submit" class="button primary">Save GoHighLevel</button>
+                    @if ($ghlConnection)
+                        <button type="button" class="button" wire:click="testGhl">Test connection</button>
+                        <button type="button" class="button danger" wire:click="removeGhl" wire:confirm="Remove the GoHighLevel link for this workspace?">Remove link</button>
+                    @endif
+                </div>
+            </form>
+            @if ($ghlMessages->isNotEmpty())
+                <h3>Messages</h3>
+                <ul class="rows compact top-gap">
+                    @foreach ($ghlMessages as $message)
+                        <li class="row">
+                            <span class="grow"><strong>{{ $message->label() }}</strong> <span class="muted">{{ $message->status }}@if ($message->attempts > 0), {{ $message->attempts }} {{ $message->attempts === 1 ? 'try' : 'tries' }}@endif</span></span>
+                            @if ($message->error)<span class="muted">{{ $message->error }}</span>@endif
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
+
+        <section class="panel">
             <h2>Data export</h2>
             <p class="muted small">A private copy of this workspace. Passwords are left out. Closing for good stays unavailable until a file is saved here. The file is a snapshot, so export again if you change data first.</p>
             <button type="button" class="button" wire:click="exportData">Export workspace data</button>

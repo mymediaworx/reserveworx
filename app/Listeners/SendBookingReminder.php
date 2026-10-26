@@ -10,6 +10,7 @@ use App\Models\BookingReminder;
 use App\Models\NotificationHook;
 use App\Models\Tenant;
 use App\Notifications\BookingReminderNotification;
+use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Notifications\TransactionalEmailPreferences;
 use App\Tenancy\TenantContextException;
@@ -31,6 +32,7 @@ class SendBookingReminder implements ShouldQueue
         private readonly TenantManager $tenants,
         private readonly NotificationHooks $hooks,
         private readonly TransactionalEmailPreferences $preferences,
+        private readonly GhlMessages $ghlMessages,
     ) {}
 
     public function handle(BookingReminderDue $event): void
@@ -99,9 +101,15 @@ class SendBookingReminder implements ShouldQueue
                 $email = $booking->customer?->email;
                 $mailer = config('mail.default');
                 $mailer = is_string($mailer) ? $mailer : '';
+                $sentThroughGhl = $this->ghlMessages->queueReminder($booking, $event->offsetMinutes);
 
                 if ($hook instanceof NotificationHook) {
-                    if (! $this->preferences->enabled($tenant->id, 'booking.reminder')) {
+                    if ($sentThroughGhl) {
+                        $hook->delivery_status = 'skipped';
+                        $hook->delivery_error = 'GoHighLevel sends this reminder.';
+                        $hook->attempted_at = $now;
+                        $hook->save();
+                    } elseif (! $this->preferences->enabled($tenant->id, 'booking.reminder')) {
                         $hook->delivery_status = 'skipped';
                         $hook->delivery_error = 'The workspace turned off booking reminder email.';
                         $hook->attempted_at = $now;

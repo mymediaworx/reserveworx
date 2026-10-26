@@ -3,10 +3,12 @@
 namespace App\Services\Notifications;
 
 use App\Enums\BookingStatus;
+use App\Enums\GhlMessageKind;
 use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\RentalCheckout;
 use App\Services\Feedback\FeedbackRequests;
+use App\Services\Integrations\GhlMessages;
 
 /**
  * Queues the notification hooks staff and guest flows already perform.
@@ -19,6 +21,7 @@ final class BookingEvents
         private readonly NotificationHooks $hooks,
         private readonly FeedbackRequests $feedback,
         private readonly BookingConfirmationMail $confirmationMail,
+        private readonly GhlMessages $ghlMessages,
     ) {}
 
     public function confirmed(Booking $booking): void
@@ -34,7 +37,10 @@ final class BookingEvents
             'booking.confirmed:'.$booking->id,
             ['booking_id' => $booking->id],
         );
-        $this->confirmationMail->send($booking);
+
+        if (! $this->ghlMessages->queueBooking($booking, GhlMessageKind::Confirmed)) {
+            $this->confirmationMail->send($booking);
+        }
     }
 
     public function cancelled(Booking $booking): void
@@ -46,6 +52,7 @@ final class BookingEvents
             'booking.cancelled:'.$booking->id,
             ['booking_id' => $booking->id],
         );
+        $this->ghlMessages->queueBooking($booking, GhlMessageKind::Cancelled);
     }
 
     public function checkedOut(Booking $booking): void
@@ -91,6 +98,7 @@ final class BookingEvents
                 'amount_cents' => $payment->amount_cents,
             ],
         );
+        $this->ghlMessages->queueReceipt($payment);
     }
 
     public function paymentFailed(string $tenantId, string $bookingId, string $dedupeKey): void
@@ -117,5 +125,6 @@ final class BookingEvents
                 'due_at' => $checkout->due_at->toIso8601String(),
             ],
         );
+        $this->ghlMessages->queueOverdue($checkout);
     }
 }

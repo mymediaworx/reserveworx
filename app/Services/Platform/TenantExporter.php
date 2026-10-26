@@ -21,6 +21,7 @@ use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
 use App\Models\GhlConnection;
+use App\Models\GhlMessageLog;
 use App\Models\GhlSyncLog;
 use App\Models\Hold;
 use App\Models\Incident;
@@ -325,6 +326,7 @@ class TenantExporter
             IntegrationOutbox::class,
             GhlConnection::class,
             GhlSyncLog::class,
+            GhlMessageLog::class,
             AuditLog::class,
         ];
     }
