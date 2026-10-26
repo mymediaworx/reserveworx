@@ -231,6 +231,40 @@ img { max-width: 100%; }
 }
 .fab:hover { background: var(--brand-strong); color: var(--brand-ink); }
 
+/* The floating action sits above the tab bar. Stop the scrolling column
+   above that button so page controls, including a full-width Apply, stay
+   clear of it. From 1024px the button is hidden and this does not apply. */
+@media (max-width: 1023px) {
+    body.app:has(.fab) {
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+    }
+    body.app:has(.fab) .app-shell {
+        height: 100%;
+        min-height: 0;
+    }
+    body.app:has(.fab) .app-main {
+        max-height: calc(100vh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem);
+        max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem);
+        min-height: 0;
+        overflow-y: auto;
+    }
+    body.app:has(.fab) .app-content {
+        padding-bottom: 1.25rem;
+    }
+}
+
+@media print {
+    body.app:has(.fab),
+    body.app:has(.fab) .app-shell,
+    body.app:has(.fab) .app-main {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+    }
+}
+
 .platform-content { padding-bottom: 3rem; }
 .page > .panel + .panel, .page > .stat-grid + .panel { margin-top: 1.25rem; }
 .spin { animation: spin 0.8s linear infinite; }
