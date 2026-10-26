@@ -184,7 +184,7 @@ class TodayDashboardTest extends TestCase
         $this->post($this->tenantUrl('other.test', '/admin/login'), [
             'email' => $workspace['user']->email,
             'password' => 'password',
-        ])->assertRedirect(route('admin.login'))
+        ])->assertRedirect('/staff/login')
             ->assertSessionHasErrors('email');
 
         $this->flushSession();

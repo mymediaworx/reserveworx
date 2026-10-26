@@ -30,7 +30,9 @@ class SessionController extends Controller
             return redirect()->route('staff.home');
         }
 
-        return view('admin.login');
+        // One sign-in page per tenant: /admin/login hands off to the staff sign-in,
+        // which has the password reset link.
+        return redirect('/staff/login');
     }
 
     public function store(Request $request): RedirectResponse
@@ -47,7 +49,7 @@ class SessionController extends Controller
                 request: $request,
             );
 
-            return redirect()->route('admin.login')->withErrors([
+            return redirect('/staff/login')->withErrors([
                 'email' => 'These credentials do not match our records.',
             ])->onlyInput('email');
         }
