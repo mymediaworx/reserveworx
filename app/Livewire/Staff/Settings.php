@@ -14,6 +14,8 @@ use App\Models\StripeAccount;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Booking\CancellationPolicies;
+use App\Services\Onboarding\SetupGuide;
+use App\Tenancy\Access;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -201,7 +203,23 @@ class Settings extends Component
             'directRate' => FeeRate::fromTenantSetting($setting, FeeChannel::Direct),
             'account' => $account,
             'canUpdate' => $this->allows('settings.update'),
+            'canSeeSetupGuide' => $this->ownerOrManager(),
+            'setupGuideHidden' => app(SetupGuide::class)->isHidden($this->tenant()),
         ]);
+    }
+
+    public function toggleSetupGuide(SetupGuide $guide): void
+    {
+        abort_unless($this->ownerOrManager(), 403);
+        $hidden = ! $guide->isHidden($this->tenant());
+        $guide->setHidden($this->tenant(), $hidden);
+        $this->flash = $hidden ? 'Setup guide hidden.' : 'Setup guide turned back on.';
+        $this->problem = null;
+    }
+
+    private function ownerOrManager(): bool
+    {
+        return app(Access::class)->hasRole($this->currentUser(), $this->tenant()->id, 'owner', 'manager');
     }
 
     private function loadPolicy(CancellationPolicies $policies): void

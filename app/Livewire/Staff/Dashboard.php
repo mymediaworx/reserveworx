@@ -18,10 +18,12 @@ use App\Models\User;
 use App\Services\Booking\BookingListFilters;
 use App\Services\Onboarding\OnboardingChecklist;
 use App\Services\Onboarding\OnboardingProgress;
+use App\Services\Onboarding\SetupGuide;
 use App\Services\Scheduling\TourMinimum;
 use App\Services\Signup\SignupVerification;
 use App\Services\TenantLifecycle;
 use App\Services\Workspaces\WorkspaceDirectory;
+use App\Tenancy\Access;
 use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
@@ -141,10 +143,45 @@ class Dashboard extends Component
             'isEmptyWorkspace' => ! Location::query()->exists() || ! Service::query()->exists(),
             'canManageSetup' => $this->allows('inventory.manage'),
             'onboarding' => $onboarding,
+            'setupGuide' => $this->setupGuideSummary(),
             'progress' => $progress,
             'isOwner' => $user instanceof User && app(WorkspaceDirectory::class)->isOwner($user, $this->tenant()->id),
             'canResend' => $progress instanceof OnboardingProgress && $user instanceof User && $progress->canResend($user),
         ]);
+    }
+
+    /**
+     * @return array{done: int, total: int}|null
+     */
+    private function setupGuideSummary(): ?array
+    {
+        $user = auth()->user();
+
+        if (! $user instanceof User || ! app(Access::class)->hasRole($user, $this->tenant()->id, 'owner', 'manager')) {
+            return null;
+        }
+
+        $guide = app(SetupGuide::class);
+
+        if ($guide->isHidden($this->tenant())) {
+            return null;
+        }
+
+        $steps = $guide->steps($this->tenant());
+
+        if ($guide->finished($steps)) {
+            return null;
+        }
+
+        return ['done' => collect($steps)->where('state', '!=', 'todo')->count(), 'total' => count($steps)];
+    }
+
+    public function hideSetupGuide(): void
+    {
+        $user = $this->currentUser();
+        abort_unless(app(Access::class)->hasRole($user, $this->tenant()->id, 'owner', 'manager'), 403);
+        app(SetupGuide::class)->setHidden($this->tenant(), true);
+        $this->notice = 'Setup guide hidden. Turn it back on any time in Settings.';
     }
 
     public function resendVerification(SignupVerification $verification, OnboardingChecklist $checklist): void
