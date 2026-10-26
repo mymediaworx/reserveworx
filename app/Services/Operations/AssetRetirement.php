@@ -81,6 +81,26 @@ final class AssetRetirement
     }
 
     /**
+     * Offers already stored on a retired asset. The page and the retire response use the same list.
+     *
+     * @return list<array{booking_id: string, from_asset_id: string, to_asset_id: string}>
+     */
+    public function offersFor(Asset $asset): array
+    {
+        if ($asset->status !== ResourceStatus::Retired || ! is_string($asset->replacement_asset_id) || $asset->replacement_asset_id === '') {
+            return [];
+        }
+
+        $replacement = Asset::query()->find($asset->replacement_asset_id);
+
+        if (! $replacement instanceof Asset) {
+            return [];
+        }
+
+        return $this->offers($asset, $replacement);
+    }
+
+    /**
      * Future confirmed bookings only. Reassignment itself stays on the booking route.
      *
      * @return list<array{booking_id: string, from_asset_id: string, to_asset_id: string}>

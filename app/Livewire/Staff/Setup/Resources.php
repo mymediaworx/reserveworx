@@ -9,14 +9,21 @@ use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Allocation;
 use App\Models\Asset;
+use App\Models\Booking;
 use App\Models\FleetItem;
 use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
 use App\Models\ResourceRequirement;
 use App\Models\ServiceVariantResource;
+use App\Services\Allocation\AllocationUnavailableException;
+use App\Services\Allocation\Allocator;
+use App\Services\Operations\AssetRetirement;
 use App\Services\Staff\StaffUndo;
+use App\Support\BookingReference;
+use App\Support\Display;
 use App\Tenancy\StaffLocationAccess;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -47,6 +54,10 @@ class Resources extends Component
     public string $fleetName = '';
 
     public int $fleetQuantity = 1;
+
+    public string $retireAssetId = '';
+
+    public string $replacementId = '';
 
     public ?string $flash = null;
 
@@ -105,9 +116,74 @@ class Resources extends Component
         abort_if($value === null, 422);
         $resource = $this->resource($type, $id);
         $this->authorize('update', $resource);
+
+        if ($value === ResourceStatus::Retired) {
+            $this->addError($type.'-'.$id, $type === 'asset'
+                ? 'Use Retire to take an item out of service.'
+                : 'A pool cannot be retired.');
+
+            return;
+        }
+
         $resource->status = $value;
         $resource->save();
         $this->audit($type.'.updated', $resource, ['status' => $value->value]);
+    }
+
+    public function openRetire(string $id): void
+    {
+        $asset = $this->asset($id);
+        $this->authorize('update', $asset);
+
+        if ($asset->status === ResourceStatus::Retired) {
+            $this->addError('status', 'This item is already retired.');
+
+            return;
+        }
+
+        $this->retireAssetId = $asset->id;
+        $this->replacementId = '';
+        $this->resetErrorBag();
+    }
+
+    public function cancelRetire(): void
+    {
+        $this->reset('retireAssetId', 'replacementId');
+        $this->resetErrorBag();
+    }
+
+    public function retire(AssetRetirement $retirement): void
+    {
+        $asset = $this->asset($this->retireAssetId);
+        $this->authorize('update', $asset);
+        $result = $retirement->retire($asset, $this->replacementId !== '' ? $this->replacementId : null);
+        $this->audit('asset.retired', $result['asset'], [
+            'replacement_asset_id' => $result['asset']->replacement_asset_id,
+            'flagged_bookings' => $result['flagged_bookings'],
+        ]);
+        $this->reset('retireAssetId', 'replacementId');
+        $this->flash = $result['asset']->name.' is retired. Future bookings stay booked.';
+    }
+
+    public function acceptOffer(string $bookingId, string $fromAssetId, string $toAssetId, Allocator $allocator): void
+    {
+        $booking = Booking::query()->find($bookingId);
+        abort_unless($booking instanceof Booking, 404);
+        $this->authorize('update', $booking);
+
+        try {
+            $saved = $allocator->reassignAsset($booking, $fromAssetId, $toAssetId);
+        } catch (AllocationUnavailableException $exception) {
+            $this->addError('move-'.$bookingId, $exception->getMessage());
+
+            return;
+        }
+
+        $this->audit('booking.reassigned', $saved, [
+            'from_asset_id' => $fromAssetId,
+            'to_asset_id' => $toAssetId,
+        ]);
+        $this->flash = 'Moved onto the replacement. The price stays as it was.';
     }
 
     public function setQuantity(string $id, int $quantity): void
@@ -222,15 +298,98 @@ class Resources extends Component
             $this->locationId = $locations->first()->id;
         }
 
+        $assets = Asset::query()->with(['location', 'replacement'])->orderBy('name')->get();
+
         return view('livewire.staff.setup.resources', [
             'locations' => $locations,
             'pools' => Pool::query()->orderBy('name')->get()->groupBy('location_id'),
-            'assets' => Asset::query()->orderBy('name')->get()->groupBy('location_id'),
+            'assets' => $assets->groupBy('location_id'),
             'fleetItems' => FleetItem::query()->orderBy('name')->get(),
+            'retirement' => $this->retirementView($assets),
             'canManage' => $this->allows('inventory.manage'),
+            'canMoveBookings' => $this->allows('bookings.manage'),
             'canManageFleet' => auth()->user()?->can('create', FleetItem::class) ?? false,
             'statuses' => ResourceStatus::cases(),
         ])->title($this->tenant()->industry->catalog());
+    }
+
+    /**
+     * @param  Collection<int, Asset>  $assets
+     * @return array<string, array{offers: list<array{booking_id: string, reference: string, when: string, customer: string, from_asset_id: string, to_asset_id: string, to_name: string}>, candidates: list<array{id: string, name: string}>}>
+     */
+    private function retirementView(Collection $assets): array
+    {
+        $retirement = app(AssetRetirement::class);
+        $rows = [];
+
+        foreach ($assets as $asset) {
+            $rows[$asset->id] = [
+                'offers' => $asset->status === ResourceStatus::Retired ? $this->offerRows($asset, $retirement) : [],
+                'candidates' => $this->retireAssetId === $asset->id ? $this->candidates($asset) : [],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @return list<array{id: string, name: string}>
+     */
+    private function candidates(Asset $asset): array
+    {
+        if (! is_string($asset->resource_category_id) || $asset->resource_category_id === '') {
+            return [];
+        }
+
+        return Asset::query()
+            ->where('location_id', $asset->location_id)
+            ->where('resource_category_id', $asset->resource_category_id)
+            ->where('status', ResourceStatus::Active)
+            ->whereKeyNot($asset->id)
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Asset $row): array => ['id' => $row->id, 'name' => $row->name])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array{booking_id: string, reference: string, when: string, customer: string, from_asset_id: string, to_asset_id: string, to_name: string}>
+     */
+    private function offerRows(Asset $asset, AssetRetirement $retirement): array
+    {
+        $offers = $retirement->offersFor($asset);
+
+        if ($offers === []) {
+            return [];
+        }
+
+        $bookings = Booking::query()->with('customer')->whereIn('id', array_column($offers, 'booking_id'))->get()->keyBy('id');
+        $zone = $asset->location?->timezone;
+        $zone = is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        $toName = $asset->replacement instanceof Asset ? $asset->replacement->name : 'the replacement';
+        $rows = [];
+
+        foreach ($offers as $offer) {
+            $booking = $bookings->get($offer['booking_id']);
+
+            if (! $booking instanceof Booking) {
+                continue;
+            }
+
+            $customer = $booking->customer?->name;
+            $rows[] = [
+                'booking_id' => $booking->id,
+                'reference' => BookingReference::short($booking->id),
+                'when' => Display::dateTime($booking->starts_at, $zone),
+                'customer' => is_string($customer) && $customer !== '' ? $customer : 'Guest',
+                'from_asset_id' => $offer['from_asset_id'],
+                'to_asset_id' => $offer['to_asset_id'],
+                'to_name' => $toName,
+            ];
+        }
+
+        return $rows;
     }
 
     private function fleetItem(string $id): FleetItem
@@ -239,6 +398,14 @@ class Resources extends Component
         abort_unless($item instanceof FleetItem, 404);
 
         return $item;
+    }
+
+    private function asset(string $id): Asset
+    {
+        $asset = Asset::query()->find($id);
+        abort_unless($asset instanceof Asset, 404);
+
+        return $asset;
     }
 
     private function resource(string $type, string $id): Asset|Pool
