@@ -6,10 +6,12 @@ use App\Domain\Fees\Disclosures\Money;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
 use App\Domain\Pricing\PricingEngine;
+use App\Enums\AddOnKind;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
 use App\Enums\ServiceKind;
+use App\Models\AddOn;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Departure;
@@ -31,6 +33,7 @@ use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
+use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\CheckIn\CheckInPass;
 use App\Services\Inventory\OpeningHours;
@@ -44,8 +47,10 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class WidgetController extends Controller
@@ -57,6 +62,7 @@ class WidgetController extends Controller
         private readonly BookingPricer $pricer,
         private readonly CheckoutService $checkout,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly BookingAddOnLines $addOnLines,
         private readonly CheckInPass $checkInPass,
         private readonly SlotFinder $slots,
     ) {}
@@ -102,6 +108,8 @@ class WidgetController extends Controller
             'departureChoices' => $this->departureChoices($service),
             'slots' => $this->openTimes($service, $chosen),
             'today' => $this->localToday($service),
+            'addOns' => $this->catalogAddOns(),
+            'currency' => $this->currency(),
         ]);
     }
 
@@ -124,6 +132,12 @@ class WidgetController extends Controller
             return $this->formResponse($token, $service, $interval, $request, 422);
         }
 
+        $addOns = $this->chosenAddOns($request, $validated['participants']);
+
+        if (is_string($addOns)) {
+            return $this->formResponse($token, $service, $addOns, $request, 422);
+        }
+
         try {
             $this->previewAt($service, $this->setting($tenant), $validated['participants'], $interval['minutes'], $interval['local']);
             $booking = $this->allocator->hold(new AllocationIntent(
@@ -136,6 +150,7 @@ class WidgetController extends Controller
                 $validated['customer_name'],
                 $validated['customer_email'],
                 $interval['departure_id'],
+                addOns: $addOns,
             ));
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
         } catch (InvalidArgumentException|IdempotencyConflictException|AllocationUnavailableException $exception) {
@@ -452,6 +467,8 @@ class WidgetController extends Controller
             'waiverUrl' => in_array($fresh->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($fresh) : null,
             'taxLines' => $taxLines,
             'currency' => $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
+            'serviceCents' => is_numeric($payload['services_cents'] ?? null) ? (int) $payload['services_cents'] : 0,
+            'addOnLines' => is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
         ]);
     }
 
@@ -806,6 +823,8 @@ class WidgetController extends Controller
             'departureChoices' => $this->departureChoices($service),
             'slots' => $this->openTimes($service, $request->all()),
             'today' => $this->localToday($service),
+            'addOns' => $this->catalogAddOns(),
+            'currency' => $this->currency(),
         ], $status);
     }
 
@@ -1032,5 +1051,93 @@ class WidgetController extends Controller
     private function assertBookingService(Booking $booking): void
     {
         abort_unless($booking->service_id !== '', 404);
+    }
+
+    /**
+     * Active equipment and add-ons in this workspace. Equipment is listed first.
+     *
+     * @return Collection<int, AddOn>
+     */
+    private function catalogAddOns(): Collection
+    {
+        return AddOn::query()
+            ->where('active', true)
+            ->get()
+            ->sort(function (AddOn $left, AddOn $right): int {
+                $kind = ($left->kind === AddOnKind::Equipment ? 0 : 1) <=> ($right->kind === AddOnKind::Equipment ? 0 : 1);
+
+                if ($kind !== 0) {
+                    return $kind;
+                }
+
+                $name = strcasecmp($left->name, $right->name);
+
+                if ($name !== 0) {
+                    return $name;
+                }
+
+                return $left->id <=> $right->id;
+            })
+            ->values();
+    }
+
+    /**
+     * Lines the guest chose on the public form. An empty choice is allowed.
+     * A row that is inactive, from another workspace, or outside its quantity
+     * is refused before a hold is created.
+     *
+     * @return list<array{add_on_id: string, name: string, kind: string, pricing: string, unit_amount_cents: int, quantity: int, total_cents: int}>|string
+     */
+    private function chosenAddOns(Request $request, int $participants): array|string
+    {
+        if (! $request->exists('add_ons')) {
+            return [];
+        }
+
+        $raw = $request->input('add_ons');
+
+        if (! is_array($raw)) {
+            return 'Choose equipment and add-ons from the list.';
+        }
+
+        $requested = [];
+
+        foreach ($raw as $id => $quantity) {
+            if (! is_string($id) || $id === '' || is_array($quantity)) {
+                return 'Choose equipment and add-ons from the list.';
+            }
+
+            $amount = is_numeric($quantity) ? (int) $quantity : 0;
+
+            if ($amount < 1) {
+                continue;
+            }
+
+            $requested[] = [
+                'id' => $id,
+                'quantity' => $amount,
+            ];
+        }
+
+        if (count($requested) > 20) {
+            return 'Choose at most 20 add-ons.';
+        }
+
+        try {
+            return $this->addOnLines->price($participants, $requested);
+        } catch (ValidationException $exception) {
+            $message = $exception->validator->errors()->first();
+
+            return $message !== '' ? $message : 'Choose equipment and add-ons from the list.';
+        }
+    }
+
+    private function currency(): string
+    {
+        $setting = TenantSetting::query()->first();
+
+        return $setting instanceof TenantSetting && $setting->currency !== ''
+            ? $setting->currency
+            : 'USD';
     }
 }
