@@ -18,6 +18,7 @@ final readonly class ManifestBooking
         public CarbonImmutable $startsAt,
         public CarbonImmutable $returnDue,
         public string $resource,
+        public string $guideName,
         public string $customerName,
         public string $customerPhone,
         public int $partySize,

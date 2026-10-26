@@ -8,6 +8,7 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Models\User;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Services\CheckIn\BalanceDue;
@@ -56,7 +57,7 @@ final class DispatchManifest
             $zone = $this->zone($location);
             [$start, $end] = $this->window($date, $zone);
             $bookings = Booking::query()
-                ->with(['service', 'customer', 'namedParticipants', 'addOns', 'allocations'])
+                ->with(['service', 'customer', 'guide', 'namedParticipants', 'addOns', 'allocations'])
                 ->where('location_id', $location->id)
                 ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::NoShow->value])
                 ->where('starts_at', '>=', $start->utc())
@@ -120,6 +121,7 @@ final class DispatchManifest
             'booking_id',
             'service',
             'resource',
+            'guide',
             'customer_name',
             'customer_phone',
             'party_size',
@@ -142,6 +144,7 @@ final class DispatchManifest
                     $booking->id,
                     $booking->service,
                     $booking->resource,
+                    $booking->guideName,
                     $booking->customerName,
                     $booking->customerPhone,
                     $booking->partySize,
@@ -190,6 +193,7 @@ final class DispatchManifest
             startsAt: CarbonImmutable::parse($booking->starts_at)->utc(),
             returnDue: CarbonImmutable::parse($booking->ends_at)->utc(),
             resource: $this->resource($booking, $assets, $pools),
+            guideName: $booking->guide instanceof User ? $booking->guide->name : '',
             customerName: $customer instanceof Customer && $customer->name !== '' ? $customer->name : 'Walk-in',
             customerPhone: $customer instanceof Customer && is_string($customer->phone) ? $customer->phone : '',
             partySize: (int) $booking->participants,

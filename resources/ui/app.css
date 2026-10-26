@@ -693,7 +693,8 @@ fieldset.days { grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr)); 
 
 .facts { display: grid; gap: 0.9rem; margin: 0; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
 .facts dt { font-size: 0.85rem; color: var(--muted); }
-.facts dd { margin: 0; font-weight: 600; }
+.facts dd { margin: 0; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.facts > div { min-width: 0; }
 .tag { display: inline-block; background: var(--brand-soft); color: var(--brand-soft-ink); border-radius: 999px; padding: 0.1rem 0.6rem; margin: 0 0.25rem 0.25rem 0; font-weight: 600; font-size: 0.85rem; }
 .history { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; font-size: 0.9rem; }
 .history li { display: flex; justify-content: space-between; gap: 1rem; }
