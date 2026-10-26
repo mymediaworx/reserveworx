@@ -345,6 +345,9 @@ class WebhookDeliveryTest extends TestCase
             '--sleep' => 0,
             '--tries' => 5,
             '--max-time' => 15,
+            // The suite is one process. The worker's 128 MB stop measures that
+            // process, so a late test exits 12 before the delivery job runs.
+            '--memory' => 1024,
         ])->assertSuccessful();
     }
 
