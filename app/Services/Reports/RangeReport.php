@@ -11,7 +11,8 @@ use DateTimeZone;
  * One staff report for an inclusive date window. Utilization, conversion,
  * average order value, and revenue per resource-hour are rolled up from
  * stored summary rows. They are not recomputed from bookings. Revenue,
- * payments, rates, and customers use the same bounded reads as the API.
+ * payments, rates, customers, and tour departures use the same bounded
+ * reads as the API. The tour rows are not written into a summary.
  */
 final class RangeReport
 {
@@ -20,6 +21,7 @@ final class RangeReport
         private readonly ServiceRevenue $serviceRevenue,
         private readonly OperationsReport $operations,
         private readonly CustomerReport $customers,
+        private readonly TourAttendance $tours,
         private readonly CsvTable $csv,
     ) {}
 
@@ -93,7 +95,19 @@ final class RangeReport
      *     utilization_bps: int|null,
      *     conversion_bps: int|null,
      *     average_order_cents: int|null,
-     *     revenue_per_resource_hour_cents: int|null
+     *     revenue_per_resource_hour_cents: int|null,
+     *     tours: list<array{
+     *         departure_id: string,
+     *         service: string,
+     *         location: string,
+     *         starts_at: string,
+     *         capacity: int,
+     *         seats_booked: int,
+     *         seats_attended: int,
+     *         no_show_seats: int,
+     *         fill_rate_bps: int|null,
+     *         attendance_rate_bps: int|null
+     *     }>
      * }
      */
     public function build(string $from, string $to, ?string $locationId): array
@@ -123,6 +137,7 @@ final class RangeReport
             'conversion_bps' => $summary['conversion_bps'],
             'average_order_cents' => $summary['average_order_cents'],
             'revenue_per_resource_hour_cents' => $summary['revenue_per_resource_hour_cents'],
+            'tours' => $this->tourRows($from, $to, $locationId),
         ];
     }
 
@@ -152,6 +167,22 @@ final class RangeReport
             $rows[] = $this->blankRow('attribution', [
                 'bookings' => $row['bookings'],
                 'channel' => $row['channel'],
+            ]);
+        }
+
+        foreach ($report['tours'] as $row) {
+            $rows[] = $this->blankRow('tour', [
+                'departure_id' => $row['departure_id'],
+                'location' => $row['location'],
+                'date' => substr($row['starts_at'], 0, 10),
+                'service' => $row['service'],
+                'starts_at' => $row['starts_at'],
+                'capacity' => $row['capacity'],
+                'seats_booked' => $row['seats_booked'],
+                'seats_attended' => $row['seats_attended'],
+                'no_show_seats' => $row['no_show_seats'],
+                'fill_rate_bps' => $row['fill_rate_bps'],
+                'attendance_rate_bps' => $row['attendance_rate_bps'],
             ]);
         }
 
@@ -247,7 +278,55 @@ final class RangeReport
             'average_order_cents',
             'revenue_per_resource_hour_cents',
             'channel',
+            'departure_id',
+            'starts_at',
+            'capacity',
+            'seats_booked',
+            'seats_attended',
+            'no_show_seats',
+            'fill_rate_bps',
+            'attendance_rate_bps',
         ];
+    }
+
+    /**
+     * @return list<array{
+     *     departure_id: string,
+     *     service: string,
+     *     location: string,
+     *     starts_at: string,
+     *     capacity: int,
+     *     seats_booked: int,
+     *     seats_attended: int,
+     *     no_show_seats: int,
+     *     fill_rate_bps: int|null,
+     *     attendance_rate_bps: int|null
+     * }>
+     */
+    private function tourRows(string $from, string $to, ?string $locationId): array
+    {
+        $rows = [];
+
+        foreach ($this->tours->build($from, $to) as $row) {
+            if ($locationId !== null && $row['location_id'] !== $locationId) {
+                continue;
+            }
+
+            $rows[] = [
+                'departure_id' => $row['departure_id'],
+                'service' => $row['service'],
+                'location' => $row['location'],
+                'starts_at' => $row['starts_at'],
+                'capacity' => $row['capacity'],
+                'seats_booked' => $row['seats_booked'],
+                'seats_attended' => $row['seats_attended'],
+                'no_show_seats' => $row['no_show_seats'],
+                'fill_rate_bps' => $row['fill_rate_bps'],
+                'attendance_rate_bps' => $row['attendance_rate_bps'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**
