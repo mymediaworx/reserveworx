@@ -48,6 +48,13 @@ return [
             'driver' => 'customer-token',
             'provider' => 'customer_accounts',
         ],
+
+        // First-party pages on the workspace host. The booking widget stays
+        // cookie-free. This session is not the staff session and not the API token.
+        'customer_web' => [
+            'driver' => 'session',
+            'provider' => 'customer_accounts',
+        ],
     ],
 
     /*

@@ -203,7 +203,7 @@ final class CustomerAccounts
             'expires_at' => now()->addMinutes(self::LINK_MINUTES),
         ]);
 
-        $url = $request->getSchemeAndHttpHost().'/api/v1/customer/sign-in/'.$plain.'?'.http_build_query([
+        $url = $request->getSchemeAndHttpHost().'/account/sign-in/'.$plain.'?'.http_build_query([
             'email' => $account->email,
         ]);
 

@@ -76,7 +76,8 @@ class CreateTenantTest extends TestCase
     public function test_the_committed_manifest_lists_yak_shack(): void
     {
         $manifest = require base_path('config/tenants.php');
-        $this->assertContains('yakshack', array_column($manifest, 'slug'));
+        $this->assertContains('yak-shack', array_column($manifest, 'slug'));
+        $this->assertContains('yakshack.reserveworx.com', array_column($manifest, 'hostname'));
     }
 
     public function test_sync_reports_a_hostname_held_by_another_workspace_without_failing(): void
@@ -89,5 +90,35 @@ class CreateTenantTest extends TestCase
             ->expectsOutputToContain('skipped=hostname belongs to another workspace: slug=yak-shack')
             ->assertSuccessful();
         $this->assertSame(1, Tenant::query()->count());
+    }
+
+    public function test_sync_adopts_an_existing_workspace_by_hostname_and_only_adds_what_is_missing(): void
+    {
+        $tenant = Tenant::factory()->create(['slug' => 'yak-shack', 'name' => 'Yak Shack']);
+        Domain::factory()->create(['tenant_id' => $tenant->id, 'hostname' => 'yakshack.reserveworx.com', 'verified_at' => now()]);
+        $owner = User::factory()->create(['email' => 'michael@brandworx.ai']);
+        $hash = $owner->password;
+        config(['tenants' => [['slug' => 'yak-shack', 'hostname' => 'yakshack.reserveworx.com', 'name' => 'Ignored Rename', 'owner_email' => 'michael@brandworx.ai', 'timezone' => 'America/New_York']]]);
+
+        $this->artisan('reserveworx:tenant:sync')
+            ->expectsOutputToContain('tenant=yak-shack created=location,owner_membership')
+            ->expectsOutputToContain('tenant_host=yakshack.reserveworx.com')
+            ->assertSuccessful();
+        $this->artisan('reserveworx:tenant:sync')->expectsOutputToContain('created=none')->assertSuccessful();
+
+        $this->assertSame(1, Tenant::query()->count());
+        $this->assertSame('Yak Shack', $tenant->fresh()->name);
+        $this->assertSame(1, Domain::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame(1, Location::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenant->id)->count());
+        $this->assertSame(1, Membership::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenant->id)->count());
+        $this->assertSame($hash, $owner->fresh()->password);
+        Notification::assertSentToTimes($owner, ResetPasswordLink::class, 1);
+    }
+
+    public function test_hostname_outside_the_apex_is_refused(): void
+    {
+        $this->artisan('reserveworx:tenant:create', ['slug' => 'yak-shack', '--name' => 'X', '--hostname' => 'evil.com'])->assertFailed();
+        $this->artisan('reserveworx:tenant:create', ['slug' => 'yak-shack', '--name' => 'X', '--hostname' => 'app.reserveworx.com'])->assertFailed();
+        $this->assertSame(0, Tenant::query()->count());
     }
 }
