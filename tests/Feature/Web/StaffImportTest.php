@@ -66,6 +66,7 @@ class StaffImportTest extends TestCase
             '--sleep' => 0,
             '--tries' => 3,
             '--max-time' => 20,
+            '--memory' => 1024,
         ])->assertSuccessful();
     }
 
@@ -77,6 +78,7 @@ class StaffImportTest extends TestCase
             '--sleep' => 0,
             '--tries' => 3,
             '--max-time' => 20,
+            '--memory' => 1024,
         ])->assertSuccessful();
     }
 
