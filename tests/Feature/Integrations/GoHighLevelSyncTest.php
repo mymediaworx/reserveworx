@@ -12,16 +12,19 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\GhlConnection;
+use App\Models\GhlMapping;
 use App\Models\GhlSyncLog;
 use App\Models\Location;
 use App\Models\Payment;
 use App\Models\PlatformAdministrator;
+use App\Models\PricingSnapshot;
 use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Notifications\BookingEvents;
 use App\Services\Payments\FakeStripeGateway;
+use App\Support\BookingReference;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Database\Seeders\RoleAndPermissionSeeder;
@@ -209,6 +212,7 @@ class GoHighLevelSyncTest extends TestCase
         $booking->save();
 
         $upserts = [];
+        $updates = [];
         $tags = [];
         $notes = [];
 
@@ -223,6 +227,13 @@ class GoHighLevelSyncTest extends TestCase
                 $upserts[] = $request->data();
             }
 
+            if ($request->method() === 'PUT' && str_contains($request->url(), '/contacts/')) {
+                $updates[] = $request->data();
+                $this->assertStringEndsWith('/contacts/contact-1', $request->url());
+                $this->assertArrayNotHasKey('locationId', $request->data());
+                $this->assertArrayNotHasKey('tags', $request->data());
+            }
+
             if (str_contains($request->url(), '/tags')) {
                 $tags[] = $request->data();
             }
@@ -232,9 +243,16 @@ class GoHighLevelSyncTest extends TestCase
             }
         }
 
-        $this->assertCount(4, $upserts);
+        $this->assertCount(1, $upserts);
+        $this->assertCount(3, $updates);
         $this->assertCount(4, $tags);
         $this->assertCount(4, $notes);
+        $this->assertDatabaseHas('ghl_mappings', [
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $booking->customer_id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-1',
+        ]);
 
         foreach ($upserts as $upsert) {
             $this->assertSame('loc_alpha', $upsert['locationId']);
@@ -253,10 +271,14 @@ class GoHighLevelSyncTest extends TestCase
         $this->assertContains(['reserveworx', 'reserveworx-payment-succeeded'], $sentTags);
 
         $bodies = array_map(fn (array $payload): string => (string) $payload['body'], $notes);
-        $this->assertStringContainsString('Service Sunset rental', implode("\n", $bodies));
-        $this->assertStringContainsString('Starts 2026-06-16 15:00:00 UTC', implode("\n", $bodies));
-        $this->assertStringContainsString('reserveworx:booking.created:'.$booking->id.':', implode("\n", $bodies));
-        $this->assertStringContainsString('reserveworx:payment.succeeded:'.$booking->id.':'.$payment->id, implode("\n", $bodies));
+        $joined = implode("\n", $bodies);
+        $this->assertStringContainsString('Service Sunset rental', $joined);
+        $this->assertStringContainsString('Reference '.BookingReference::short($booking->id), $joined);
+        $this->assertStringContainsString('Attribution unrecorded', $joined);
+        $this->assertStringContainsString('Consent feedback allowed', $joined);
+        $this->assertStringContainsString('Starts 2026-06-16 15:00:00 UTC', $joined);
+        $this->assertStringContainsString('reserveworx:booking.created:'.$booking->id.':', $joined);
+        $this->assertStringContainsString('reserveworx:payment.succeeded:'.$booking->id.':'.$payment->id, $joined);
 
         foreach ($notes as $note) {
             $this->assertArrayNotHasKey('userId', $note);
@@ -728,6 +750,225 @@ class GoHighLevelSyncTest extends TestCase
         $this->assertNull($log->booking_id);
         $this->assertStringNotContainsString('bea@example.com', (string) $log->error);
         $this->assertStringNotContainsString($betaToken, (string) DB::table('ghl_sync_logs')->get()->toJson());
+    }
+
+    public function test_later_sends_update_the_stored_contact_for_that_workspace_only(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        $beta = $this->workspace('beta.test');
+        $alphaToken = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
+        $betaToken = 'pit-beta-DO-NOT-LEAK-1188aa44cc00';
+        $this->link($alpha['tenant']->id, 'loc_alpha', $alphaToken);
+        $this->link($beta['tenant']->id, 'loc_beta', $betaToken);
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) {
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                $location = $request->data()['locationId'] ?? '';
+                $id = $location === 'loc_beta' ? 'contact-beta' : 'contact-alpha';
+
+                return Http::response([
+                    'new' => true,
+                    'contact' => ['id' => $id, 'locationId' => is_string($location) ? $location : 'loc_alpha'],
+                ], 200);
+            }
+
+            if ($request->method() === 'PUT') {
+                $id = basename($request->url());
+                $location = $id === 'contact-beta' ? 'loc_beta' : 'loc_alpha';
+
+                return Http::response([
+                    'succeeded' => true,
+                    'contact' => ['id' => $id, 'locationId' => $location],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), '/tags')) {
+                return Http::response(['tags' => []], 201);
+            }
+
+            return Http::response(['id' => 'note-1'], 201);
+        });
+
+        $customer = Customer::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'name' => 'Ada Lovelace',
+            'email' => 'ada@example.com',
+            'phone' => '312-555-0100',
+            'feedback_opted_out_at' => '2026-06-01 12:00:00',
+        ]);
+        $booking = $this->booking($alpha['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Sunset rental', $customer);
+        PricingSnapshot::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'booking_id' => $booking->id,
+            'currency' => 'usd',
+            'rules_version' => 'spec-1.0',
+            'payload' => ['channel' => 'third_party'],
+        ]);
+        $booking->participants = 3;
+        $booking->save();
+
+        $betaCustomer = Customer::factory()->create([
+            'tenant_id' => $beta['tenant']->id,
+            'name' => 'Ada Lovelace',
+            'email' => 'ada@example.com',
+            'phone' => '312-555-0100',
+        ]);
+        $this->booking($beta['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Other rental', $betaCustomer);
+
+        $upserts = 0;
+        $puts = [];
+        $changedNote = '';
+
+        foreach (Http::recorded() as $pair) {
+            /** @var Request $request */
+            $request = $pair[0];
+
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                $upserts++;
+            }
+
+            if ($request->method() === 'PUT') {
+                $puts[] = $request;
+            }
+
+            if (str_contains($request->url(), '/notes') && str_contains((string) $request->data()['body'], 'booking.changed')) {
+                $changedNote = (string) $request->data()['body'];
+            }
+        }
+
+        $this->assertSame(2, $upserts);
+        $this->assertCount(1, $puts);
+        $this->assertStringEndsWith('/contacts/contact-alpha', $puts[0]->url());
+        $this->assertTrue($puts[0]->hasHeader('Authorization', 'Bearer '.$alphaToken));
+        $this->assertSame('ada@example.com', $puts[0]->data()['email']);
+        $this->assertSame('ReserveWorx', $puts[0]->data()['source']);
+        $this->assertArrayNotHasKey('tags', $puts[0]->data());
+        $this->assertArrayNotHasKey('locationId', $puts[0]->data());
+        $this->assertStringContainsString('Reference '.BookingReference::short($booking->id), $changedNote);
+        $this->assertStringContainsString('Attribution third_party', $changedNote);
+        $this->assertStringContainsString('Consent feedback opted out', $changedNote);
+        $this->assertStringContainsString('Source ReserveWorx', $changedNote);
+        $this->assertDatabaseHas('ghl_mappings', [
+            'tenant_id' => $alpha['tenant']->id,
+            'customer_id' => $customer->id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-alpha',
+        ]);
+        $this->assertDatabaseHas('ghl_mappings', [
+            'tenant_id' => $beta['tenant']->id,
+            'customer_id' => $betaCustomer->id,
+            'location_id' => 'loc_beta',
+            'contact_id' => 'contact-beta',
+        ]);
+        $this->assertSame(2, DB::table('ghl_mappings')->count());
+        Http::assertNotSent(function (Request $request) use ($betaToken): bool {
+            if (! $request->hasHeader('Authorization', 'Bearer '.$betaToken)) {
+                return false;
+            }
+
+            return str_contains($request->url(), 'contact-alpha') || str_contains($request->body(), 'contact-alpha');
+        });
+    }
+
+    public function test_a_stored_contact_that_highlevel_no_longer_has_is_created_again(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        $this->link($workspace['tenant']->id, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+        $customer = Customer::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'name' => 'Ada Lovelace',
+            'email' => 'ada@example.com',
+            'phone' => '312-555-0100',
+        ]);
+        GhlMapping::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $customer->id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-gone',
+        ]);
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) {
+            if ($request->method() === 'PUT') {
+                return Http::response(['message' => 'not found'], 404);
+            }
+
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                return Http::response([
+                    'new' => true,
+                    'contact' => ['id' => 'contact-new', 'locationId' => 'loc_alpha'],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), '/tags')) {
+                return Http::response(['tags' => []], 201);
+            }
+
+            return Http::response(['id' => 'note-1'], 201);
+        });
+
+        $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Sunset rental', $customer);
+
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'PUT' && str_ends_with($request->url(), '/contacts/contact-gone'));
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/contacts/contact-new/tags'));
+        $this->assertDatabaseHas('ghl_mappings', [
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $customer->id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-new',
+        ]);
+        $this->assertSame(1, DB::table('ghl_mappings')->count());
+    }
+
+    public function test_an_update_for_another_location_is_not_tagged(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        $this->link($workspace['tenant']->id, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+        $customer = Customer::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'name' => 'Ada Lovelace',
+            'email' => 'ada@example.com',
+            'phone' => '312-555-0100',
+        ]);
+        GhlMapping::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $customer->id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-foreign',
+        ]);
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) {
+            if ($request->method() === 'PUT') {
+                return Http::response([
+                    'succeeded' => true,
+                    'contact' => ['id' => 'contact-foreign', 'locationId' => 'loc_other'],
+                ], 200);
+            }
+
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                return Http::response([
+                    'new' => true,
+                    'contact' => ['id' => 'contact-safe', 'locationId' => 'loc_alpha'],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), '/tags')) {
+                return Http::response(['tags' => []], 201);
+            }
+
+            return Http::response(['id' => 'note-1'], 201);
+        });
+
+        $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Sunset rental', $customer);
+
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/contacts/contact-foreign/tags'));
+        Http::assertSent(fn (Request $request): bool => str_contains($request->url(), '/contacts/contact-safe/tags'));
+        $this->assertDatabaseHas('ghl_mappings', [
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $customer->id,
+            'contact_id' => 'contact-safe',
+            'location_id' => 'loc_alpha',
+        ]);
+        $this->assertDatabaseMissing('ghl_mappings', ['contact_id' => 'contact-foreign']);
     }
 
     private function platformAdmin(): User

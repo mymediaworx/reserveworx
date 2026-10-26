@@ -21,6 +21,7 @@ use App\Models\CustomerDataDeletion;
 use App\Models\CustomerDataExport;
 use App\Models\CustomerSignInToken;
 use App\Models\GhlConnection;
+use App\Models\GhlMapping;
 use App\Models\GhlMessageLog;
 use App\Models\GhlSyncLog;
 use App\Models\Incident;
@@ -296,6 +297,19 @@ class CustomerPrivacyTest extends TestCase
             return $path;
         });
 
+        GhlMapping::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $graph['customer']->id,
+            'location_id' => 'loc-erased',
+            'contact_id' => 'contact-erased',
+        ]);
+        GhlMapping::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $graph['neighbor']->id,
+            'location_id' => 'loc-kept',
+            'contact_id' => 'contact-kept',
+        ]);
+
         $erased = $this->postJson($this->tenantUrl('dock.test', '/api/v1/customers/'.$graph['customer']->id.'/deletion'))
             ->assertOk()
             ->assertJsonPath('data.customer_id', $graph['customer']->id)
@@ -351,6 +365,8 @@ class CustomerPrivacyTest extends TestCase
 
             $this->assertNull($graph['waitlist']->fresh()?->customer_name);
             $this->assertNull($graph['waitlist']->fresh()?->customer_email);
+            $this->assertSame(0, GhlMapping::query()->where('customer_id', $graph['customer']->id)->count());
+            $this->assertSame('contact-kept', GhlMapping::query()->where('customer_id', $graph['neighbor']->id)->value('contact_id'));
             $this->assertSame('Bea Paddle', $graph['neighbor']->fresh()?->name);
             $this->assertSame('bea@example.com', $graph['neighbor']->fresh()?->email);
             $this->assertSame('Bea Paddle', $graph['neighborWaitlist']->fresh()?->customer_name);
@@ -605,6 +621,12 @@ class CustomerPrivacyTest extends TestCase
             'error' => 'pit-secret-ghl-token-value must stay out',
             'location_id' => 'loc-ghl-private',
         ]);
+        GhlMapping::query()->create([
+            'tenant_id' => $tenantId,
+            'customer_id' => $customer->id,
+            'location_id' => 'loc-ghl-private',
+            'contact_id' => 'ghl-contact-do-not-export',
+        ]);
 
         Storage::fake('local');
         $this->actingAsWorkspace($workspace);
@@ -624,9 +646,11 @@ class CustomerPrivacyTest extends TestCase
         $this->assertArrayNotHasKey('ghl_connections.json', $entries);
         $this->assertArrayNotHasKey('ghl_sync_logs.json', $entries);
         $this->assertArrayNotHasKey('ghl_message_logs.json', $entries);
+        $this->assertArrayNotHasKey('ghl_mappings.json', $entries);
         $blob = json_encode($entries, JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString($token, $blob);
         $this->assertStringNotContainsString('loc-ghl-private', $blob);
+        $this->assertStringNotContainsString('ghl-contact-do-not-export', $blob);
         $this->assertStringContainsString('ada@example.com', $blob);
     }
 

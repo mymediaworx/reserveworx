@@ -10,10 +10,13 @@ class GhlRequestFailed extends RuntimeException
         public readonly ?int $httpStatus,
         public readonly string $kind,
         bool $unexpected = false,
+        public readonly bool $wrongLocation = false,
     ) {
-        $message = $unexpected || $httpStatus === null
-            ? 'GoHighLevel '.$kind.' returned an unexpected response.'
-            : 'GoHighLevel '.$kind.' returned HTTP '.$httpStatus.'.';
+        $message = match (true) {
+            $wrongLocation => 'GoHighLevel update returned a different location.',
+            $unexpected || $httpStatus === null => 'GoHighLevel '.$kind.' returned an unexpected response.',
+            default => 'GoHighLevel '.$kind.' returned HTTP '.$httpStatus.'.',
+        };
 
         parent::__construct($message);
     }
