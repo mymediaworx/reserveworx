@@ -996,6 +996,31 @@ report_inodes() {
   echo "inodes_${label}_end"
 }
 
+# Read-only: reports inode use of app-owned paths and common home caches so
+# the account-wide count can be explained. Deletes nothing and never descends
+# into www/reserveworx.com or any other site.
+report_home_inodes() {
+  local entry n
+  echo "inodes_home_begin"
+  for entry in "$HOME/.composer" "$HOME/.cache" "$HOME/.npm" "$HOME/.config/composer" "$HOME/tmp" "$HOME/.local" "$HOME/www/harbor.reserveworx.com"; do
+    [[ -e "$entry" && ! -L "$entry" ]] || { echo "inodes_home - ${entry#"${HOME}/"} (absent)"; continue; }
+    n="$(du --inodes -s -x "$entry" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_home ${n:-?} ${entry#"${HOME}/"}"
+  done
+  shopt -s nullglob dotglob
+  for entry in "$HOME/.cache"/* "$HOME/.composer"/* "$HOME/tmp"/*; do
+    [[ -e "$entry" && ! -L "$entry" ]] || continue
+    n="$(du --inodes -s -x "$entry" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_home ${n:-?} ${entry#"${HOME}/"}"
+  done
+  shopt -u nullglob dotglob
+  du --inodes -x -d2 "$domain" 2>/dev/null | sort -nr | head -40 | while read -r n entry; do
+    case "$entry" in *.env|*platform-admin.txt|*demo-logins.txt) continue ;; esac
+    echo "inodes_app_d2 ${n} ${entry#"${HOME}/"}"
+  done
+  echo "inodes_home_end"
+}
+
 # Keeps current plus one rollback release, removes build leftovers and stale
 # framework caches, sessions and old logs, then reports inode counts.
 inode_cleanup() {
@@ -1027,6 +1052,7 @@ inode_cleanup() {
     echo "vendor_outside_releases=none"
   fi
   report_inodes after
+  report_home_inodes || true
 }
 
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
