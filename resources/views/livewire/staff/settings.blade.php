@@ -37,6 +37,40 @@
     </section>
 
     <section class="panel">
+        <h2>Cancellation and refunds</h2>
+        <p>These windows decide the card refund when a customer cancels, and the refund when a booking is marked as a no-show. Until you save a window, a customer cancellation does not refund a card.</p>
+        <form wire:submit="saveCancellationPolicy" class="stack">
+            @foreach ($cancelTiers as $index => $tier)
+                <div class="form-row">
+                    <label class="field compact grow">
+                        <span>Minutes before start</span>
+                        <input type="number" min="0" max="525600" wire:model="cancelTiers.{{ $index }}.lead_minutes" @disabled(! $canUpdate)>
+                    </label>
+                    <label class="field compact grow">
+                        <span>Refund percent</span>
+                        <input type="number" min="0" max="100" wire:model="cancelTiers.{{ $index }}.refund_percent" @disabled(! $canUpdate)>
+                    </label>
+                    @if ($canUpdate)
+                        <button type="button" class="button" wire:click="removeCancelTier({{ $index }})">Remove</button>
+                    @endif
+                </div>
+                @error('cancelTiers.'.$index.'.lead_minutes')<p class="error">{{ $message }}</p>@enderror
+                @error('cancelTiers.'.$index.'.refund_percent')<p class="error">{{ $message }}</p>@enderror
+            @endforeach
+            @error('cancelTiers')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdate && count($cancelTiers) < 8)
+                <button type="button" class="button" wire:click="addCancelTier">Add window</button>
+            @endif
+            <label class="field compact">
+                <span>No-show refund percent</span>
+                <input type="number" min="0" max="100" wire:model="noShowPercent" @disabled(! $canUpdate)>
+            </label>
+            @error('noShowPercent')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdate)<button type="submit" class="button primary">Save cancellation policy</button>@endif
+        </form>
+    </section>
+
+    <section class="panel">
         <h2>Card payments</h2>
         @if ($account && $account->canCharge())
             <p>Connected to Stripe. Customers can pay by card when they book.</p>

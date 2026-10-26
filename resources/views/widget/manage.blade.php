@@ -22,7 +22,7 @@
         <form method="post" action="{{ $cancelUrl }}">
             <button type="submit">Cancel booking</button>
         </form>
-        <p>Cancelling releases the time. It does not refund a card payment.</p>
+        <p>{{ $cancelNote }}</p>
     @elseif ($cancelMessage)
         <p>{{ $cancelMessage }}</p>
     @endif
@@ -55,6 +55,9 @@
             <button type="submit">Extend until {{ $offers['shorter_ends_at'] }}</button>
         </form>
     @endif
+    @foreach ($cancellationLines as $line)
+        <p>{{ $line }}</p>
+    @endforeach
     @foreach ($offerAssets as $offerAsset)
         <form method="post" action="{{ $extendUrl }}">
             <input type="hidden" name="ends_at" value="{{ $requestedEnd }}">

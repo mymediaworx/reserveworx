@@ -14,6 +14,7 @@ use App\Models\BookingLineItem;
 use App\Models\BookingMutation;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
+use App\Models\CancellationPolicy;
 use App\Models\CapacityLedger;
 use App\Models\CsvImport;
 use App\Models\Customer;
@@ -302,6 +303,7 @@ class TenantExporter
             Departure::class,
             WaitlistEntry::class,
             PriceRule::class,
+            CancellationPolicy::class,
             PromoCode::class,
             AddOn::class,
             BookingAddOn::class,
