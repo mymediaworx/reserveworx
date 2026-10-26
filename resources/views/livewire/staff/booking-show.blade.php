@@ -78,7 +78,26 @@
                             @endforelse
                         </dd>
                     </div>
+                    <div>
+                        <dt>Guide</dt>
+                        <dd data-guide="{{ $booking->guide_user_id ?? 'none' }}">{{ $guideName !== '' ? $guideName : 'No guide' }}</dd>
+                    </div>
                 </dl>
+                @if ($canAssignGuide)
+                    <form wire:submit="assignGuide" class="stack top-gap">
+                        <label class="field">
+                            <span>Assign a guide</span>
+                            <select wire:model="guideUserId">
+                                <option value="">No guide</option>
+                                @foreach ($guides as $guide)
+                                    <option value="{{ $guide->id }}">{{ $guide->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        <button type="submit" class="button">Save guide</button>
+                        <p class="muted small">People on the same departure share this guide. A guide who is already booked keeps that other booking. The price stays the same.</p>
+                    </form>
+                @endif
             </section>
 
             <section class="panel">

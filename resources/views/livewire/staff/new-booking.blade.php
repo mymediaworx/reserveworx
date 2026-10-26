@@ -113,6 +113,15 @@
                     </div>
                     @error('customerName')<p class="error">{{ $message }}</p>@enderror
                     @error('customerEmail')<p class="error">{{ $message }}</p>@enderror
+                    <label class="field">
+                        <span>Guide</span>
+                        <select wire:model="guideUserId">
+                            <option value="">No guide</option>
+                            @foreach ($guides as $guide)
+                                <option value="{{ $guide->id }}">{{ $guide->name }}</option>
+                            @endforeach
+                        </select>
+                    </label>
                 </fieldset>
 
                 <div aria-live="polite">

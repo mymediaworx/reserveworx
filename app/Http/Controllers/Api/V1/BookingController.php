@@ -511,6 +511,54 @@ class BookingController extends Controller
         });
     }
 
+    public function assignGuide(Request $request, Booking $booking): JsonResponse
+    {
+        $this->authorize('update', $booking);
+        $validated = $request->validate([
+            'guide_user_id' => ['present', 'nullable', 'string'],
+        ]);
+        $guideUserId = $validated['guide_user_id'] ?? null;
+        $guideUserId = is_string($guideUserId) && $guideUserId !== '' ? $guideUserId : null;
+
+        return $this->mutations->once($request, $booking, 'guide', [
+            'guide_user_id' => $guideUserId,
+        ], function () use ($request, $booking, $guideUserId): JsonResponse {
+            try {
+                $saved = $this->allocator->assignGuide($booking, $guideUserId);
+            } catch (AllocationUnavailableException $exception) {
+                if ($exception->getMessage() === 'That guide is not an active member of this workspace.') {
+                    throw ValidationException::withMessages([
+                        'guide_user_id' => $exception->getMessage(),
+                    ]);
+                }
+
+                return response()->json(['message' => $exception->getMessage()], 409);
+            }
+
+            foreach ($saved as $row) {
+                if ($row->wasChanged('guide_user_id')) {
+                    $this->audit->log('booking.guide_assigned', $row, [
+                        'guide_user_id' => $row->guide_user_id,
+                    ], request: $request);
+                }
+            }
+
+            $primary = null;
+
+            foreach ($saved as $row) {
+                if ($row->id === $booking->id) {
+                    $primary = $row;
+                }
+            }
+
+            if (! $primary instanceof Booking) {
+                $primary = $booking->fresh() ?? $booking;
+            }
+
+            return response()->json(['data' => $this->payload($primary->loadMissing('customer'))]);
+        });
+    }
+
     public function partySize(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);

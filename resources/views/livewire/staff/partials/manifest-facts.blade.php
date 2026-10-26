@@ -5,6 +5,10 @@
         <dd>{{ $booking->resource }}</dd>
     </div>
     <div>
+        <dt>Guide</dt>
+        <dd>{{ $booking->guideName !== '' ? $booking->guideName : 'No guide' }}</dd>
+    </div>
+    <div>
         <dt>Customer</dt>
         <dd>
             {{ $booking->customerName }}

@@ -114,6 +114,16 @@
                     </fieldset>
                 @endif
 
+                <label class="field">
+                    <span>Guide</span>
+                    <select wire:model="bookGuide" @disabled($booking['placed'])>
+                        <option value="">No guide</option>
+                        @foreach ($booking['guides'] as $guide)
+                            <option value="{{ $guide->id }}">{{ $guide->name }}</option>
+                        @endforeach
+                    </select>
+                </label>
+
                 <fieldset class="choice">
                     <legend>Customer</legend>
                     @if ($bookCustomerId === '')

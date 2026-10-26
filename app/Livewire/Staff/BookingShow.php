@@ -13,6 +13,7 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\DisclosureVersion;
+use App\Models\Hold;
 use App\Models\LocationTaxRule;
 use App\Models\Payment;
 use App\Models\Pool;
@@ -23,6 +24,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Booking\BookingCancellation;
 use App\Services\Booking\CancellationSettlement;
+use App\Services\Booking\GuideRoster;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\TourDepartureChoices;
 use App\Services\Booking\WaitlistPromoter;
@@ -62,6 +64,8 @@ class BookingShow extends Component
 
     public string $rescheduleDeparture = '';
 
+    public string $guideUserId = '';
+
     public string $extendEnd = '';
 
     public ?string $extendAssetId = null;
@@ -88,6 +92,31 @@ class BookingShow extends Component
         $this->rescheduleStart = CarbonImmutable::instance($model->starts_at)->timezone($zone)->format('Y-m-d\TH:i');
         $this->rescheduleEnd = CarbonImmutable::instance($model->ends_at)->timezone($zone)->format('Y-m-d\TH:i');
         $this->extendEnd = $this->rescheduleEnd;
+        $this->guideUserId = is_string($model->guide_user_id) ? $model->guide_user_id : '';
+    }
+
+    public function assignGuide(Allocator $allocator): void
+    {
+        $booking = $this->editable();
+        $guideUserId = $this->guideUserId !== '' ? $this->guideUserId : null;
+
+        try {
+            $saved = $allocator->assignGuide($booking, $guideUserId);
+        } catch (AllocationUnavailableException $exception) {
+            $this->warn($exception->getMessage());
+
+            return;
+        }
+
+        foreach ($saved as $row) {
+            if ($row->wasChanged('guide_user_id')) {
+                $this->audit('booking.guide_assigned', $row, [
+                    'guide_user_id' => $row->guide_user_id,
+                ]);
+            }
+        }
+
+        $this->notice('Guide saved.');
     }
 
     public function price(BookingPricer $pricer): void
@@ -445,6 +474,22 @@ class BookingShow extends Component
         $assetIds = $booking->allocations->pluck('asset_id')->concat($booking->holds->pluck('asset_id'))->filter()->unique();
         $poolIds = $booking->allocations->pluck('pool_id')->concat($booking->holds->pluck('pool_id'))->filter()->unique();
         $holdExpires = $booking->holds->max('expires_at');
+        $guides = app(GuideRoster::class)->active();
+        $guideName = '';
+
+        if (is_string($booking->guide_user_id) && $booking->guide_user_id !== '') {
+            $guideName = (string) (User::query()->whereKey($booking->guide_user_id)->value('name') ?? '');
+
+            if (! $guides->contains('id', $booking->guide_user_id) && $guideName !== '') {
+                $current = new User;
+                $current->id = $booking->guide_user_id;
+                $current->name = $guideName;
+                $guides->push($current);
+            }
+        }
+
+        $heldOpen = $booking->status === BookingStatus::Held
+            && $booking->holds->contains(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
 
         return view('livewire.staff.booking-show', [
             'booking' => $booking,
@@ -472,6 +517,10 @@ class BookingShow extends Component
                 && $booking->service?->kind?->value === 'rental'
                 && ! in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true),
             'departures' => app(TourDepartureChoices::class)->forBooking($booking),
+            'guides' => $guides,
+            'guideName' => $guideName,
+            'canAssignGuide' => $this->allows('bookings.manage')
+                && ($booking->status === BookingStatus::Confirmed || $heldOpen),
         ])->title(($booking->service->name ?? 'Booking').' – '.$booking->starts_at->timezone($zone)->format('M j'));
     }
 

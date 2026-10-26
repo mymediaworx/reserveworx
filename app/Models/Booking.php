@@ -93,6 +93,14 @@ class Booking extends Model
     }
 
     /**
+     * @return BelongsTo<User, $this>
+     */
+    public function guide(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'guide_user_id');
+    }
+
+    /**
      * @return BelongsTo<Customer, $this>
      */
     public function customer(): BelongsTo

@@ -24,6 +24,7 @@ use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\Booking\GuideRoster;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
@@ -52,6 +53,7 @@ use InvalidArgumentException;
  * @property string $bookCustomerName
  * @property string $bookCustomerEmail
  * @property string $bookCustomerPhone
+ * @property string $bookGuide
  * @property string $bookDeparture
  * @property string $bookId
  * @property string $bookKey
@@ -86,6 +88,8 @@ trait BooksFromSchedule
     public string $bookCustomerEmail = '';
 
     public string $bookCustomerPhone = '';
+
+    public string $bookGuide = '';
 
     public string $bookDeparture = '';
 
@@ -131,6 +135,7 @@ trait BooksFromSchedule
             'bookCustomerName',
             'bookCustomerEmail',
             'bookCustomerPhone',
+            'bookGuide',
             'bookDeparture',
             'bookId',
             'bookKey',
@@ -427,6 +432,7 @@ trait BooksFromSchedule
             'canCharge' => StripeAccount::query()->first()?->canCharge() ?? false,
             'payAtPickup' => $setting instanceof TenantSetting && $setting->pay_at_pickup,
             'placed' => $this->bookId !== '',
+            'guides' => app(GuideRoster::class)->active(),
         ];
     }
 
@@ -476,6 +482,14 @@ trait BooksFromSchedule
         }
 
         [$start, $end, $departureId] = $interval;
+        $guideUserId = $this->bookGuide !== '' ? $this->bookGuide : null;
+
+        if ($guideUserId !== null && ! app(GuideRoster::class)->accepts($guideUserId)) {
+            $this->bookProblem = 'That guide is not an active member of this workspace.';
+
+            return null;
+        }
+
         $intent = new AllocationIntent(
             $this->tenant()->id,
             $service->id,
@@ -486,7 +500,7 @@ trait BooksFromSchedule
             $this->bookCustomerName,
             $this->bookCustomerEmail !== '' ? $this->bookCustomerEmail : null,
             $departureId,
-            null,
+            $guideUserId,
             $this->bookCustomerPhone !== '' ? $this->bookCustomerPhone : null,
             $lines,
             $this->bookVariant !== '' ? $this->bookVariant : null,

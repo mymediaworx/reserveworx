@@ -165,6 +165,7 @@
                                         <th scope="col">When</th>
                                         <th scope="col">Return due</th>
                                         <th scope="col">Resource</th>
+                                        <th scope="col">Guide</th>
                                         <th scope="col">Customer</th>
                                         <th scope="col">Party</th>
                                         <th scope="col">Waivers</th>
@@ -180,6 +181,7 @@
                                             <td>{{ Display::time($booking->startsAt, $booking->timezone) }}</td>
                                             <td>{{ $booking->startsAt->timezone($booking->timezone)->isSameDay($booking->returnDue->timezone($booking->timezone)) ? Display::time($booking->returnDue, $booking->timezone) : Display::dateTime($booking->returnDue, $booking->timezone) }}</td>
                                             <td>{{ $booking->resource }}</td>
+                                            <td>{{ $booking->guideName !== '' ? $booking->guideName : 'No guide' }}</td>
                                             <td>
                                                 {{ $booking->customerName }}
                                                 @if ($booking->customerPhone !== '')

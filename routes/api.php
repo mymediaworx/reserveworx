@@ -188,6 +188,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/bookings/{booking}/extend', [BookingController::class, 'extend']);
             Route::post('/bookings/{booking}/reschedule', [BookingController::class, 'reschedule']);
             Route::post('/bookings/{booking}/reassign', [BookingController::class, 'reassign']);
+            Route::post('/bookings/{booking}/guide', [BookingController::class, 'assignGuide']);
             Route::post('/bookings/{booking}/party-size', [BookingController::class, 'partySize']);
             Route::post('/bookings/{booking}/no-show', [BookingController::class, 'noShow']);
             Route::post('/bookings/{booking}/cancel', [BookingController::class, 'cancel']);

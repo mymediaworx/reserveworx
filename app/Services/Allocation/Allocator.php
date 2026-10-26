@@ -30,6 +30,7 @@ use App\Models\ServiceDuration;
 use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Services\Booking\GuideRoster;
 use App\Services\Booking\SlotFinder;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Customers\CustomerAccountLinker;
@@ -65,6 +66,7 @@ class Allocator
         private readonly WebhookPublisher $webhooks,
         private readonly CustomerAccountLinker $customerAccounts,
         private readonly PromoCodes $promoCodes,
+        private readonly GuideRoster $guideRoster,
     ) {}
 
     public function hold(AllocationIntent $intent): Booking
@@ -538,6 +540,73 @@ class Allocator
             $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'lineItems', 'service']);
+        }));
+    }
+
+    /**
+     * Name or clear the staff guide on a held or confirmed booking.
+     * Live parties on the same departure share that guide. The price,
+     * allocations, and payments stay as they are.
+     *
+     * @return list<Booking>
+     */
+    public function assignGuide(Booking $booking, ?string $guideUserId): array
+    {
+        return $this->retry(fn (): array => $this->transaction(function () use ($booking, $guideUserId): array {
+            $this->enterTenant($booking->tenant_id);
+            $guideUserId = $this->presentId($guideUserId);
+            $seed = Booking::query()->withoutGlobalScope(StaffLocationScope::class)->find($booking->id);
+
+            if (! $seed instanceof Booking) {
+                throw new AllocationUnavailableException('Only a held or confirmed booking can be assigned a guide.');
+            }
+
+            $departureId = $this->presentId($seed->departure_id);
+            $locked = Booking::query()
+                ->withoutGlobalScope(StaffLocationScope::class)
+                ->when(
+                    $departureId !== null,
+                    fn (Builder $query): Builder => $query->where('departure_id', $departureId),
+                    fn (Builder $query): Builder => $query->whereKey($seed->id),
+                )
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get();
+            $parties = $locked->filter(fn (Booking $row): bool => $this->canAssignGuide($row))->values();
+            $target = $parties->firstWhere('id', $seed->id);
+
+            if (! $target instanceof Booking) {
+                $current = $locked->firstWhere('id', $seed->id);
+
+                throw new AllocationUnavailableException(
+                    $current instanceof Booking && $current->status === BookingStatus::Held
+                        ? 'That hold has expired.'
+                        : 'Only a held or confirmed booking can be assigned a guide.',
+                );
+            }
+
+            if ($guideUserId !== null) {
+                $this->assertActiveGuide($guideUserId);
+                $this->lockGuide($guideUserId);
+                [$start, $end] = $this->sharedGuideWindow($parties);
+                $this->assertGuideFree($guideUserId, $start, $end, $departureId, $target->id);
+            }
+
+            $changed = [];
+
+            foreach ($parties as $party) {
+                $saved = $this->storeGuide($party, $guideUserId);
+
+                if ($saved instanceof Booking) {
+                    $changed[] = $saved;
+                }
+            }
+
+            if ($changed === []) {
+                return [$target];
+            }
+
+            return $changed;
         }));
     }
 
@@ -2722,6 +2791,80 @@ class Allocator
         return $service->durations->contains(
             fn (ServiceDuration $duration): bool => $duration->duration_minutes === $minutes,
         );
+    }
+
+    private function storeGuide(Booking $party, ?string $guideUserId): ?Booking
+    {
+        if ($this->presentId($party->guide_user_id) === $guideUserId) {
+            return null;
+        }
+
+        $party->guide_user_id = $guideUserId;
+        $party->save();
+        $this->webhooks->bookingChanged($party);
+
+        return $party;
+    }
+
+    private function canAssignGuide(Booking $booking): bool
+    {
+        if ($booking->status === BookingStatus::Confirmed) {
+            return true;
+        }
+
+        if ($booking->status !== BookingStatus::Held) {
+            return false;
+        }
+
+        return Hold::query()
+            ->where('booking_id', $booking->id)
+            ->where('expires_at', '>', now())
+            ->exists();
+    }
+
+    private function assertActiveGuide(string $guideUserId): void
+    {
+        if (! $this->guideRoster->accepts($guideUserId)) {
+            throw new AllocationUnavailableException('That guide is not an active member of this workspace.');
+        }
+    }
+
+    /**
+     * @param  iterable<int, Booking>  $parties
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private function sharedGuideWindow(iterable $parties): array
+    {
+        $start = null;
+        $end = null;
+
+        foreach ($parties as $party) {
+            $rows = Allocation::query()->where('booking_id', $party->id)->get(['starts_at', 'ends_at']);
+
+            if ($rows->isEmpty()) {
+                $rows = Hold::query()
+                    ->where('booking_id', $party->id)
+                    ->where('expires_at', '>', now())
+                    ->get(['starts_at', 'ends_at']);
+            }
+
+            if ($rows->isEmpty()) {
+                $rows = collect([(object) ['starts_at' => $party->starts_at, 'ends_at' => $party->ends_at]]);
+            }
+
+            foreach ($rows as $row) {
+                $spanStart = CarbonImmutable::parse($row->starts_at)->utc();
+                $spanEnd = CarbonImmutable::parse($row->ends_at)->utc();
+                $start = $start === null || $spanStart->lessThan($start) ? $spanStart : $start;
+                $end = $end === null || $spanEnd->greaterThan($end) ? $spanEnd : $end;
+            }
+        }
+
+        if (! $start instanceof CarbonImmutable || ! $end instanceof CarbonImmutable) {
+            throw new AllocationUnavailableException('Choose a valid interval and party size.');
+        }
+
+        return [$start, $end];
     }
 
     private function lockGuide(?string $guideUserId): void

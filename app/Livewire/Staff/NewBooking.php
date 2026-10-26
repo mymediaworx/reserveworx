@@ -11,6 +11,7 @@ use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\Booking\GuideRoster;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
 use Carbon\CarbonImmutable;
@@ -44,6 +45,8 @@ class NewBooking extends Component
     public string $customerName = '';
 
     public string $customerEmail = '';
+
+    public string $guideUserId = '';
 
     public ?string $problem = null;
 
@@ -95,6 +98,14 @@ class NewBooking extends Component
             return;
         }
 
+        $guideUserId = $this->guideUserId !== '' ? $this->guideUserId : null;
+
+        if ($guideUserId !== null && ! app(GuideRoster::class)->accepts($guideUserId)) {
+            $this->problem = 'That guide is not an active member of this workspace.';
+
+            return;
+        }
+
         $intent = new AllocationIntent(
             $this->tenant()->id,
             $service->id,
@@ -105,6 +116,7 @@ class NewBooking extends Component
             $this->customerName,
             $this->customerEmail !== '' ? $this->customerEmail : null,
             $departureId,
+            $guideUserId,
         );
 
         try {
@@ -188,6 +200,7 @@ class NewBooking extends Component
             'times' => $times,
             'departures' => $departures,
             'zone' => $service->location->timezone ?? $this->defaultTimezone(),
+            'guides' => app(GuideRoster::class)->active(),
         ]);
     }
 
