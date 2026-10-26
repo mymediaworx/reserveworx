@@ -855,6 +855,83 @@ EOF
   echo "harbor_front_controller=absolute ${boot}"
 }
 
+# Customer workspaces from config/tenants.php. For each tenant_host line printed
+# by reserveworx:tenant:sync, write a front controller into
+# www/<host>/public_html only when Site Tools already created that subdomain
+# folder as a real directory. Never creates a site, never touches
+# www/reserveworx.com or www/app.reserveworx.com. A missing folder is reported
+# and does not fail the deploy.
+install_tenant_front_controller() {
+  local host doc resolved boot
+  host="$1"
+  if [[ ! "$host" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.reserveworx\.com$ ]] || [[ "$host" == "app.reserveworx.com" ]]; then
+    echo "tenant_front_controller=rejected host=${host}" >&2
+    return 1
+  fi
+  doc="${HOME}/www/${host}/public_html"
+  if [[ ! -d "$doc" || -L "$doc" || -L "${HOME}/www/${host}" ]]; then
+    echo "tenant_docroot=missing host=${host} expected=${doc} (create the subdomain in Site Tools)"
+    return 0
+  fi
+  resolved="$(readlink -f "$doc")"
+  case "$resolved" in
+    */www/"${host}"/public_html) ;;
+    *)
+      echo "tenant_docroot=rejected host=${host} resolved=${resolved}" >&2
+      return 1
+      ;;
+  esac
+  case "$resolved" in
+    */www/reserveworx.com/*|*/www/app.reserveworx.com/*)
+      echo "tenant_docroot=rejected host=${host}" >&2
+      return 1
+      ;;
+  esac
+  boot="${domain}/laravel/current"
+  cat > "${resolved}/index.php" << EOF
+<?php
+
+use Illuminate\\Foundation\\Application;
+use Illuminate\\Http\\Request;
+
+define('LARAVEL_START', microtime(true));
+
+\$root = '${boot}';
+
+if (file_exists(\$maintenance = \$root.'/storage/framework/maintenance.php')) {
+    require \$maintenance;
+}
+
+require \$root.'/vendor/autoload.php';
+
+/** @var Application \$app */
+\$app = require_once \$root.'/bootstrap/app.php';
+
+\$app->handleRequest(Request::capture());
+EOF
+  if [[ -f "${docroot}/.htaccess" ]]; then
+    cp "${docroot}/.htaccess" "${resolved}/.htaccess"
+    chmod 644 "${resolved}/.htaccess"
+  fi
+  chmod 644 "${resolved}/index.php"
+  echo "tenant_front_controller=written host=${host} boot=${boot}"
+}
+
+sync_tenants() {
+  local out host status=0 list
+  out="$(cd "$current" && "$php_bin" artisan reserveworx:tenant:sync --no-interaction 2>&1)" || status=1
+  printf '%s\n' "$out"
+  # This host has no /dev/fd, so the host list goes through a temp file.
+  list="$(mktemp)"
+  printf '%s\n' "$out" | sed -n 's/^tenant_host=//p' > "$list"
+  while IFS= read -r host; do
+    [[ -n "$host" ]] || continue
+    install_tenant_front_controller "$host" || status=1
+  done < "$list"
+  rm -f "$list"
+  return "$status"
+}
+
 harbor_login_check() {
   local body headers code
   body="$(mktemp)"
@@ -1230,6 +1307,7 @@ install_harbor_front_controller
 post_failed=0
 seed_demo_shop || post_failed=1
 grant_demo_owner || post_failed=1
+sync_tenants || post_failed=1
 platform_check || post_failed=1
 harbor_login_check || post_failed=1
 harbor_home_check || post_failed=1
