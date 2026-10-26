@@ -45,6 +45,17 @@ class GuestSelfServiceTest extends TestCase
             'email' => 'other@example.com',
         ])->assertNotFound()->assertSee('No booking matches that reference and email.');
 
+        $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/lookup'), [
+            'reference' => strtoupper(substr($bookingId, -8)),
+            'email' => 'other@example.com',
+        ])->assertNotFound();
+
+        $short = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/lookup'), [
+            'reference' => strtoupper(substr($bookingId, -8)),
+            'email' => 'Ada@example.com',
+        ])->assertRedirect();
+        $this->assertStringContainsString('/manage/'.$bookingId, (string) $short->headers->get('Location'));
+
         $found = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/lookup'), [
             'reference' => $bookingId,
             'email' => 'Ada@example.com',

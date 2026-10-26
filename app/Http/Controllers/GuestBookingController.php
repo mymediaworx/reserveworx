@@ -18,6 +18,7 @@ use App\Services\Booking\RentalExtensions;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
+use App\Support\BookingReference;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -213,7 +214,15 @@ class GuestBookingController extends Controller
 
     private function match(string $reference, string $email): ?Booking
     {
-        $booking = Booking::query()->with('customer')->find($reference);
+        $reference = trim($reference);
+        $booking = BookingReference::isShort($reference)
+            ? Booking::query()
+                ->with('customer')
+                ->where('id', 'like', '%'.strtolower($reference))
+                ->whereHas('customer', fn ($query) => $query->where('email', $email))
+                ->orderByDesc('starts_at')
+                ->first()
+            : Booking::query()->with('customer')->find(strtolower($reference));
 
         if (! $booking instanceof Booking || ! $booking->customer instanceof Customer) {
             return null;

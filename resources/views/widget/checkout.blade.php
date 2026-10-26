@@ -3,7 +3,7 @@
 
 @section('content')
     <h1>Review before payment</h1>
-    <p>{{ $booking->service?->name }} · reference {{ $booking->id }}</p>
+    <p>{{ $booking->service?->name }} · reference {{ \App\Support\BookingReference::short($booking->id) }}</p>
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
     @endif

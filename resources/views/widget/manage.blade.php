@@ -6,7 +6,8 @@
     @php
         $copy = app(PublicBookingCopy::class)->for($booking);
     @endphp
-    <h1>Booking {{ $booking->id }}</h1>
+    <h1>Booking {{ \App\Support\BookingReference::short($booking->id) }}</h1>
+    <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
     <p>{{ $booking->service?->name }}</p>
     <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
     @if ($copy['pickupFeeNote'] !== '')

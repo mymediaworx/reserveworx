@@ -190,7 +190,7 @@ class BookingWidgetTest extends TestCase
             ->assertSee('That time is no longer available.');
 
         $this->travel(3)->hours();
-        $this->get((string) $params['success_url'])->assertOk()->assertSee('Booking '.$bookingId);
+        $this->get((string) $params['success_url'])->assertOk()->assertSee('Booking '.strtoupper(substr($bookingId, -8)))->assertSee('Full reference: '.$bookingId);
     }
 
     public function test_a_finished_booking_leaves_the_checkout_page_for_a_lasting_confirmation(): void
