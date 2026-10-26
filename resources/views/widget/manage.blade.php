@@ -26,7 +26,24 @@
     @elseif ($cancelMessage)
         <p>{{ $cancelMessage }}</p>
     @endif
-    @if ($booking->status->value === 'confirmed')
+    @if ($booking->status->value === 'confirmed' && $booking->departure_id)
+        @if ($departures === [])
+            <p>No other departures are open.</p>
+        @else
+            <form method="post" action="{{ $rescheduleUrl }}">
+                <label>Departure
+                    <select name="departure_id" required>
+                        <option value="">Choose a departure</option>
+                        @foreach ($departures as $departure)
+                            <option value="{{ $departure['id'] }}" @disabled(! $departure['available'])>{{ $departure['label'] }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <button type="submit">Reschedule</button>
+            </form>
+            <p>The price stays the same.</p>
+        @endif
+    @elseif ($booking->status->value === 'confirmed')
         <form method="post" action="{{ $rescheduleUrl }}">
             <label>New date
                 <input name="date" type="date" required>

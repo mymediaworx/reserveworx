@@ -17,6 +17,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\Booking\CancellationPolicies;
 use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
+use App\Services\Booking\TourDepartureChoices;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
@@ -39,6 +40,7 @@ class GuestBookingController extends Controller
         private readonly GhlMessages $ghlMessages,
         private readonly CancellationSettlement $settlement,
         private readonly CancellationPolicies $policies,
+        private readonly TourDepartureChoices $departures,
     ) {}
 
     public function lookupForm(Request $request, string $token): View
@@ -118,6 +120,35 @@ class GuestBookingController extends Controller
         $tenant = $this->tenant($request);
         $this->tokens->findActive($token) ?? abort(404);
         $booking->load('service.location');
+
+        if ($booking->departure_id !== null && $booking->departure_id !== '') {
+            $validator = Validator::make($request->all(), [
+                'departure_id' => ['required', 'string'],
+            ]);
+
+            if ($validator->fails()) {
+                return $this->manageResponse($token, $booking, (string) $validator->errors()->first(), 422);
+            }
+
+            $departureId = $validator->validated()['departure_id'];
+
+            try {
+                $updated = $this->allocator->moveToDeparture($booking, is_string($departureId) ? $departureId : '');
+            } catch (AllocationUnavailableException $exception) {
+                return $this->manageResponse($token, $booking, $exception->getMessage(), 409);
+            }
+
+            $this->hooks->record(
+                $tenant->id,
+                $updated->id,
+                'booking.guest_rescheduled',
+                'booking.guest_rescheduled:'.$updated->id.':'.$updated->starts_at->utc()->format('YmdHi'),
+                ['booking_id' => $updated->id],
+            );
+
+            return $this->manageResponse($token, $updated, null, 200);
+        }
+
         $validator = Validator::make($request->all(), [
             'date' => ['required', 'date_format:Y-m-d'],
             'start' => ['required', 'date_format:H:i'],
@@ -277,7 +308,7 @@ class GuestBookingController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $offers
-     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string}
+     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string, departures: list<array{id: string, label: string, available: bool, note: string}>}
      */
     private function manageData(string $token, Booking $booking, ?string $error, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): array
     {
@@ -322,6 +353,7 @@ class GuestBookingController extends Controller
             'offers' => $offers,
             'offerAssets' => $offerAssets,
             'requestedEnd' => $requestedEnd?->utc()->format('Y-m-d\TH:i:s\Z'),
+            'departures' => $this->departures->forBooking($booking),
         ];
     }
 
