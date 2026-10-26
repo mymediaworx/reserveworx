@@ -9,6 +9,7 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
+use App\Models\BookingMutation;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\Customer;
@@ -315,6 +316,7 @@ class CustomerDataExporter
             'platform_fee_refunds' => $this->feeRefunds($feeIds, $tenantId),
             'pricing_snapshots' => $this->modelsForBookings(PricingSnapshot::class, $bookingIds, $tenantId),
             'booking_line_items' => $this->modelsForBookings(BookingLineItem::class, $bookingIds, $tenantId),
+            'booking_mutations' => $this->modelsForBookings(BookingMutation::class, $bookingIds, $tenantId),
             'booking_add_ons' => $this->modelsForBookings(BookingAddOn::class, $bookingIds, $tenantId),
             'booking_operator_fees' => $this->modelsForBookings(BookingOperatorFee::class, $bookingIds, $tenantId),
             'booking_reminders' => $this->modelsForBookings(BookingReminder::class, $bookingIds, $tenantId),

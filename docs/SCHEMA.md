@@ -177,6 +177,10 @@ The client calls `https://services.leadconnectorhq.com` with `Authorization: Bea
 
 `ghl_message_logs` is one row per booking communication sent through GoHighLevel: `booking.confirmed`, `payment.receipt`, `booking.reminder`, `booking.cancelled`, `booking.guest_cancelled`, `refund.issued`, and `rental.overdue`. `dedupe_key` is unique per workspace. `status` is `queued`, `succeeded`, `failed`, or `skipped`. `attempts`, `http_status`, `error`, `location_id`, `channel`, and `ghl_message_id` record the try. The message body is not stored. Nothing is queued when the workspace has no link. The customer export does not include this table.
 
+## Booking mutation retries
+
+`booking_mutations` stores one successful change to a booking when the request sends `Idempotency-Key` or `idempotency_key`. The action is `confirm`, `extend`, `cancel`, `no_show`, `rental_checkout`, `return`, `operational_status`, `reschedule`, `reassign`, `party_size`, or `remove_participant`. The same key and the same request return the first response and do not run the change again. A different request for that key is refused. A refused change deletes the row, so the same key can be sent again after the time is free. Creating a hold still uses `bookings.idempotency_key`. Payments, refunds, and adding a participant keep their own keys. The customer download includes the stored response. Anonymizing that customer scrubs their name, email, and phone out of it.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
