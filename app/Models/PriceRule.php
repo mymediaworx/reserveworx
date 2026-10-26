@@ -14,7 +14,7 @@ class PriceRule extends Model
 
     protected $fillable = [
         'tenant_id', 'service_id', 'name', 'kind', 'amount_cents', 'window', 'duration_minutes', 'starts_on', 'ends_on',
-        'local_start_minute', 'local_end_minute', 'weekdays',
+        'local_start_minute', 'local_end_minute', 'weekdays', 'min_participants', 'max_participants',
     ];
 
     protected $casts = [
@@ -25,6 +25,8 @@ class PriceRule extends Model
         'local_start_minute' => 'integer',
         'local_end_minute' => 'integer',
         'weekdays' => 'array',
+        'min_participants' => 'integer',
+        'max_participants' => 'integer',
     ];
 
     /**
@@ -55,6 +57,8 @@ class PriceRule extends Model
             $this->minute($this->local_start_minute),
             $this->minute($this->local_end_minute),
             $this->weekdayList(),
+            $this->min_participants,
+            $this->max_participants,
         );
     }
 
