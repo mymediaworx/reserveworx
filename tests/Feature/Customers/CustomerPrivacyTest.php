@@ -21,6 +21,7 @@ use App\Models\CustomerDataDeletion;
 use App\Models\CustomerDataExport;
 use App\Models\CustomerSignInToken;
 use App\Models\GhlConnection;
+use App\Models\GhlMessageLog;
 use App\Models\GhlSyncLog;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
@@ -594,6 +595,16 @@ class CustomerPrivacyTest extends TestCase
             'location_id' => 'loc-ghl-private',
             'error' => 'pit-secret-ghl-token-value must stay out',
         ]);
+        GhlMessageLog::query()->create([
+            'tenant_id' => $tenantId,
+            'booking_id' => $booking->id,
+            'kind' => 'booking.confirmed',
+            'dedupe_key' => 'booking.confirmed:'.$booking->id,
+            'status' => 'failed',
+            'attempts' => 1,
+            'error' => 'pit-secret-ghl-token-value must stay out',
+            'location_id' => 'loc-ghl-private',
+        ]);
 
         Storage::fake('local');
         $this->actingAsWorkspace($workspace);
@@ -612,6 +623,7 @@ class CustomerPrivacyTest extends TestCase
         $entries = $this->zipEntries($path);
         $this->assertArrayNotHasKey('ghl_connections.json', $entries);
         $this->assertArrayNotHasKey('ghl_sync_logs.json', $entries);
+        $this->assertArrayNotHasKey('ghl_message_logs.json', $entries);
         $blob = json_encode($entries, JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString($token, $blob);
         $this->assertStringNotContainsString('loc-ghl-private', $blob);

@@ -175,6 +175,8 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 The client calls `https://services.leadconnectorhq.com` with `Authorization: Bearer` and `Version: 2021-07-28` unless `GHL_VERSION` is set. It upserts `POST /contacts/upsert` without tags, then `POST /contacts/{id}/tags` and `POST /contacts/{id}/notes`. The generic `integration_outbox` still does not call HighLevel. `webhook_delivery_attempts` remains the tenant endpoint log and is not reused here, because each row requires an endpoint and stores a response body.
 
+`ghl_message_logs` is one row per booking communication sent through GoHighLevel: `booking.confirmed`, `payment.receipt`, `booking.reminder`, `booking.cancelled`, `booking.guest_cancelled`, `refund.issued`, and `rental.overdue`. `dedupe_key` is unique per workspace. `status` is `queued`, `succeeded`, `failed`, or `skipped`. `attempts`, `http_status`, `error`, `location_id`, `channel`, and `ghl_message_id` record the try. The message body is not stored. Nothing is queued when the workspace has no link. The customer export does not include this table.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -184,7 +186,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - a mail transport. Outbound webhook endpoints are migrated
 - ghl_mappings. Upsert matches the contact by email or phone in the linked location. A stored HighLevel contact id is not migrated
 - a general integration_logs table. This sync records attempts on `ghl_sync_logs`
-- inbound HighLevel webhooks and the rest of the Section 8 event list: reminders, check-in, return, overdue, and payment failed
+- inbound HighLevel webhooks. Check-in, return, and payment failed are still not sent as messages. Reminders, confirmations, receipts, cancellations, refunds, and overdue rentals are `ghl_message_logs`
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
 

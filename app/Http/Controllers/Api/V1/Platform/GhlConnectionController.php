@@ -8,7 +8,7 @@ use App\Models\GhlConnection;
 use App\Models\GhlSyncLog;
 use App\Models\Tenant;
 use App\Models\User;
-use App\Services\AuditLogger;
+use App\Services\Integrations\GhlConnectionStore;
 use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Integrations\GhlSyncLogger;
 use App\Services\Integrations\GoHighLevelClient;
@@ -19,9 +19,9 @@ use Illuminate\Http\Request;
 class GhlConnectionController extends Controller
 {
     public function __construct(
-        private readonly AuditLogger $audit,
         private readonly GoHighLevelClient $client,
         private readonly GhlSyncLogger $logger,
+        private readonly GhlConnectionStore $connections,
     ) {}
 
     public function show(Tenant $tenant): JsonResponse
@@ -33,24 +33,12 @@ class GhlConnectionController extends Controller
 
     public function update(LinkGhlSubAccountRequest $request, Tenant $tenant): JsonResponse
     {
-        $connection = $this->connection($tenant) ?? new GhlConnection([
-            'tenant_id' => $tenant->id,
-        ]);
-        $connection->location_id = $request->string('location_id')->toString();
-        $connection->private_integration_token = $request->string('private_integration_token')->toString();
-        $connection->save();
-
-        $this->audit->log(
-            action: 'platform.ghl_linked',
-            subject: $connection,
-            properties: [
-                'location_id' => $connection->location_id,
-                'token_updated' => true,
-            ],
-            tenantId: $tenant->id,
-            actor: $request->user() instanceof User ? $request->user() : null,
-            request: $request,
-            useContextTenant: false,
+        $connection = $this->connections->link(
+            $tenant,
+            $request->string('location_id')->toString(),
+            $request->string('private_integration_token')->toString(),
+            $request->user() instanceof User ? $request->user() : null,
+            $request,
         );
 
         return response()->json([
@@ -60,24 +48,11 @@ class GhlConnectionController extends Controller
 
     public function destroy(Request $request, Tenant $tenant): JsonResponse
     {
-        $connection = $this->connection($tenant);
-
-        if ($connection instanceof GhlConnection) {
-            $locationId = $connection->location_id;
-            $connection->delete();
-
-            $this->audit->log(
-                action: 'platform.ghl_unlinked',
-                subject: $connection,
-                properties: [
-                    'location_id' => $locationId,
-                ],
-                tenantId: $tenant->id,
-                actor: $request->user() instanceof User ? $request->user() : null,
-                request: $request,
-                useContextTenant: false,
-            );
-        }
+        $this->connections->unlink(
+            $tenant,
+            $request->user() instanceof User ? $request->user() : null,
+            $request,
+        );
 
         return response()->json([
             'data' => $this->payload(null),

@@ -14,7 +14,7 @@ class FlagOverdueRentals extends Command
 {
     protected $signature = 'rentals:flag-overdue';
 
-    protected $description = 'Queue one overdue hook for each rental still out past its due time. No email is sent.';
+    protected $description = 'Queue one overdue hook for each rental still out past its due time. No email is sent. GoHighLevel sends it when that workspace is linked.';
 
     public function handle(TenantManager $tenants, BookingEvents $events): int
     {

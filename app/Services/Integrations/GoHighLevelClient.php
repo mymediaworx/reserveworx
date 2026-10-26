@@ -64,6 +64,22 @@ class GoHighLevelClient
         ], 'note');
     }
 
+    /**
+     * @param  array{type: string, contactId: string, message: string, status: string, subject?: string, emailTo?: string, toNumber?: string}  $message
+     */
+    public function sendMessage(string $token, array $message): string
+    {
+        $response = $this->send('POST', $token, '/conversations/messages', $message, 'message');
+        $payload = $response->json();
+        $id = is_array($payload) ? ($payload['messageId'] ?? null) : null;
+
+        if (! is_string($id) || $id === '') {
+            throw new GhlRequestFailed($response->status(), 'message', true);
+        }
+
+        return $id;
+    }
+
     public function assertLocation(string $token, string $locationId): void
     {
         $response = $this->send('GET', $token, '/locations/'.rawurlencode($locationId), null, 'location');

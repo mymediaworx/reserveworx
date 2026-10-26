@@ -6,6 +6,8 @@ use App\Enums\Industry;
 use App\Enums\MembershipStatus;
 use App\Enums\TenantStatus;
 use App\Models\Domain;
+use App\Models\GhlConnection;
+use App\Models\GhlMessageLog;
 use App\Models\Membership;
 use App\Models\Role;
 use App\Models\Tenant;
@@ -13,6 +15,10 @@ use App\Models\TenantDataExport;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Services\Integrations\GhlConnectionStore;
+use App\Services\Integrations\GhlRequestFailed;
+use App\Services\Integrations\GhlSyncLogger;
+use App\Services\Integrations\GoHighLevelClient;
 use App\Services\Platform\TenantExporter;
 use App\Services\TenantLifecycle;
 use App\Support\Hostname;
@@ -61,6 +67,14 @@ class TenantDetail extends Component
 
     public ?string $newPassword = null;
 
+    public string $ghlLocationId = '';
+
+    /**
+     * The token typed into the settings form. Cleared before the response so
+     * it is not stored in the Livewire snapshot or written to a log.
+     */
+    public string $ghlToken = '';
+
     public ?string $flash = null;
 
     public ?string $problem = null;
@@ -78,6 +92,9 @@ class TenantDetail extends Component
         $this->thirdPartyFixed = $this->dollars($setting->third_party_fee_fixed_cents);
         $this->directMinimum = $setting->direct_fee_minimum_cents === null ? '' : $this->dollars($setting->direct_fee_minimum_cents);
         $this->thirdPartyMinimum = $setting->third_party_fee_minimum_cents === null ? '' : $this->dollars($setting->third_party_fee_minimum_cents);
+        $connection = GhlConnection::withoutGlobalScope(TenantScope::class)->where('tenant_id', $model->id)->first();
+        $this->ghlLocationId = $connection instanceof GhlConnection ? $connection->location_id : '';
+        $this->ghlToken = '';
     }
 
     public function setStatus(string $status, TenantLifecycle $lifecycle, AuditLogger $audit, TenantExporter $exports): void
@@ -269,6 +286,94 @@ class TenantDetail extends Component
             : 'Owner added. Give them the temporary password below; it is shown only once.';
     }
 
+    public function saveGhl(GhlConnectionStore $connections): void
+    {
+        $actor = $this->guard();
+        $this->resetMessages();
+        $locationId = trim($this->ghlLocationId);
+        $token = $this->ghlToken;
+        $this->ghlToken = '';
+        $existing = $connections->find($this->tenant($this->tenantId));
+
+        if (! preg_match('/^[A-Za-z0-9_-]{1,64}$/', $locationId)) {
+            $this->addError('ghlLocationId', 'Enter the Location ID from the BrandWorx sub-account.');
+        }
+
+        if (! $existing instanceof GhlConnection && $token === '') {
+            $this->addError('ghlToken', 'Enter the Private Integration Token from that sub-account.');
+        } elseif ($token !== '' && (strlen($token) < 20 || strlen($token) > 2000)) {
+            $this->addError('ghlToken', 'That token is too short.');
+        }
+
+        if ($this->getErrorBag()->isNotEmpty()) {
+            return;
+        }
+
+        $connections->link($this->tenant($this->tenantId), $locationId, $token !== '' ? $token : null, $actor, request());
+        $this->ghlLocationId = $locationId;
+        $this->flash = 'GoHighLevel sub-account saved.';
+    }
+
+    public function removeGhl(GhlConnectionStore $connections): void
+    {
+        $actor = $this->guard();
+        $this->resetMessages();
+        $this->ghlToken = '';
+        $connections->unlink($this->tenant($this->tenantId), $actor, request());
+        $this->ghlLocationId = '';
+        $this->flash = 'GoHighLevel sub-account removed.';
+    }
+
+    public function testGhl(GhlConnectionStore $connections, GoHighLevelClient $client, GhlSyncLogger $logger): void
+    {
+        $this->guard();
+        $this->resetMessages();
+        $this->ghlToken = '';
+        $connection = $connections->find($this->tenant($this->tenantId));
+
+        if (! $connection instanceof GhlConnection) {
+            $this->problem = 'GoHighLevel is not linked.';
+
+            return;
+        }
+
+        $token = $connection->private_integration_token;
+
+        try {
+            $client->assertLocation($token, $connection->location_id);
+        } catch (GhlRequestFailed $exception) {
+            $logger->write(
+                tenantId: $this->tenantId,
+                kind: 'connection.test',
+                attempt: 1,
+                status: 'failed',
+                locationId: $connection->location_id,
+                bookingId: null,
+                paymentId: null,
+                httpStatus: $exception->httpStatus,
+                error: $exception->getMessage(),
+                secret: $token,
+            );
+            $this->problem = 'GoHighLevel refused the connection.';
+
+            return;
+        }
+
+        $logger->write(
+            tenantId: $this->tenantId,
+            kind: 'connection.test',
+            attempt: 1,
+            status: 'succeeded',
+            locationId: $connection->location_id,
+            bookingId: null,
+            paymentId: null,
+            httpStatus: null,
+            error: null,
+            secret: $token,
+        );
+        $this->flash = 'GoHighLevel accepted this location.';
+    }
+
     public function exportData(TenantExporter $exports): void
     {
         $actor = $this->guard();
@@ -292,6 +397,13 @@ class TenantDetail extends Component
             'statuses' => TenantStatus::cases(),
             'industries' => Industry::cases(),
             'setting' => $this->setting(),
+            'ghlConnection' => GhlConnection::withoutGlobalScope(TenantScope::class)->where('tenant_id', $tenant->id)->first(),
+            'ghlMessages' => GhlMessageLog::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $tenant->id)
+                ->orderByDesc('created_at')
+                ->orderByDesc('id')
+                ->limit(10)
+                ->get(),
             'exports' => TenantDataExport::withoutGlobalScope(TenantScope::class)
                 ->where('tenant_id', $tenant->id)
                 ->orderByDesc('completed_at')
