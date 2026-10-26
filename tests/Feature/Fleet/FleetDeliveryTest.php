@@ -117,8 +117,8 @@ class FleetDeliveryTest extends TestCase
             $this->assertSame('That day is fully booked.', $exception->getMessage());
         }
 
-        $this->book($workspace['tenant'], $shop['southService'], '2026-07-06 10:00:00', 2);
-        $this->assertTrue(true);
+        $later = $this->book($workspace['tenant'], $shop['southService'], '2026-07-06 10:00:00', 2);
+        $this->assertSame(2, $later->participants);
     }
 
     public function test_an_expired_hold_releases_the_fleet_day(): void
@@ -149,8 +149,8 @@ class FleetDeliveryTest extends TestCase
         try {
             $this->book($workspace['tenant'], $fixed['service'], '2026-07-04 10:30:00', 1);
             $this->fail('A fixed pool accepted an overlapping booking.');
-        } catch (AllocationUnavailableException) {
-            $this->assertTrue(true);
+        } catch (AllocationUnavailableException $exception) {
+            $this->assertNotSame('That day is fully booked.', $exception->getMessage());
         }
 
         try {
@@ -233,7 +233,7 @@ class FleetDeliveryTest extends TestCase
         $workspace = $this->workspace('fleet.test');
         app(TenantManager::class)->set($workspace['tenant']);
         $shop = $this->beaches($workspace['tenant'], 2);
-        $this->assertFalse($shop['north']->walk_ins_enabled);
+        $this->assertFalse($shop['north']->fresh()->walk_ins_enabled);
 
         $this->book($workspace['tenant'], $shop['northService'], '2026-07-04 10:00:00', 2, true);
 
@@ -296,7 +296,9 @@ class FleetDeliveryTest extends TestCase
             ->assertSee('Touring kayak')
             ->assertSee('North beach')
             ->assertSee('South beach')
-            ->assertSee('Fleet count 10. Load 7. Still on the truck 3.')
+            ->assertSee('Fleet count 10.')
+            ->assertSee('Load 7.')
+            ->assertSee('Still on the truck 3.')
             ->assertSee('window.print()', false)
             ->assertSee('@media print', false)
             ->assertSee('@media (max-width: 390px)', false)

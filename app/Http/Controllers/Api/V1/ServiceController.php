@@ -184,7 +184,6 @@ class ServiceController extends Controller
         $resource = match ($type) {
             ResourceType::Asset => Asset::query()->whereKey($id)->first(),
             ResourceType::Pool => Pool::query()->whereKey($id)->first(),
-            ResourceType::Fleet => null,
         };
 
         if ($resource === null || $resource->location_id !== $service->location_id) {

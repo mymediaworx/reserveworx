@@ -239,7 +239,7 @@ final class FleetCapacity
 
         $booking = $bookings->get($bookingId);
 
-        if (! $booking instanceof Booking || ! is_string($booking->location_id)) {
+        if (! $booking instanceof Booking) {
             return null;
         }
 

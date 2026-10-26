@@ -3,6 +3,7 @@
 namespace App\Services\Booking;
 
 use App\Enums\DepartureStatus;
+use App\Enums\ResourceType;
 use App\Enums\ScheduleOwnerType;
 use App\Models\AvailabilitySchedule;
 use App\Models\Departure;
@@ -206,6 +207,10 @@ final class SlotFinder
         }
 
         foreach ($service->requirements as $requirement) {
+            if ($requirement->resourceType() === ResourceType::Fleet) {
+                continue;
+            }
+
             $resource = $this->hours->assess($location, $start, $end, $requirement->resourceType()->value, $requirement->resourceId());
 
             if ($resource['closed']) {
