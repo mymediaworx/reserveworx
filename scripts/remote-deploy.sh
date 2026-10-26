@@ -930,6 +930,31 @@ grant_platform_admin() {
   fi
 }
 
+
+# Read-only, count-only (approved by Michael 2026-10-26): inode counts for the
+# main marketing site folder and home top-level dirs. Lists directory names and
+# counts only; reads no file contents, changes nothing.
+report_site_inodes() {
+  local site="$HOME/www/reserveworx.com" n entry
+  echo "inodes_site_begin"
+  if [[ -d "$site" && ! -L "$site" ]]; then
+    n="$(du --inodes -s -x "$site" 2>/dev/null | cut -f1 || true)"
+    echo "inodes_site_total=${n:-?} path=www/reserveworx.com"
+    du --inodes -x -d2 "$site" 2>/dev/null | sort -nr | head -40 | while read -r n entry; do
+      echo "inodes_site_d2 ${n} ${entry#"${HOME}/"}"
+    done
+  else
+    echo "inodes_site_total=absent"
+  fi
+  du --inodes -x -d1 "$HOME" 2>/dev/null | sort -nr | head -30 | while read -r n entry; do
+    echo "inodes_home_d1 ${n} ${entry#"${HOME}/"}"
+  done
+  du --inodes -x -d1 "$HOME/www" 2>/dev/null | sort -nr | head -30 | while read -r n entry; do
+    echo "inodes_www_d1 ${n} ${entry#"${HOME}/"}"
+  done
+  echo "inodes_site_end"
+}
+
 # Inode cleanup for app.reserveworx.com only. Every path is checked against
 # the app's laravel dir before anything is removed. Nothing outside
 # laravel/releases and laravel/shared/storage cache dirs is deleted, and
@@ -1053,6 +1078,7 @@ inode_cleanup() {
   fi
   report_inodes after
   report_home_inodes || true
+  report_site_inodes || true
 }
 
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
