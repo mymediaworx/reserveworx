@@ -77,6 +77,11 @@ class TenantDetail extends Component
 
     public ?string $flash = null;
 
+    /** Result of the last GoHighLevel connection test, shown beside the button. */
+    public ?string $ghlTestResult = null;
+
+    public bool $ghlTestOk = false;
+
     public ?string $problem = null;
 
     public function mount(string $tenant): void
@@ -329,32 +334,40 @@ class TenantDetail extends Component
         $this->guard();
         $this->resetMessages();
         $this->ghlToken = '';
+        $this->ghlTestOk = false;
         $connection = $connections->find($this->tenant($this->tenantId));
 
-        if (! $connection instanceof GhlConnection) {
-            $this->problem = 'GoHighLevel is not linked.';
+        if (! $connection instanceof GhlConnection || $connection->location_id === '' || (string) $connection->private_integration_token === '') {
+            $this->ghlTestResult = 'No GoHighLevel Location ID and Private Integration Token are saved yet. Enter both, click Save GoHighLevel, then test again.';
 
             return;
         }
 
-        $token = $connection->private_integration_token;
+        $token = (string) $connection->private_integration_token;
+        $locationId = $connection->location_id;
 
         try {
-            $client->assertLocation($token, $connection->location_id);
+            $name = $client->assertLocation($token, $locationId);
         } catch (GhlRequestFailed $exception) {
             $logger->write(
                 tenantId: $this->tenantId,
                 kind: 'connection.test',
                 attempt: 1,
                 status: 'failed',
-                locationId: $connection->location_id,
+                locationId: $locationId,
                 bookingId: null,
                 paymentId: null,
                 httpStatus: $exception->httpStatus,
                 error: $exception->getMessage(),
                 secret: $token,
             );
-            $this->problem = 'GoHighLevel refused the connection.';
+            $this->ghlTestResult = match (true) {
+                $exception->wrongLocation => 'GoHighLevel returned a different location than '.$locationId.'. Check the Location ID.',
+                $exception->httpStatus === null => 'Could not reach GoHighLevel. Try again in a minute.',
+                in_array($exception->httpStatus, [401, 403], true) => 'GoHighLevel rejected the Private Integration Token (HTTP '.$exception->httpStatus.'). Paste a new token from the sub-account and save.',
+                in_array($exception->httpStatus, [400, 404, 422], true) => 'GoHighLevel could not find location '.$locationId.' with this token (HTTP '.$exception->httpStatus.'). Check the Location ID.',
+                default => 'GoHighLevel returned an error (HTTP '.$exception->httpStatus.'). Try again in a minute.',
+            };
 
             return;
         }
@@ -364,14 +377,17 @@ class TenantDetail extends Component
             kind: 'connection.test',
             attempt: 1,
             status: 'succeeded',
-            locationId: $connection->location_id,
+            locationId: $locationId,
             bookingId: null,
             paymentId: null,
             httpStatus: null,
             error: null,
             secret: $token,
         );
-        $this->flash = 'GoHighLevel accepted this location.';
+        $this->ghlTestOk = true;
+        $this->ghlTestResult = $name !== null
+            ? 'Connected to GoHighLevel location "'.$name.'" ('.$locationId.').'
+            : 'Connected to GoHighLevel location '.$locationId.'.';
     }
 
     public function exportData(TenantExporter $exports): void
@@ -437,6 +453,8 @@ class TenantDetail extends Component
         $this->flash = null;
         $this->problem = null;
         $this->newPassword = null;
+        $this->ghlTestResult = null;
+        $this->ghlTestOk = false;
     }
 
     private function percent(int $bps): string
