@@ -25,6 +25,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\BookingMutationIdempotency;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
@@ -47,6 +48,7 @@ class BookingController extends Controller
         private readonly BookingAddOnLines $addOnLines,
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly RentalExtensions $extensions,
+        private readonly BookingMutationIdempotency $mutations,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -216,21 +218,23 @@ class BookingController extends Controller
     {
         $this->authorize('update', $booking);
 
-        try {
-            $confirmed = $this->allocator->confirm($booking);
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 409);
-        }
+        return $this->mutations->once($request, $booking, 'confirm', [], function () use ($request, $booking): JsonResponse {
+            try {
+                $confirmed = $this->allocator->confirm($booking);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 409);
+            }
 
-        $action = $confirmed->status->value === 'payment_exception' ? 'booking.payment_exception' : 'booking.confirmed';
-        $this->audit->log($action, $confirmed, [], request: $request);
+            $action = $confirmed->status->value === 'payment_exception' ? 'booking.payment_exception' : 'booking.confirmed';
+            $this->audit->log($action, $confirmed, [], request: $request);
 
-        $status = $confirmed->status->value === 'payment_exception' ? 409 : 200;
+            $status = $confirmed->status->value === 'payment_exception' ? 409 : 200;
 
-        return response()->json([
-            'message' => $status === 409 ? 'That time is no longer available.' : 'Confirmed.',
-            'data' => $this->payload($confirmed),
-        ], $status);
+            return response()->json([
+                'message' => $status === 409 ? 'That time is no longer available.' : 'Confirmed.',
+                'data' => $this->payload($confirmed),
+            ], $status);
+        });
     }
 
     public function extend(Request $request, Booking $booking): JsonResponse
@@ -241,123 +245,142 @@ class BookingController extends Controller
             'asset_id' => ['sometimes', 'nullable', 'string', 'max:26'],
         ]);
         $back = url('/staff/bookings/'.$booking->id);
+        $assetId = $validated['asset_id'] ?? null;
+        $assetId = is_string($assetId) && $assetId !== '' ? $assetId : null;
 
-        try {
-            $result = $this->extensions->request(
-                $booking,
-                CarbonImmutable::parse($validated['ends_at'])->utc(),
-                $validated['asset_id'] ?? null,
-                $back.'?paid=1',
-                $back,
-                false,
-                $request,
-            );
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 409);
-        }
+        return $this->mutations->once($request, $booking, 'extend', [
+            'ends_at' => $validated['ends_at'],
+            'asset_id' => $assetId,
+        ], function () use ($request, $booking, $validated, $back, $assetId): JsonResponse {
+            try {
+                $result = $this->extensions->request(
+                    $booking,
+                    CarbonImmutable::parse($validated['ends_at'])->utc(),
+                    $assetId,
+                    $back.'?paid=1',
+                    $back,
+                    false,
+                    $request,
+                );
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 409);
+            }
 
-        if ($result['offers'] !== []) {
-            return response()->json([
-                'message' => 'That time is no longer available.',
-                'offers' => $result['offers'],
-                'data' => $this->payload($result['booking']),
-            ], 409);
-        }
+            if ($result['offers'] !== []) {
+                return response()->json([
+                    'message' => 'That time is no longer available.',
+                    'offers' => $result['offers'],
+                    'data' => $this->payload($result['booking']),
+                ], 409);
+            }
 
-        $this->audit->log('booking.extended', $result['booking'], [], request: $request);
-        $body = ['data' => $this->payload($result['booking'])];
+            $this->audit->log('booking.extended', $result['booking'], [], request: $request);
+            $body = ['data' => $this->payload($result['booking'])];
 
-        if ($result['checkout'] !== null) {
-            $body['checkout'] = [
-                'payment_id' => $result['checkout']['payment_id'],
-                'checkout_url' => $result['checkout']['url'],
-                'amount_cents' => $result['checkout']['amount_cents'],
-                'fee_cents' => $result['checkout']['fee_cents'],
-            ];
-        }
+            if ($result['checkout'] !== null) {
+                $body['checkout'] = [
+                    'payment_id' => $result['checkout']['payment_id'],
+                    'checkout_url' => $result['checkout']['url'],
+                    'amount_cents' => $result['checkout']['amount_cents'],
+                    'fee_cents' => $result['checkout']['fee_cents'],
+                ];
+            }
 
-        if ($result['charge_message'] !== null) {
-            $body['charge_message'] = $result['charge_message'];
-        }
+            if ($result['charge_message'] !== null) {
+                $body['charge_message'] = $result['charge_message'];
+            }
 
-        return response()->json($body);
+            return response()->json($body);
+        });
     }
 
     public function cancel(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);
-        $cancelled = $this->allocator->cancel($booking);
-        $this->promoter->afterRelease($cancelled);
-        $this->audit->log('booking.cancelled', $cancelled, [], request: $request);
 
-        return response()->json(['data' => $this->payload($cancelled)]);
+        return $this->mutations->once($request, $booking, 'cancel', [], function () use ($request, $booking): JsonResponse {
+            $cancelled = $this->allocator->cancel($booking);
+            $this->promoter->afterRelease($cancelled);
+            $this->audit->log('booking.cancelled', $cancelled, [], request: $request);
+
+            return response()->json(['data' => $this->payload($cancelled)]);
+        });
     }
 
     public function noShow(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);
 
-        try {
-            $saved = $this->allocator->noShow($booking);
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 409);
-        }
+        return $this->mutations->once($request, $booking, 'no_show', [], function () use ($request, $booking): JsonResponse {
+            try {
+                $saved = $this->allocator->noShow($booking);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 409);
+            }
 
-        $this->promoter->afterRelease($saved);
-        $this->audit->log('booking.no_show', $saved, [], request: $request);
+            $this->promoter->afterRelease($saved);
+            $this->audit->log('booking.no_show', $saved, [], request: $request);
 
-        return response()->json(['data' => $this->payload($saved)]);
+            return response()->json(['data' => $this->payload($saved)]);
+        });
     }
 
     public function checkout(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);
 
-        try {
-            $saved = $this->allocator->checkout($booking);
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 409);
-        }
+        return $this->mutations->once($request, $booking, 'rental_checkout', [], function () use ($request, $booking): JsonResponse {
+            try {
+                $saved = $this->allocator->checkout($booking);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 409);
+            }
 
-        $this->audit->log('booking.checked_out', $saved, [], request: $request);
+            $this->audit->log('booking.checked_out', $saved, [], request: $request);
 
-        return response()->json(['data' => $this->payload($saved)]);
+            return response()->json(['data' => $this->payload($saved)]);
+        });
     }
 
     public function returnRental(Request $request, Booking $booking): JsonResponse
     {
         $this->authorize('update', $booking);
+        $conditions = $this->conditions($request);
 
-        try {
-            $result = $this->allocator->returnRental($booking, $this->conditions($request));
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 409);
-        }
-
-        if ($result['released_start'] instanceof CarbonImmutable && $result['released_end'] instanceof CarbonImmutable) {
-            $this->promoter->afterRelease($result['booking'], $result['released_start'], $result['released_end']);
-        }
-
-        $this->recordLateFee($result['booking']);
-
-        $this->audit->log('booking.returned', $result['booking'], [
-            'conditions' => $result['conditions'],
-        ], request: $request);
-
-        foreach ($result['maintained_asset_ids'] as $assetId) {
-            $asset = Asset::query()->find($assetId);
-
-            if ($asset instanceof Asset) {
-                $this->audit->log('asset.updated', $asset, [
-                    'status' => ResourceStatus::Maintenance->value,
-                ], request: $request);
+        return $this->mutations->once($request, $booking, 'return', [
+            'conditions' => $conditions,
+        ], function () use ($request, $booking, $conditions): JsonResponse {
+            try {
+                $result = $this->allocator->returnRental($booking, $conditions);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 409);
             }
-        }
 
-        $data = $this->payload($result['booking']);
-        $data['returns'] = $this->returnRecords($result['booking']);
+            if ($result['released_start'] instanceof CarbonImmutable && $result['released_end'] instanceof CarbonImmutable) {
+                $this->promoter->afterRelease($result['booking'], $result['released_start'], $result['released_end']);
+            }
 
-        return response()->json(['data' => $data]);
+            $this->recordLateFee($result['booking']);
+
+            $this->audit->log('booking.returned', $result['booking'], [
+                'conditions' => $result['conditions'],
+            ], request: $request);
+
+            foreach ($result['maintained_asset_ids'] as $assetId) {
+                $asset = Asset::query()->find($assetId);
+
+                if ($asset instanceof Asset) {
+                    $this->audit->log('asset.updated', $asset, [
+                        'status' => ResourceStatus::Maintenance->value,
+                    ], request: $request);
+                }
+            }
+
+            $data = $this->payload($result['booking']);
+            $data['returns'] = $this->returnRecords($result['booking']);
+
+            return response()->json(['data' => $data]);
+        });
     }
 
     public function indexReturns(Booking $booking): JsonResponse
@@ -379,13 +402,17 @@ class BookingController extends Controller
             abort(422);
         }
 
-        $booking->operational_status = OperationalStatus::from($status);
-        $booking->save();
-        $this->audit->log('booking.operational_status', $booking, [
-            'operational_status' => $booking->operational_status->value,
-        ], request: $request);
+        return $this->mutations->once($request, $booking, 'operational_status', [
+            'operational_status' => $status,
+        ], function () use ($request, $booking, $status): JsonResponse {
+            $booking->operational_status = OperationalStatus::from($status);
+            $booking->save();
+            $this->audit->log('booking.operational_status', $booking, [
+                'operational_status' => $booking->operational_status->value,
+            ], request: $request);
 
-        return response()->json(['data' => $this->payload($booking->load('service'))]);
+            return response()->json(['data' => $this->payload($booking->load('service'))]);
+        });
     }
 
     public function reschedule(Request $request, Booking $booking): JsonResponse
@@ -396,22 +423,27 @@ class BookingController extends Controller
             'ends_at' => ['required', 'date', 'after:starts_at'],
         ]);
 
-        try {
-            $saved = $this->allocator->reschedule(
-                $booking,
-                CarbonImmutable::parse($validated['starts_at'])->utc(),
-                CarbonImmutable::parse($validated['ends_at'])->utc(),
-            );
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json([
-                'message' => $exception->getMessage(),
-                'offers' => $exception->offers,
-            ], 409);
-        }
+        return $this->mutations->once($request, $booking, 'reschedule', [
+            'starts_at' => $validated['starts_at'],
+            'ends_at' => $validated['ends_at'],
+        ], function () use ($request, $booking, $validated): JsonResponse {
+            try {
+                $saved = $this->allocator->reschedule(
+                    $booking,
+                    CarbonImmutable::parse($validated['starts_at'])->utc(),
+                    CarbonImmutable::parse($validated['ends_at'])->utc(),
+                );
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'offers' => $exception->offers,
+                ], 409);
+            }
 
-        $this->audit->log('booking.rescheduled', $saved, [], request: $request);
+            $this->audit->log('booking.rescheduled', $saved, [], request: $request);
 
-        return response()->json(['data' => $this->payload($saved)]);
+            return response()->json(['data' => $this->payload($saved)]);
+        });
     }
 
     public function reassign(Request $request, Booking $booking): JsonResponse
@@ -422,21 +454,26 @@ class BookingController extends Controller
             'to_asset_id' => ['required', 'string'],
         ]);
 
-        try {
-            $saved = $this->allocator->reassignAsset($booking, $validated['from_asset_id'], $validated['to_asset_id']);
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json([
-                'message' => $exception->getMessage(),
-                'offers' => $exception->offers,
-            ], 409);
-        }
-
-        $this->audit->log('booking.reassigned', $saved, [
+        return $this->mutations->once($request, $booking, 'reassign', [
             'from_asset_id' => $validated['from_asset_id'],
             'to_asset_id' => $validated['to_asset_id'],
-        ], request: $request);
+        ], function () use ($request, $booking, $validated): JsonResponse {
+            try {
+                $saved = $this->allocator->reassignAsset($booking, $validated['from_asset_id'], $validated['to_asset_id']);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'offers' => $exception->offers,
+                ], 409);
+            }
 
-        return response()->json(['data' => $this->payload($saved)]);
+            $this->audit->log('booking.reassigned', $saved, [
+                'from_asset_id' => $validated['from_asset_id'],
+                'to_asset_id' => $validated['to_asset_id'],
+            ], request: $request);
+
+            return response()->json(['data' => $this->payload($saved)]);
+        });
     }
 
     public function partySize(Request $request, Booking $booking): JsonResponse
@@ -447,21 +484,25 @@ class BookingController extends Controller
         ]);
         $previous = $booking->participants;
 
-        try {
-            $saved = $this->allocator->changePartySize($booking, (int) $validated['participants']);
-        } catch (AllocationUnavailableException $exception) {
-            return response()->json([
-                'message' => $exception->getMessage(),
-                'offers' => $exception->offers,
-            ], 409);
-        }
+        return $this->mutations->once($request, $booking, 'party_size', [
+            'participants' => (int) $validated['participants'],
+        ], function () use ($request, $booking, $validated, $previous): JsonResponse {
+            try {
+                $saved = $this->allocator->changePartySize($booking, (int) $validated['participants']);
+            } catch (AllocationUnavailableException $exception) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'offers' => $exception->offers,
+                ], 409);
+            }
 
-        $this->audit->log('booking.party_size_changed', $saved, [
-            'from' => $previous,
-            'to' => $saved->participants,
-        ], request: $request);
+            $this->audit->log('booking.party_size_changed', $saved, [
+                'from' => $previous,
+                'to' => $saved->participants,
+            ], request: $request);
 
-        return response()->json(['data' => $this->payload($saved)]);
+            return response()->json(['data' => $this->payload($saved)]);
+        });
     }
 
     public function calendar(Request $request): JsonResponse

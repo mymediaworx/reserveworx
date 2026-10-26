@@ -70,6 +70,7 @@
             <label>Party size
                 <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? 1 }}">
             </label>
+            @include('widget.partials.add-ons')
             <label>Your name
                 <input name="customer_name" type="text" required maxlength="120" autocomplete="name" value="{{ $old['customer_name'] ?? '' }}">
             </label>
@@ -132,6 +133,7 @@
                             </label>
                         @endforeach
                     </fieldset>
+                    @include('widget.partials.add-ons')
                     <label>Your name
                         <input name="customer_name" type="text" required maxlength="120" autocomplete="name" value="{{ $old['customer_name'] ?? '' }}">
                     </label>

@@ -20,6 +20,8 @@ final readonly class PriceRuleInput
         public ?int $localStartMinute = null,
         public ?int $localEndMinute = null,
         public ?array $weekdays = null,
+        public ?int $minParticipants = null,
+        public ?int $maxParticipants = null,
     ) {
         if (! in_array($kind, ['base', 'per_person', 'duration'], true)) {
             throw new InvalidArgumentException('A price rule kind must be base, per_person, or duration.');
@@ -67,6 +69,70 @@ final readonly class PriceRuleInput
                 $seen[$day] = true;
             }
         }
+
+        if ($maxParticipants !== null && $minParticipants === null) {
+            throw new InvalidArgumentException('A party size needs a minimum.');
+        }
+
+        if ($minParticipants !== null && ($minParticipants < 1 || $minParticipants > 500)) {
+            throw new InvalidArgumentException('A party size must be from 1 to 500.');
+        }
+
+        if ($maxParticipants !== null && ($maxParticipants < $minParticipants || $maxParticipants > 500)) {
+            throw new InvalidArgumentException('A party size maximum must be at least the minimum and at most 500.');
+        }
+
+        if ($minParticipants !== null && $hasStart) {
+            throw new InvalidArgumentException('A party size price cannot also name a clock window.');
+        }
+    }
+
+    public function hasPartyBand(): bool
+    {
+        return $this->minParticipants !== null;
+    }
+
+    public function containsParty(int $participants): bool
+    {
+        if (! $this->hasPartyBand() || $this->minParticipants === null) {
+            return false;
+        }
+
+        if ($participants < $this->minParticipants) {
+            return false;
+        }
+
+        return $this->maxParticipants === null || $participants <= $this->maxParticipants;
+    }
+
+    /**
+     * Higher wins among party-size prices of the same kind. A higher minimum
+     * beats a lower one. The same minimum prefers a stated maximum, then the
+     * narrower maximum.
+     */
+    public function partySpecificity(): int
+    {
+        $minimum = $this->minParticipants ?? 0;
+        $maximum = $this->maxParticipants === null ? 0 : 10_000 - $this->maxParticipants;
+
+        return ($minimum * 1_000_000) + $maximum;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function partyBandSnapshot(): array
+    {
+        return [
+            'kind' => $this->kind,
+            'amount_cents' => $this->amountCents,
+            'window' => $this->window,
+            'min_participants' => $this->minParticipants,
+            'max_participants' => $this->maxParticipants,
+            'duration_minutes' => $this->durationMinutes,
+            'starts_on' => $this->startsOn,
+            'ends_on' => $this->endsOn,
+        ];
     }
 
     public function hasTimeWindow(): bool

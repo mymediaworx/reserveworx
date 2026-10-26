@@ -4,11 +4,13 @@ namespace App\Services\Privacy;
 
 use App\Models\AuditLog;
 use App\Models\Booking;
+use App\Models\BookingMutation;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
 use App\Models\CustomerSignInToken;
 use App\Models\FeedbackRequest;
+use App\Models\GhlMapping;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\NotificationHook;
@@ -18,6 +20,7 @@ use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Models\WaiverSignature;
 use App\Services\AuditLogger;
+use App\Tenancy\TenantScope;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -125,6 +128,7 @@ class CustomerDataEraser
                 $this->scrubStaffNotes($bookingIds, $names, $fragments);
                 $this->scrubHooks($bookingIds, $names, $fragments);
                 $this->scrubOutbox($bookingIds, $names, $fragments);
+                $this->scrubMutations($bookingIds, $names, $fragments);
             }
 
             if ($waitlist->isNotEmpty()) {
@@ -151,6 +155,11 @@ class CustomerDataEraser
             $this->scrubAudits($subjectIds, $fragments, $names);
 
             $anonymizedAt = now();
+            GhlMapping::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $locked->tenant_id)
+                ->where('customer_id', $locked->id)
+                ->delete();
+
             $locked->forceFill([
                 'name' => self::REMOVED_CUSTOMER,
                 'email' => null,
@@ -454,6 +463,24 @@ class CustomerDataEraser
             if ($scrubbed !== $payload || $error !== $row->last_error) {
                 $row->payload = is_array($scrubbed) ? $scrubbed : $payload;
                 $row->last_error = $error;
+                $row->save();
+            }
+        }
+    }
+
+    /**
+     * @param  list<string>  $bookingIds
+     * @param  list<string>  $names
+     * @param  list<string>  $fragments
+     */
+    private function scrubMutations(array $bookingIds, array $names, array $fragments): void
+    {
+        foreach (BookingMutation::query()->whereIn('booking_id', $bookingIds)->orderBy('id')->get() as $row) {
+            $response = $row->response;
+            $scrubbed = $this->scrubValue($response, $names, $fragments);
+
+            if ($scrubbed !== $response && is_array($scrubbed)) {
+                $row->response = $scrubbed;
                 $row->save();
             }
         }

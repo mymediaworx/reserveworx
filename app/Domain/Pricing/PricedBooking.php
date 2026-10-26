@@ -12,6 +12,7 @@ final readonly class PricedBooking
      * @param  list<array<string, mixed>>  $timeWindows
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null, quantity: int, total_cents: int}>  $operatorFeeLines
      * @param  list<array<string, mixed>>  $taxLines
+     * @param  list<array<string, mixed>>  $partyBands
      */
     public function __construct(
         public int $servicesCents,
@@ -27,6 +28,7 @@ final readonly class PricedBooking
         public array $operatorFeeLines = [],
         public array $taxLines = [],
         public bool $taxIncludesBookingFee = false,
+        public array $partyBands = [],
     ) {}
 
     /**
@@ -47,6 +49,7 @@ final readonly class PricedBooking
             'application_fee_cents' => $this->payment->applicationFeeCents,
             'deposit_was_raised' => $this->payment->depositWasRaised(),
             'time_windows' => $this->timeWindows,
+            'party_bands' => $this->partyBands,
         ];
 
         if ($this->taxLines !== []) {
