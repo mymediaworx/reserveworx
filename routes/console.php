@@ -1,6 +1,11 @@
 <?php
 
+use App\Support\SchedulerHeartbeat;
 use Illuminate\Support\Facades\Schedule;
+
+Schedule::call(fn () => app(SchedulerHeartbeat::class)->beat())
+    ->name('scheduler-heartbeat')
+    ->everyMinute();
 
 $maxTime = max(10, (int) config('reserveworx.queue_work_max_time'));
 

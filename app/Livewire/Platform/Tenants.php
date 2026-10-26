@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Platform\WorkspaceProvisioner;
+use App\Support\SchedulerHeartbeat;
 use App\Tenancy\TenantScope;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -117,7 +118,11 @@ class Tenants extends Component
             ->orderBy('name')
             ->paginate(25);
 
+        $heartbeat = app(SchedulerHeartbeat::class);
+
         return view('livewire.platform.tenants', [
+            'schedulerStatus' => $heartbeat->status(),
+            'schedulerLastRun' => $heartbeat->lastRun(),
             'tenants' => $tenants,
             'operatorCount' => Tenant::query()->count(),
             'filtering' => $term !== '' || $status instanceof TenantStatus || $industry instanceof Industry,

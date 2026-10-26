@@ -15,7 +15,12 @@ class WorkflowSafetyTest extends TestCase
             $this->assertStringContainsString('workflow_dispatch', $contents);
             $this->assertStringNotContainsString('pull_request:', $contents);
             if ($workflow === 'deploy.yml') {
-                $this->assertStringContainsString("push:\n    branches:\n      - main", $contents);
+                $this->assertStringNotContainsString("push:\n", $contents);
+                $this->assertStringContainsString("workflow_run:\n    workflows:\n      - CI\n    types:\n      - completed\n    branches:\n      - main", $contents);
+                $this->assertStringContainsString('needs: gate', $contents);
+                $this->assertStringContainsString("if: needs.gate.outputs.go == 'true'", $contents);
+                $this->assertStringContainsString('ref: ${{ needs.gate.outputs.sha }}', $contents);
+                $this->assertStringContainsString('[[ "$CI_SHA" != "$tip" ]]', $contents);
                 $this->assertStringContainsString('Back up the application database', $contents);
                 $this->assertStringContainsString('gunzip -t', $contents);
                 $this->assertStringNotContainsString('migration_confirmation', $contents);
@@ -76,6 +81,13 @@ class WorkflowSafetyTest extends TestCase
         $this->assertLessThan($releaseSwitch, $mailConfigure);
         $this->assertLessThan($configCache, $releaseSwitch);
         $this->assertLessThan($mailStatus, $configCache);
+        $migrate = strpos($remote, 'artisan migrate --force');
+        $goLive = strpos($remote, 'ln -sfn "$target" "$current"');
+        $this->assertNotFalse($migrate);
+        $this->assertNotFalse($goLive);
+        $this->assertLessThan($goLive, $migrate);
+        $this->assertLessThan($goLive, $configCache);
+        $this->assertStringContainsString('abandon_release "migrate=failed."', $remote);
         $this->assertStringContainsString('Mail settings were not written. Document root was not changed.', $remote);
         $this->assertStringContainsString('mail_configured=no', $remote);
         $this->assertStringContainsString("MAIL_HOST' => 'mail.reserveworx.com'", $remote);
@@ -623,7 +635,8 @@ PY);
 
         $this->assertStringContainsString('pull_request:', $contents);
         $this->assertStringContainsString('php-version: "8.2"', $contents);
-        $this->assertStringContainsString('mysql:8.0', $contents);
+        $this->assertStringContainsString('mysql:8.4', $contents);
+        $this->assertStringContainsString('cancel-in-progress: ${{ github.event_name == \'pull_request\' }}', $contents);
         $this->assertStringContainsString('mariadb:11.8', $contents);
         $this->assertStringContainsString('pint', $contents);
         $this->assertStringContainsString('phpstan', $contents);

@@ -14,6 +14,19 @@
         </div>
     </header>
 
+    @if ($schedulerStatus !== 'ok')
+        <section class="notice" role="alert" data-scheduler="{{ $schedulerStatus }}">
+            <p><strong>Scheduled jobs are not running.</strong>
+                @if ($schedulerLastRun)
+                    The scheduler last ran {{ $schedulerLastRun->diffForHumans() }}.
+                @else
+                    The scheduler has not run since this check was added.
+                @endif
+                Until it runs, staff cancellations do not finish or refund, imports wait, and reminders and overdue flags stop.
+                Add one Site Tools cron for app.reserveworx.com, every minute: <code>php artisan schedule:run</code> in <code>laravel/current</code>.</p>
+        </section>
+    @endif
+
     <div class="stat-grid">
         @foreach ($statuses as $option)
             @php $count = $statusCounts[$option->value] ?? 0; @endphp

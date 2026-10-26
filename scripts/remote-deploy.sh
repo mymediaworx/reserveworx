@@ -1029,6 +1029,33 @@ fi
 
 link_shared "$target"
 
+# Migrations, role sync, and caches run from the new release before it goes
+# live. Until current moves, every request is still served by the old release,
+# so new code never runs against the old schema. A failure here leaves current
+# where it was and removes the new release directory.
+abandon_release() {
+  echo "$1 current was not changed." >&2
+  rm -rf "$target"
+  exit 1
+}
+
+migrate="skipped"
+if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
+  (cd "$target" && "$php_bin" artisan migrate --force --no-interaction) || abandon_release "migrate=failed."
+  migrate="ran"
+fi
+echo "migrations=${migrate}"
+# System roles and permissions are defined in code (RoleAndPermissionSeeder, idempotent
+# updateOrCreate + sync). Sync them on every deploy so new permissions reach existing roles.
+(cd "$target" && "$php_bin" artisan db:seed --class=RoleAndPermissionSeeder --force --no-interaction) || abandon_release "roles_synced=failed."
+echo "roles_synced=yes"
+echo "composer_on_server=not run"
+
+(cd "$target" && "$php_bin" artisan config:cache --no-interaction) || abandon_release "config_cache=failed."
+(cd "$target" && "$php_bin" artisan route:cache --no-interaction) || abandon_release "route_cache=failed."
+(cd "$target" && "$php_bin" artisan view:cache --no-interaction) || abandon_release "view_cache=failed."
+echo "caches=written"
+
 if [[ -L "$current" ]]; then
   ln -sfn "$(release_path "$current")" "$previous"
 fi
@@ -1036,22 +1063,6 @@ ln -sfn "$target" "$current"
 echo "current=$(readlink "$current")"
 prune_releases
 
-migrate="skipped"
-if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
-  (cd "$current" && "$php_bin" artisan migrate --force --no-interaction)
-  migrate="ran"
-fi
-echo "migrations=${migrate}"
-# System roles and permissions are defined in code (RoleAndPermissionSeeder, idempotent
-# updateOrCreate + sync). Sync them on every deploy so new permissions reach existing roles.
-(cd "$current" && "$php_bin" artisan db:seed --class=RoleAndPermissionSeeder --force --no-interaction)
-echo "roles_synced=yes"
-echo "composer_on_server=not run"
-
-(cd "$current" && "$php_bin" artisan config:cache --no-interaction)
-(cd "$current" && "$php_bin" artisan route:cache --no-interaction)
-(cd "$current" && "$php_bin" artisan view:cache --no-interaction)
-echo "caches=written"
 (cd "$current" && "$php_bin" artisan reserveworx:mail-status --no-interaction) || echo "mail_status=failed" >&2
 
 switch_docroot

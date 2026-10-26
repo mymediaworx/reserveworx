@@ -9,6 +9,13 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels the run still going. Each run
+# on main gets its own group, so none is cancelled or left pending: Deploy
+# waits for them.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     name: Pint
@@ -87,8 +94,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: MySQL 8.0
-            image: mysql:8.0
+          # Production reports MySQL 8.4 (docs/HOSTING.md). MariaDB stays as the
+          # second leg because Spec Section 2 allows MariaDB hosting.
+          - name: MySQL 8.4
+            image: mysql:8.4
             health: mysqladmin ping -h 127.0.0.1 -ureserveworx -preserveworx
           - name: MariaDB 11.8
             image: mariadb:11.8

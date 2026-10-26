@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\SchedulerHeartbeat;
 use Illuminate\Console\Command;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
@@ -173,13 +174,16 @@ class HostingCheck extends Command
 
         $this->fact('cron_command', 'schedule:run');
         $this->fact('host_crontab', 'not read');
+        $heartbeat = app(SchedulerHeartbeat::class);
+        $this->fact('scheduler_heartbeat', $heartbeat->lastRun()?->format('Y-m-d\TH:i:s\Z') ?? 'not_seen');
+        $this->fact('scheduler', $heartbeat->status());
     }
 
     private function scheduledCommand(Event $event): string
     {
         $command = $event->command;
         if (! is_string($command)) {
-            return '';
+            return is_string($event->description) ? $event->description : '';
         }
 
         $normalized = str_replace(["'", '"'], '', Event::normalizeCommand($command));
