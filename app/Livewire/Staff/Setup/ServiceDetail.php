@@ -56,6 +56,10 @@ class ServiceDetail extends Component
 
     public ?int $priceDuration = null;
 
+    public string $priceMinParty = '';
+
+    public string $priceMaxParty = '';
+
     public string $departureDate = '';
 
     public string $departureTime = '10:00';
@@ -177,7 +181,23 @@ class ServiceDetail extends Component
             'priceAmount' => ['required', 'numeric', 'min:0', 'max:100000'],
             'priceWindow' => ['required', 'in:always,weekday,weekend'],
             'priceDuration' => $this->priceKind === 'duration' ? ['required', 'integer', 'min:1'] : ['nullable', 'integer', 'min:1'],
+            'priceMinParty' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'priceMaxParty' => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
+        $minParty = $this->priceMinParty === '' ? null : (int) $this->priceMinParty;
+        $maxParty = $this->priceMaxParty === '' ? null : (int) $this->priceMaxParty;
+
+        if ($maxParty !== null && $minParty === null) {
+            $this->addError('priceMinParty', 'A party size needs a minimum.');
+
+            return;
+        }
+
+        if ($maxParty !== null && $maxParty < $minParty) {
+            $this->addError('priceMaxParty', 'The largest party must be at least the smallest.');
+
+            return;
+        }
 
         $rule = PriceRule::query()->create([
             'tenant_id' => $this->tenant()->id,
@@ -187,9 +207,15 @@ class ServiceDetail extends Component
             'amount_cents' => (int) round(((float) $this->priceAmount) * 100),
             'window' => $this->priceWindow,
             'duration_minutes' => $this->priceKind === 'duration' ? $this->priceDuration : null,
+            'min_participants' => $minParty,
+            'max_participants' => $maxParty,
         ]);
-        $this->audit('price_rule.created', $rule, ['service_id' => $service->id]);
-        $this->reset('priceName', 'priceAmount');
+        $this->audit('price_rule.created', $rule, [
+            'service_id' => $service->id,
+            'min_participants' => $minParty,
+            'max_participants' => $maxParty,
+        ]);
+        $this->reset('priceName', 'priceAmount', 'priceMinParty', 'priceMaxParty');
         $this->flash = 'Price added.';
     }
 

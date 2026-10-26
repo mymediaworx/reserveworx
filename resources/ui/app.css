@@ -473,6 +473,10 @@ fieldset.choice > legend, fieldset.days > legend { font-weight: 500; font-size: 
 fieldset.days { grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr)); }
 .filters { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 1.25rem; }
 @media (max-width: 640px) { .filters .field.compact { flex: 1 1 9rem; min-width: 0; } }
+@media (max-width: 640px) {
+    .price-form .field.compact { flex: 1 1 calc(50% - 0.75rem); min-width: 0; }
+    .price-form .button { width: 100%; }
+}
 
 /* ---------- Buttons ---------- */
 
