@@ -298,6 +298,7 @@ final class WebhookProcessor
                 $booking->tenant_id,
                 $booking->id,
                 'payment.failed:'.($sessionId ?? $booking->id),
+                $payment instanceof Payment ? $payment->id : null,
             );
         } finally {
             $this->tenants->forget();
