@@ -219,6 +219,8 @@ Route::middleware('tenant.resolve')->group(function (): void {
     Route::middleware(['auth:web,sanctum', 'tenant.member'])->group(function (): void {
         Route::get('/admin/today.csv', [ReportController::class, 'export'])->name('admin.report.export');
         Route::get('/admin/integrations', [IntegrationController::class, 'show'])->name('admin.integrations');
+        Route::post('/admin/integrations/ghl-syncs/{ghl_sync_log}/retry', [IntegrationController::class, 'retrySync'])->whereUlid('ghl_sync_log')->name('admin.integrations.sync-retry');
+        Route::post('/admin/integrations/ghl-messages/{ghl_message_log}/retry', [IntegrationController::class, 'retryMessage'])->whereUlid('ghl_message_log')->name('admin.integrations.message-retry');
         Route::post('/admin/logout', [SessionController::class, 'destroy'])->name('admin.logout');
     });
 });
