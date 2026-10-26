@@ -113,13 +113,17 @@ class GoHighLevelClient
         return $id;
     }
 
-    public function assertLocation(string $token, string $locationId): void
+    /**
+     * Confirms the token can read the location and returns its name when
+     * GoHighLevel sends one.
+     */
+    public function assertLocation(string $token, string $locationId): ?string
     {
         $response = $this->send('GET', $token, '/locations/'.rawurlencode($locationId), null, 'location');
         $payload = $response->json();
 
         if (! is_array($payload)) {
-            return;
+            return null;
         }
 
         $id = null;
@@ -131,8 +135,13 @@ class GoHighLevelClient
         }
 
         if ($id !== null && $id !== $locationId) {
-            throw new GhlRequestFailed($response->status(), 'location', true);
+            throw new GhlRequestFailed($response->status(), 'location', true, true);
         }
+
+        $location = isset($payload['location']) && is_array($payload['location']) ? $payload['location'] : $payload;
+        $name = $location['name'] ?? null;
+
+        return is_string($name) && trim($name) !== '' ? trim($name) : null;
     }
 
     /**

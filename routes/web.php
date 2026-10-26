@@ -50,6 +50,7 @@ use App\Livewire\Staff\Setup\PromoCodes;
 use App\Livewire\Staff\Setup\Resources;
 use App\Livewire\Staff\Setup\ServiceDetail;
 use App\Livewire\Staff\Setup\Services;
+use App\Livewire\Staff\SetupGuidePage;
 use App\Livewire\Staff\Share;
 use App\Livewire\Staff\Team;
 use App\Livewire\Staff\Waitlist;
@@ -136,6 +137,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/bookings', Bookings::class);
         Route::get('/bookings/new', NewBooking::class);
         Route::get('/bookings/{booking}', BookingShow::class);
+        Route::get('/setup', SetupGuidePage::class)->name('staff.setup');
         Route::get('/setup/locations', Locations::class);
         Route::get('/locations/{location}/tax', LocationTax::class)->whereUlid('location');
         Route::get('/closures', Closures::class);

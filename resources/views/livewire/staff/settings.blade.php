@@ -91,4 +91,11 @@
             </form>
         @endif
     </section>
+    @if ($canSeeSetupGuide)
+        <section class="panel" aria-labelledby="setup-guide-setting">
+            <h2 id="setup-guide-setting">Setup guide</h2>
+            <p>{{ $setupGuideHidden ? 'The setup guide is hidden from the home page.' : 'The setup guide shows on the home page until every step is done.' }} <a href="/staff/setup" wire:navigate>Open setup guide</a></p>
+            <button type="button" class="button" wire:click="toggleSetupGuide" role="switch" aria-checked="{{ $setupGuideHidden ? 'false' : 'true' }}">{{ $setupGuideHidden ? 'Show setup guide' : 'Hide setup guide' }}</button>
+        </section>
+    @endif
 </div>

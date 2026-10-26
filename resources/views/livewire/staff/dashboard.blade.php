@@ -23,6 +23,21 @@
         </button>
     </div>
 
+    @if ($notice && ! $onboarding)
+        <p role="status">{{ $notice }}</p>
+    @endif
+    @if ($setupGuide)
+        <section class="notice setup-guide-card" aria-labelledby="setup-guide-heading">
+            <h2 id="setup-guide-heading"><x-icon name="sparkles" size="20" /> Set up your business</h2>
+            <p><strong>{{ $setupGuide['done'] }} of {{ $setupGuide['total'] }}</strong> setup steps done.</p>
+            <progress value="{{ $setupGuide['done'] }}" max="{{ $setupGuide['total'] }}" style="width:100%" aria-labelledby="setup-guide-heading">{{ $setupGuide['done'] }} of {{ $setupGuide['total'] }}</progress>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+                <a class="button primary" href="/staff/setup" wire:navigate>Open setup guide</a>
+                <button type="button" class="button" wire:click="hideSetupGuide">Hide setup guide</button>
+            </div>
+        </section>
+    @endif
+
     @if ($onboarding && $progress instanceof \App\Services\Onboarding\OnboardingProgress)
         @include('livewire.staff.onboarding-checklist')
     @elseif ($isEmptyWorkspace)
