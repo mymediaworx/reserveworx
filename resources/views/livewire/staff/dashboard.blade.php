@@ -9,7 +9,10 @@
             .home-page { min-width: 0; }
             .home-page .below-minimum-list,
             .home-page .below-minimum-list li,
-            .home-page .below-minimum-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .home-page .below-minimum-list a,
+            .home-page .checked-out-list,
+            .home-page .checked-out-list li,
+            .home-page .checked-out-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
             .home-page .below-minimum-list .badge { white-space: normal; }
         }
     </style>
@@ -49,6 +52,18 @@
                 <span class="stat-title">Payments</span>
                 <span class="icon-circle tone-ok"><x-icon name="dollar" size="22" /></span>
                 <span class="stat-value">{{ Display::money($paidCents, $currency) }}</span>
+            </span>
+        </a>
+        <a class="stat-card" href="{{ $checkedOutLaterCount > 0 ? '#checked-out' : '/staff/returns' }}" @if ($checkedOutLaterCount === 0) wire:navigate @endif data-checked-out="{{ $checkedOutCount }}">
+            <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
+            <span class="stat-body">
+                <span class="stat-title">Checked out</span>
+                <span class="icon-circle {{ $checkedOutCount > 0 ? 'tone-brand' : 'tone-ok' }}"><x-icon name="return" size="22" /></span>
+                @if ($checkedOutCount === 0)
+                    <span class="stat-good">All clear</span>
+                @else
+                    <span class="stat-value">{{ $checkedOutCount }}</span>
+                @endif
             </span>
         </a>
         <a class="stat-card" href="/staff/returns" wire:navigate data-overdue="{{ $overdueCount }}">
@@ -96,6 +111,42 @@
             </span>
         </a>
     </div>
+
+    @if ($checkedOutLaterCount > 0)
+        <section class="panel" id="checked-out" aria-labelledby="checked-out-heading" data-checked-out-later="{{ $checkedOutLaterCount }}">
+            <div class="panel-head">
+                <h2 id="checked-out-heading">Due later</h2>
+                <a href="/staff/returns" wire:navigate>Returns</a>
+            </div>
+            <p>These rentals are out and not due yet. Overdue rentals stay in the list below.</p>
+            <ul class="plain-list checked-out-list">
+                @foreach ($checkedOutLater as $checkout)
+                    @php
+                        $booking = $checkout->booking;
+                        $due = $checkout->due_at;
+                        $resource = $checkout->asset?->name ?? $checkout->pool?->name ?? 'Resource';
+                        $customer = $booking?->customer;
+                        $who = $customer?->name ?: ($customer?->email ?: 'Walk-in');
+                        $checkoutZone = $booking instanceof Booking ? $zones->get($booking->location_id, $zone) : $zone;
+                        $checkoutZone = is_string($checkoutZone) && $checkoutZone !== '' ? $checkoutZone : $zone;
+                    @endphp
+                    <li data-checked-out-row="{{ $checkout->id }}">
+                        <strong>{{ $resource }}</strong>
+                        <span>{{ $who }}</span>
+                        @if ($due !== null)
+                            <span>Due {{ Display::dateTime($due, $checkoutZone) }}</span>
+                        @endif
+                        @if ($booking instanceof Booking)
+                            <a href="/staff/bookings/{{ $booking->id }}">Open booking</a>
+                        @endif
+                    </li>
+                @endforeach
+            </ul>
+            @if ($checkedOutLaterCount > $checkedOutLater->count())
+                <p class="muted">Showing {{ $checkedOutLater->count() }} of {{ $checkedOutLaterCount }}.</p>
+            @endif
+        </section>
+    @endif
 
     @if ($overdueCount > 0)
         <section class="panel" aria-labelledby="overdue-heading" data-overdue-list="{{ $overdueCount }}">
