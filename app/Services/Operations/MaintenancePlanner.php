@@ -13,6 +13,7 @@ use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
 use App\Models\Pool;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -91,7 +92,7 @@ final class MaintenancePlanner
                 throw new MaintenanceWindowAlreadyEndedException('That window has already ended.');
             }
 
-            $locked->ended_at = CarbonImmutable::now()->utc();
+            $locked->ended_at = CarbonImmutable::now()->utc()->toMutable();
             $locked->save();
             $cleared = $this->clearReleasedFlags($locked);
             $fresh = $locked->fresh();
@@ -229,34 +230,37 @@ final class MaintenancePlanner
 
     private function resourceStillBlocksBooking(string $column, string $resourceId, Booking $booking): bool
     {
-        $intervals = Allocation::query()
+        $allocations = Allocation::query()
             ->where('booking_id', $booking->id)
             ->where($column, $resourceId)
-            ->get(['starts_at', 'ends_at']);
+            ->get();
+
+        foreach ($allocations as $allocation) {
+            if ($this->windowBlocksInterval($column, $resourceId, $allocation->starts_at, $allocation->ends_at)) {
+                return true;
+            }
+        }
+
         $holds = Hold::query()
             ->where('booking_id', $booking->id)
             ->where($column, $resourceId)
             ->where('expires_at', '>', now())
-            ->get(['starts_at', 'ends_at']);
+            ->get();
 
-        foreach ($intervals->concat($holds) as $row) {
-            if (! $row instanceof Allocation && ! $row instanceof Hold) {
-                continue;
-            }
-
-            $blocked = MaintenanceWindow::query()
-                ->where($column, $resourceId)
-                ->blocking(
-                    CarbonImmutable::instance($row->starts_at)->utc(),
-                    CarbonImmutable::instance($row->ends_at)->utc(),
-                )
-                ->exists();
-
-            if ($blocked) {
+        foreach ($holds as $hold) {
+            if ($this->windowBlocksInterval($column, $resourceId, $hold->starts_at, $hold->ends_at)) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function windowBlocksInterval(string $column, string $resourceId, DateTimeInterface $start, DateTimeInterface $end): bool
+    {
+        return MaintenanceWindow::query()
+            ->where($column, $resourceId)
+            ->blocking(CarbonImmutable::instance($start)->utc(), CarbonImmutable::instance($end)->utc())
+            ->exists();
     }
 }
