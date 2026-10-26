@@ -40,6 +40,14 @@
         fieldset label { display: flex; align-items: center; gap: .6rem; font-weight: 500; color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: .65rem .8rem; cursor: pointer; }
         fieldset label:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-soft-ink); }
         fieldset input[type="radio"] { width: 1.15rem; height: 1.15rem; min-height: 0; margin: 0; accent-color: var(--brand); flex: none; }
+        fieldset.extras label { justify-content: space-between; gap: .75rem; }
+        fieldset.extras label span { min-width: 0; overflow-wrap: anywhere; }
+        fieldset.extras input[type="checkbox"] { width: 1.15rem; height: 1.15rem; min-height: 0; margin: 0; accent-color: var(--brand); flex: none; }
+        fieldset.extras input[type="number"] { width: 4.75rem; min-height: 2.5rem; flex: none; }
+        @media (max-width: 390px) {
+            fieldset.extras label { flex-wrap: wrap; }
+            fieldset.extras input[type="number"] { width: 100%; }
+        }
         button { font: inherit; font-weight: 600; padding: .75rem 1.1rem; min-height: 3rem; background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 10px; cursor: pointer; }
         button:hover { background: var(--brand-strong); }
         button.secondary { background: #fff; color: var(--brand-text); border: 1px solid var(--brand); }

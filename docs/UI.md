@@ -73,7 +73,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/businesses/new` | Add a business. Fee rates stay at the standard defaults. An optional address is saved unverified |
 | Tenant domain | `/staff/switch/{tenant}`, `/staff/enter/{token}` | Move to another business this login belongs to. The entry token lasts two minutes and works once, on that business's verified address |
 | Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
-| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. The review page takes an optional promo code and shows the discount. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page shows a check-in code once the booking is confirmed |
+| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. After the open times or the tour departure, the form lists active equipment and add-ons. A flat or per-person row is a checkbox. A row sold each takes a quantity. The review page itemizes the chosen lines, takes an optional promo code, and shows the discount. The booking fee is calculated on the subtotal after that discount, including those lines. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page lists the same lines and shows a check-in code once the booking is confirmed |
 
 ## Tenant isolation
 
@@ -101,7 +101,7 @@ Platform pages exist only on platform hosts (`platform.host`) and require `auth`
 
 ## Booking links
 
-The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The review page takes an optional promo code, shows the discount, and recalculates the booking fee on the subtotal after that discount. The widget does not use a cookie session. Its stylesheet matches the staff palette.
+The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The review page takes an optional promo code, shows the discount, and recalculates the booking fee on the subtotal after that discount. Equipment and add-ons chosen on the booking form are part of that subtotal and are listed on the review page and the confirmation. The widget does not use a cookie session. Its stylesheet matches the staff palette.
 
 ## Demo data
 

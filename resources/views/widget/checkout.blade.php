@@ -18,6 +18,12 @@
         $discountCents = is_numeric($priced['discount_cents'] ?? null) ? (int) $priced['discount_cents'] : 0;
         $promoCode = is_string($priced['promo_code'] ?? null) ? $priced['promo_code'] : '';
     @endphp
+    @include('widget.partials.priced-lines', [
+        'serviceName' => $booking->service?->name,
+        'serviceCents' => $serviceCents,
+        'addOnLines' => is_array($priced['add_ons'] ?? null) ? $priced['add_ons'] : [],
+        'currency' => $snapshot->currency,
+    ])
     @include('disclosures.checkout-summary', [
         'subtotalCents' => max(0, $serviceCents + $addOnCents),
         'discountCents' => $discountCents,
