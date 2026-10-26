@@ -47,6 +47,12 @@ final class VariantPrice
         $kept = [];
 
         foreach ($rules as $rule) {
+            if ($rule->percentOff !== null) {
+                $kept[] = $rule;
+
+                continue;
+            }
+
             if ($rule->kind === 'base' && ! $rule->hasTimeWindow()) {
                 continue;
             }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Domain\Fees\Disclosures\Money;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
+use App\Domain\Pricing\GroupPriceCopy;
 use App\Domain\Pricing\PricingEngine;
 use App\Enums\AddOnKind;
 use App\Enums\BookingStatus;
@@ -103,7 +104,8 @@ class WidgetController extends Controller
         $this->activeToken($token);
         $service->load(['location', 'durations']);
 
-        $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants']);
+        $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants', 'start']);
+        $setting = $this->setting($this->tenant($request));
 
         return view('widget.form', [
             'token' => $token,
@@ -117,6 +119,8 @@ class WidgetController extends Controller
             'today' => $this->localToday($service),
             'addOns' => $this->catalogAddOns(),
             'currency' => $this->currency(),
+            'groupPrice' => $this->groupPrice($service, $chosen, $setting),
+            'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
         ]);
     }
 
@@ -593,7 +597,7 @@ class WidgetController extends Controller
     }
 
     /**
-     * @return array{total_cents: int, fee_included: bool, currency: string}
+     * @return array{total_cents: int, fee_included: bool, currency: string, party_bands: list<array<string, mixed>>}
      */
     private function previewAt(Service $service, ?TenantSetting $setting, int $participants, int $minutes, CarbonImmutable $on): array
     {
@@ -625,7 +629,69 @@ class WidgetController extends Controller
             'total_cents' => $priced->quote->customerTotalCents(),
             'fee_included' => $priced->quote->customerFeeLineCents() !== null,
             'currency' => $setting instanceof TenantSetting ? $setting->currency : 'USD',
+            'party_bands' => $priced->partyBands,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array{label: string, detail: string, total_cents: int, currency: string, fee_included: bool}|null
+     */
+    private function groupPrice(Service $service, array $input, ?TenantSetting $setting): ?array
+    {
+        if (! is_numeric($input['participants'] ?? null) || (int) $input['participants'] < 1 || ! $this->hasPublicGroupTier($service)) {
+            return null;
+        }
+
+        $service->loadMissing(['location', 'durations']);
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $date = $input['date'] ?? null;
+        $date = is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
+            ? $date
+            : CarbonImmutable::now($zone)->toDateString();
+        $clock = $input['start'] ?? null;
+        $clock = is_string($clock) && preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $clock) === 1 ? $clock : '12:00';
+        $on = CarbonImmutable::parse($date.' '.$clock, $zone);
+        $minutes = 60;
+
+        if ($service->kind !== ServiceKind::Tour) {
+            $fallback = $service->durations->first();
+            $resolved = $this->minutes(
+                $service,
+                $input['duration_id'] ?? null,
+                $input['duration_minutes'] ?? ($fallback instanceof ServiceDuration ? $fallback->duration_minutes : 60),
+            );
+            $minutes = is_int($resolved) ? $resolved : ($fallback instanceof ServiceDuration ? $fallback->duration_minutes : 60);
+        }
+
+        try {
+            $preview = $this->previewAt($service, $setting, (int) $input['participants'], $minutes, $on);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+
+        $detail = GroupPriceCopy::detail($preview['party_bands'], true);
+
+        if ($detail === null) {
+            return null;
+        }
+
+        return [
+            'label' => 'Group price',
+            'detail' => $detail,
+            'total_cents' => $preview['total_cents'],
+            'currency' => $preview['currency'],
+            'fee_included' => $preview['fee_included'],
+        ];
+    }
+
+    private function hasPublicGroupTier(Service $service): bool
+    {
+        return PriceRule::query()
+            ->where('service_id', $service->id)
+            ->whereNull('corporate_account_id')
+            ->whereNotNull('min_participants')
+            ->exists();
     }
 
     /**
@@ -904,6 +970,8 @@ class WidgetController extends Controller
             'today' => $this->localToday($service),
             'addOns' => $this->catalogAddOns(),
             'currency' => $this->currency(),
+            'groupPrice' => $this->groupPrice($service, $request->all(), $this->setting($this->tenant($request))),
+            'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
         ], $status);
     }
 

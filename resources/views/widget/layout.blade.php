@@ -68,7 +68,9 @@
         .card p:last-child { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
         .card p:last-child a { display: inline-block; text-decoration: none; background: var(--brand); color: var(--brand-ink); font-weight: 600; padding: .65rem 1.05rem; border-radius: 10px; }
         .card p:last-child a:hover { background: var(--brand-strong); }
-        .price { font-weight: 600; font-size: 1.05rem; }
+        .price, .group-price { font-weight: 600; font-size: 1.05rem; }
+        .group-price { margin: 0 0 1rem; padding: .9rem 1rem; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+        .group-price span { font-weight: 400; font-size: .85rem; color: var(--muted); margin-left: .25rem; }
         .price span { font-weight: 400; font-size: .85rem; color: var(--muted); margin-left: .25rem; }
         dl { margin: 0; }
         .line { display: flex; justify-content: space-between; gap: 1rem; padding: .5rem 0; border-top: 1px solid var(--line); }

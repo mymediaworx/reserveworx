@@ -25,6 +25,7 @@ class Booking extends Model
         'service_variant_id',
         'departure_id',
         'customer_id',
+        'corporate_account_id',
         'created_by',
         'guide_user_id',
         'attention_reason',
@@ -60,6 +61,14 @@ class Booking extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class);
+    }
+
+    /**
+     * @return BelongsTo<CorporateAccount, $this>
+     */
+    public function corporateAccount(): BelongsTo
+    {
+        return $this->belongsTo(CorporateAccount::class);
     }
 
     /**

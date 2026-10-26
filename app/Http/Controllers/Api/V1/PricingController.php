@@ -6,6 +6,7 @@ use App\Domain\Fees\FeeChannel;
 use App\Domain\Pricing\PriceRuleInput;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
+use App\Models\CorporateAccount;
 use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
@@ -46,16 +47,50 @@ class PricingController extends Controller
             'weekdays.*' => ['integer', 'between:0,6', 'distinct'],
             'min_participants' => ['nullable', 'integer', 'min:1', 'max:500'],
             'max_participants' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'percent_off' => ['nullable', 'integer', 'between:1,100'],
+            'corporate_account_id' => ['nullable', 'string'],
         ]);
         $window = $this->clockWindow($validated);
         $party = $this->partyBand($validated, $window);
+        $percentOff = isset($validated['percent_off']) && is_numeric($validated['percent_off']) ? (int) $validated['percent_off'] : null;
+        $corporateAccountId = $this->activeCorporateAccount($validated['corporate_account_id'] ?? null);
+        $kind = $validated['kind'];
+        $amountCents = (int) $validated['amount_cents'];
+
+        if ($percentOff !== null) {
+            if ($amountCents !== 0) {
+                throw ValidationException::withMessages([
+                    'amount_cents' => 'A percent off does not also name an amount.',
+                ]);
+            }
+
+            if ($party['min_participants'] === null) {
+                throw ValidationException::withMessages([
+                    'min_participants' => 'A percent off needs a party size.',
+                ]);
+            }
+
+            if ($window['local_start'] !== null) {
+                throw ValidationException::withMessages([
+                    'percent_off' => 'A percent off cannot also name a clock window.',
+                ]);
+            }
+
+            $kind = 'base';
+        }
+
+        if ($corporateAccountId !== null && $window['local_start'] !== null) {
+            throw ValidationException::withMessages([
+                'corporate_account_id' => 'A corporate rate cannot also name a clock window.',
+            ]);
+        }
 
         $rule = PriceRule::query()->create([
             'tenant_id' => $tenant->id,
             'service_id' => $service->id,
             'name' => $validated['name'],
-            'kind' => $validated['kind'],
-            'amount_cents' => $validated['amount_cents'],
+            'kind' => $kind,
+            'amount_cents' => $amountCents,
             'window' => $validated['window'] ?? 'always',
             'duration_minutes' => $validated['duration_minutes'] ?? null,
             'starts_on' => $validated['starts_on'] ?? null,
@@ -65,6 +100,8 @@ class PricingController extends Controller
             'weekdays' => $window['weekdays'],
             'min_participants' => $party['min_participants'],
             'max_participants' => $party['max_participants'],
+            'percent_off' => $percentOff,
+            'corporate_account_id' => $corporateAccountId,
         ]);
 
         $this->audit->log('price_rule.created', $rule, [
@@ -86,6 +123,8 @@ class PricingController extends Controller
             'weekdays' => $window['weekdays'],
             'min_participants' => $rule->min_participants,
             'max_participants' => $rule->max_participants,
+            'percent_off' => $rule->percent_off,
+            'corporate_account_id' => $rule->corporate_account_id,
         ]], 201);
     }
 
@@ -260,6 +299,23 @@ class PricingController extends Controller
             'min_participants' => $min,
             'max_participants' => $max,
         ];
+    }
+
+    private function activeCorporateAccount(mixed $id): ?string
+    {
+        if (! is_string($id) || $id === '') {
+            return null;
+        }
+
+        $account = CorporateAccount::query()->where('active', true)->find($id);
+
+        if (! $account instanceof CorporateAccount) {
+            throw ValidationException::withMessages([
+                'corporate_account_id' => 'That corporate account is not available.',
+            ]);
+        }
+
+        return $account->id;
     }
 
     private function tenant(Request $request): Tenant

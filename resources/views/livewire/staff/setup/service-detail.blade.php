@@ -31,15 +31,15 @@
     <div class="split even">
         <section class="panel">
             <h2>Prices</h2>
-            <p class="muted small">Prices that match a booking are added together. For example, $20 per booking plus $15 per person. A price for a party size replaces the regular price of that same kind when the party is in range. A smaller range wins over a wider one.</p>
+            <p class="muted small">Prices that match a booking are added together. For example, $20 per booking plus $15 per person. A price for a party size replaces the regular price of that same kind when the party is in range. A percent off applies to that total. A named account uses its own rate.</p>
             @if ($prices->isEmpty())
                 <p class="empty">No prices yet.</p>
             @else
                 <ul class="rows compact">
                     @foreach ($prices as $rule)
                         <li class="row">
-                            <span class="grow"><strong>{{ $rule->name }}</strong> <span class="muted">{{ $kindLabels[$rule->kind] ?? $rule->kind }}{{ $rule->duration_minutes ? ' ('.Display::minutes($rule->duration_minutes).')' : '' }}, {{ $windowLabels[$rule->window] ?? $rule->window }}@if ($rule->min_participants) · {{ $rule->max_participants ? $rule->min_participants.'–'.$rule->max_participants.' people' : $rule->min_participants.'+ people' }}@endif</span></span>
-                            <span class="num">{{ Display::money($rule->amount_cents) }}</span>
+                            <span class="grow"><strong>{{ $rule->name }}</strong> <span class="muted">{{ $rule->percent_off ? 'Percent off' : ($kindLabels[$rule->kind] ?? $rule->kind) }}{{ $rule->duration_minutes ? ' ('.Display::minutes($rule->duration_minutes).')' : '' }}, {{ $windowLabels[$rule->window] ?? $rule->window }}@if ($rule->min_participants) · {{ $rule->max_participants ? $rule->min_participants.'–'.$rule->max_participants.' people' : $rule->min_participants.'+ people' }}@endif @if ($rule->corporateAccount) · {{ $rule->corporateAccount->name }}@endif</span></span>
+                            <span class="num">{{ $rule->percent_off ? $rule->percent_off.'% off' : Display::money($rule->amount_cents) }}</span>
                         </li>
                     @endforeach
                 </ul>
@@ -48,15 +48,27 @@
                 <form wire:submit="addPrice" class="stack top-gap price-form">
                     <div class="form-row">
                         <label class="field compact grow"><span>Name</span><input type="text" wire:model="priceName" maxlength="80" required placeholder="Half day"></label>
-                        <label class="field compact"><span>Amount ($)</span><input type="number" min="0" step="0.01" wire:model="priceAmount" required></label>
+                        <label class="field compact"><span>Rate</span>
+                            <select wire:model.live="priceMode">
+                                <option value="amount">Dollar amount</option>
+                                <option value="percent">Percent off</option>
+                            </select>
+                        </label>
+                        @if ($priceMode === 'percent')
+                            <label class="field compact"><span>Percent off</span><input type="number" min="1" max="100" wire:model="pricePercent" required></label>
+                        @else
+                            <label class="field compact"><span>Amount ($)</span><input type="number" min="0" step="0.01" wire:model="priceAmount" required></label>
+                        @endif
                     </div>
                     <div class="form-row">
+                        @if ($priceMode !== 'percent')
                         <label class="field compact"><span>Charged</span>
                             <select wire:model.live="priceKind">
                                 @foreach ($kindLabels as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
                             </select>
                         </label>
-                        @if ($priceKind === 'duration')
+                        @endif
+                        @if ($priceMode !== 'percent' && $priceKind === 'duration')
                             <label class="field compact"><span>Length</span>
                                 <select wire:model="priceDuration">
                                     <option value="">Choose</option>
@@ -71,9 +83,19 @@
                         </label>
                         <label class="field compact"><span>Party from</span><input type="number" min="1" max="500" inputmode="numeric" wire:model="priceMinParty" placeholder="Any"></label>
                         <label class="field compact"><span>Party to</span><input type="number" min="1" max="500" inputmode="numeric" wire:model="priceMaxParty" placeholder="No max"></label>
+                        <label class="field compact"><span>Account</span>
+                            <select wire:model="priceAccount">
+                                <option value="">Every guest</option>
+                                @foreach ($accounts as $account)
+                                    <option value="{{ $account->id }}">{{ $account->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
                         <button type="submit" class="button">Add price</button>
                     </div>
                     @error('priceAmount')<p class="error">{{ $message }}</p>@enderror
+                    @error('pricePercent')<p class="error">{{ $message }}</p>@enderror
+                    @error('priceAccount')<p class="error">{{ $message }}</p>@enderror
                     @error('priceDuration')<p class="error">Choose which length this price is for. Add lengths first.</p>@enderror
                     @error('priceMinParty')<p class="error">{{ $message }}</p>@enderror
                     @error('priceMaxParty')<p class="error">{{ $message }}</p>@enderror

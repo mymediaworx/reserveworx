@@ -16,6 +16,7 @@ use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\CancellationPolicy;
 use App\Models\CapacityLedger;
+use App\Models\CorporateAccount;
 use App\Models\CsvImport;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
@@ -303,6 +304,7 @@ class TenantExporter
             CapacityLedger::class,
             Departure::class,
             WaitlistEntry::class,
+            CorporateAccount::class,
             PriceRule::class,
             CancellationPolicy::class,
             PromoCode::class,

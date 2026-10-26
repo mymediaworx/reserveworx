@@ -8,6 +8,7 @@ use App\Enums\ResourceType;
 use App\Enums\ServiceKind;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
+use App\Models\CorporateAccount;
 use App\Models\Departure;
 use App\Models\FleetItem;
 use App\Models\Pool;
@@ -60,6 +61,12 @@ class ServiceDetail extends Component
     public string $priceMinParty = '';
 
     public string $priceMaxParty = '';
+
+    public string $priceMode = 'amount';
+
+    public string $pricePercent = '';
+
+    public string $priceAccount = '';
 
     public string $departureDate = '';
 
@@ -191,14 +198,18 @@ class ServiceDetail extends Component
     public function addPrice(): void
     {
         $service = $this->editable();
+        $percent = $this->priceMode === 'percent';
         $this->validate([
             'priceName' => ['required', 'string', 'max:80'],
             'priceKind' => ['required', 'in:base,per_person,duration'],
-            'priceAmount' => ['required', 'numeric', 'min:0', 'max:100000'],
+            'priceMode' => ['required', 'in:amount,percent'],
+            'priceAmount' => $percent ? ['nullable'] : ['required', 'numeric', 'min:0', 'max:100000'],
+            'pricePercent' => $percent ? ['required', 'integer', 'min:1', 'max:100'] : ['nullable'],
             'priceWindow' => ['required', 'in:always,weekday,weekend'],
-            'priceDuration' => $this->priceKind === 'duration' ? ['required', 'integer', 'min:1'] : ['nullable', 'integer', 'min:1'],
+            'priceDuration' => ! $percent && $this->priceKind === 'duration' ? ['required', 'integer', 'min:1'] : ['nullable', 'integer', 'min:1'],
             'priceMinParty' => ['nullable', 'integer', 'min:1', 'max:500'],
             'priceMaxParty' => ['nullable', 'integer', 'min:1', 'max:500'],
+            'priceAccount' => ['nullable', 'string'],
         ]);
         $minParty = $this->priceMinParty === '' ? null : (int) $this->priceMinParty;
         $maxParty = $this->priceMaxParty === '' ? null : (int) $this->priceMaxParty;
@@ -215,23 +226,41 @@ class ServiceDetail extends Component
             return;
         }
 
+        if ($percent && $minParty === null) {
+            $this->addError('priceMinParty', 'A percent off needs a party size.');
+
+            return;
+        }
+
+        $accountId = $this->priceAccount !== '' ? $this->priceAccount : null;
+
+        if ($accountId !== null && ! CorporateAccount::query()->where('active', true)->whereKey($accountId)->exists()) {
+            $this->addError('priceAccount', 'Choose an active corporate account.');
+
+            return;
+        }
+
         $rule = PriceRule::query()->create([
             'tenant_id' => $this->tenant()->id,
             'service_id' => $service->id,
             'name' => $this->priceName,
-            'kind' => $this->priceKind,
-            'amount_cents' => (int) round(((float) $this->priceAmount) * 100),
+            'kind' => $percent ? 'base' : $this->priceKind,
+            'amount_cents' => $percent ? 0 : (int) round(((float) $this->priceAmount) * 100),
             'window' => $this->priceWindow,
-            'duration_minutes' => $this->priceKind === 'duration' ? $this->priceDuration : null,
+            'duration_minutes' => ! $percent && $this->priceKind === 'duration' ? $this->priceDuration : null,
             'min_participants' => $minParty,
             'max_participants' => $maxParty,
+            'percent_off' => $percent ? (int) $this->pricePercent : null,
+            'corporate_account_id' => $accountId,
         ]);
         $this->audit('price_rule.created', $rule, [
             'service_id' => $service->id,
             'min_participants' => $minParty,
             'max_participants' => $maxParty,
+            'percent_off' => $rule->percent_off,
+            'corporate_account_id' => $accountId,
         ]);
-        $this->reset('priceName', 'priceAmount', 'priceMinParty', 'priceMaxParty');
+        $this->reset('priceName', 'priceAmount', 'priceMinParty', 'priceMaxParty', 'pricePercent');
         $this->flash = 'Price added.';
     }
 
@@ -275,7 +304,8 @@ class ServiceDetail extends Component
         return view('livewire.staff.setup.service-detail', [
             'service' => $service,
             'zone' => $zone,
-            'prices' => PriceRule::query()->where('service_id', $service->id)->orderBy('kind')->orderBy('amount_cents')->get(),
+            'prices' => PriceRule::query()->with('corporateAccount')->where('service_id', $service->id)->orderBy('kind')->orderBy('amount_cents')->get(),
+            'accounts' => CorporateAccount::query()->where('active', true)->orderBy('name')->get(),
             'pools' => Pool::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
             'assets' => Asset::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
             'fleetItems' => $service->location?->delivered_from_fleet
