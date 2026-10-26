@@ -8,6 +8,7 @@ use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Incident;
 use App\Models\MaintenanceWindow;
+use App\Models\Pool;
 use App\Models\PricingSnapshot;
 use App\Models\TenantSetting;
 use App\Services\Operations\IncidentAssets;
@@ -83,11 +84,13 @@ class FileIncident extends Component
         $this->authorize('checkIn', $booking);
         abort_if($this->missingAsset, 404);
 
+        $options = app(IncidentAssets::class)->options($booking);
+
         $this->validate([
             'severity' => ['required', Rule::enum(IncidentSeverity::class)],
             'notes' => ['required', 'string', 'min:3', 'max:2000'],
             'damageAmount' => ['nullable', 'string', 'max:20'],
-            'assetId' => [$this->fixedAssetId === '' ? 'required' : 'nullable', 'string'],
+            'assetId' => [$this->needsAssetChoice($options['assets'], $options['pools']) ? 'required' : 'nullable', 'string'],
             'photos' => ['array', 'max:'.IncidentPhotos::MAX_PHOTOS],
             'photos.*' => ['image', 'mimes:jpeg,jpg,png,webp,gif', 'max:5120'],
             'blockStarts' => ['nullable', 'date_format:Y-m-d\TH:i'],
@@ -104,10 +107,9 @@ class FileIncident extends Component
             'photos.*.max' => 'Each photo may be up to 5 MB.',
         ]);
 
-        $chosenId = $this->fixedAssetId !== '' ? $this->fixedAssetId : $this->assetId;
-        $asset = $this->assets($booking)->firstWhere('id', $chosenId);
+        [$asset, $pool] = $this->subject($options['assets'], $options['pools']);
 
-        if (! $asset instanceof Asset) {
+        if (! $asset instanceof Asset && ! $pool instanceof Pool) {
             $this->addError('assetId', 'Choose a boat on this booking.');
 
             return;
@@ -115,7 +117,7 @@ class FileIncident extends Component
 
         try {
             $cents = $this->damageCents();
-            $maintenance = $this->maintenanceWindow($booking);
+            $maintenance = $asset instanceof Asset ? $this->maintenanceWindow($booking) : null;
             $uploads = [];
 
             foreach ($this->photos as $photo) {
@@ -127,6 +129,7 @@ class FileIncident extends Component
             $result = $reports->file(
                 $booking,
                 $asset,
+                $pool,
                 IncidentSeverity::from($this->severity),
                 $this->notes,
                 $cents,
@@ -146,7 +149,8 @@ class FileIncident extends Component
         $incident = $result['incident'];
         $this->audit('incident.reported', $incident, [
             'booking_id' => $booking->id,
-            'asset_id' => $asset->id,
+            'asset_id' => $asset?->id,
+            'pool_id' => $pool?->id,
             'severity' => $incident->severity instanceof IncidentSeverity ? $incident->severity->value : $this->severity,
             'damage_cents' => $incident->damage_cents,
             'photo_count' => $result['photo_count'],
@@ -197,15 +201,21 @@ class FileIncident extends Component
     public function render(): View
     {
         $booking = $this->booking();
-        $assets = $this->assets($booking);
+        $options = app(IncidentAssets::class)->options($booking);
+        $assets = $options['assets'];
+        $pools = $options['pools'];
+        $gearPool = $assets->isEmpty() && $pools->count() === 1 ? $pools->first() : null;
 
         return view('livewire.staff.file-incident', [
             'booking' => $booking,
             'assets' => $assets,
-            'unassigned' => ! app(IncidentAssets::class)->bookingHasResource($booking),
+            'pools' => $pools,
+            'gearPool' => $gearPool instanceof Pool ? $gearPool : null,
+            'unassigned' => ! app(IncidentAssets::class)->bookingHasResource($booking) || ($assets->isEmpty() && $pools->isEmpty()),
+            'maintenanceAllowed' => $this->chosenAsset($assets) instanceof Asset,
             'fixedAsset' => $this->fixedAssetId !== '' ? $assets->firstWhere('id', $this->fixedAssetId) : null,
             'reports' => Incident::query()
-                ->with(['asset', 'photos'])
+                ->with(['asset', 'pool', 'photos'])
                 ->where('booking_id', $booking->id)
                 ->orderByDesc('occurred_at')
                 ->orderByDesc('id')
@@ -230,6 +240,64 @@ class FileIncident extends Component
     private function assets(Booking $booking): Collection
     {
         return app(IncidentAssets::class)->forBooking($booking);
+    }
+
+    /**
+     * @param  Collection<int, Asset>  $assets
+     * @param  Collection<int, Pool>  $pools
+     */
+    private function needsAssetChoice(Collection $assets, Collection $pools): bool
+    {
+        if ($this->fixedAssetId !== '') {
+            return false;
+        }
+
+        return ! ($assets->isEmpty() && $pools->count() === 1);
+    }
+
+    /**
+     * @param  Collection<int, Asset>  $assets
+     * @param  Collection<int, Pool>  $pools
+     * @return array{0: ?Asset, 1: ?Pool}
+     */
+    private function subject(Collection $assets, Collection $pools): array
+    {
+        if ($this->fixedAssetId !== '') {
+            $fixed = $assets->firstWhere('id', $this->fixedAssetId);
+
+            return [$fixed instanceof Asset ? $fixed : null, null];
+        }
+
+        if (str_starts_with($this->assetId, IncidentAssets::POOL_PREFIX)) {
+            $poolId = substr($this->assetId, strlen(IncidentAssets::POOL_PREFIX));
+            $pool = $pools->firstWhere('id', $poolId);
+
+            return [null, $pool instanceof Pool ? $pool : null];
+        }
+
+        if ($this->assetId !== '') {
+            $asset = $assets->firstWhere('id', $this->assetId);
+
+            return [$asset instanceof Asset ? $asset : null, null];
+        }
+
+        if ($assets->isEmpty() && $pools->count() === 1) {
+            $pool = $pools->first();
+
+            return [null, $pool instanceof Pool ? $pool : null];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * @param  Collection<int, Asset>  $assets
+     */
+    private function chosenAsset(Collection $assets): ?Asset
+    {
+        [$asset] = $this->subject($assets, new Collection);
+
+        return $asset;
     }
 
     private function damageCents(): ?int

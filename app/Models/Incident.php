@@ -18,6 +18,7 @@ class Incident extends Model
         'tenant_id',
         'booking_id',
         'asset_id',
+        'pool_id',
         'severity',
         'summary',
         'notes',
@@ -56,6 +57,14 @@ class Incident extends Model
     public function asset(): BelongsTo
     {
         return $this->belongsTo(Asset::class);
+    }
+
+    /**
+     * @return BelongsTo<Pool, $this>
+     */
+    public function pool(): BelongsTo
+    {
+        return $this->belongsTo(Pool::class);
     }
 
     /**
