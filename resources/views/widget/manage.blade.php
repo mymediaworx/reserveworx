@@ -13,8 +13,7 @@
     @if ($copy['pickupFeeNote'] !== '')
         <p>{{ $copy['pickupFeeNote'] }}</p>
     @endif
-    <p>Starts {{ $booking->starts_at->toIso8601String() }}.</p>
-    <p>Ends {{ $booking->ends_at->toIso8601String() }}.</p>
+    <p>{{ $whenLabel }}</p>
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
     @endif
@@ -47,10 +46,10 @@
         <p>Length: {{ \App\Support\Display::minutes($lengthMinutes) }}. The price stays the same.</p>
         <form method="post" action="{{ $rescheduleUrl }}">
             <label>New date
-                <input name="date" type="date" required>
+                <input name="date" type="date" required value="{{ $localDate }}">
             </label>
             <label>New start
-                <input name="start" type="time" required>
+                <input name="start" type="time" required value="{{ $localTime }}">
             </label>
             <button type="submit">Reschedule</button>
         </form>
@@ -74,10 +73,10 @@
         </form>
         <p>A higher price is charged by card. The booking fee applies only to that increase.</p>
     @endif
-    @if (is_string($offers['shorter_ends_at'] ?? null))
+    @if (is_string($offers['shorter_ends_at'] ?? null) && is_string($shorterEndLabel))
         <form method="post" action="{{ $extendUrl }}">
             <input type="hidden" name="ends_at" value="{{ $offers['shorter_ends_at'] }}">
-            <button type="submit">Extend until {{ $offers['shorter_ends_at'] }}</button>
+            <button type="submit">Extend until {{ $shorterEndLabel }}</button>
         </form>
     @endif
     @foreach ($cancellationLines as $line)

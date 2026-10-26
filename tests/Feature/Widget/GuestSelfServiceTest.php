@@ -111,7 +111,11 @@ class GuestSelfServiceTest extends TestCase
         $this->post(html_entity_decode($action[1]), [
             'date' => '2026-06-15',
             'start' => '17:00',
-        ])->assertOk()->assertSee('2026-06-15T17:00:00');
+        ])->assertOk()
+            ->assertSee('Mon, Jun 15, 5:00 PM – 6:00 PM UTC')
+            ->assertSee('value="2026-06-15"', false)
+            ->assertSee('value="17:00"', false)
+            ->assertDontSee('2026-06-15T17:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $moved = Booking::query()->findOrFail($bookingId);
