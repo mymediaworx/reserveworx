@@ -10,6 +10,7 @@ use App\Models\TenantNotificationSetting;
 use App\Notifications\BookingConfirmedNotification;
 use App\Services\CheckIn\CheckInPass;
 use App\Services\CheckIn\QrSvg;
+use App\Services\Waivers\WaiverLinks;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ final class BookingConfirmationMail
         private readonly QrSvg $qr,
         private readonly TransactionalEmailPreferences $preferences,
         private readonly TenantManager $tenants,
+        private readonly WaiverLinks $waivers,
     ) {}
 
     public function send(Booking $booking): void
@@ -102,6 +104,7 @@ final class BookingConfirmationMail
                 $url,
                 $svg,
                 $replyTo,
+                $this->waivers->urlIfNeeded($booking),
             ));
 
             $hook->delivery_status = 'sent';

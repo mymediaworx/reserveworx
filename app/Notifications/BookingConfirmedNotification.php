@@ -15,6 +15,7 @@ class BookingConfirmedNotification extends Notification
         public string $checkInUrl,
         public string $checkInSvg,
         public ?string $replyTo,
+        public ?string $waiverUrl = null,
     ) {}
 
     /**
@@ -31,6 +32,7 @@ class BookingConfirmedNotification extends Notification
             'serviceName' => $this->serviceName,
             'checkInUrl' => $this->checkInUrl,
             'checkInSvg' => $this->checkInSvg,
+            'waiverUrl' => $this->waiverUrl,
         ];
         $message = (new MailMessage)
             ->subject('Your booking is confirmed')

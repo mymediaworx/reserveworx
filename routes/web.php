@@ -19,6 +19,7 @@ use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\Web\WaitlistLeaveController;
+use App\Http\Controllers\Web\WaiverSigningController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
@@ -48,6 +49,7 @@ use App\Livewire\Staff\Setup\Services;
 use App\Livewire\Staff\Share;
 use App\Livewire\Staff\Team;
 use App\Livewire\Staff\Waitlist;
+use App\Livewire\Staff\Waivers;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -133,6 +135,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/locations', Locations::class);
         Route::get('/locations/{location}/tax', LocationTax::class)->whereUlid('location');
         Route::get('/closures', Closures::class);
+        Route::get('/waivers', Waivers::class)->name('staff.waivers');
         Route::get('/setup/resources', Resources::class);
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
@@ -175,6 +178,14 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
 });
 
 Route::middleware(['tenant.resolve', 'throttle:feedback'])->group(function (): void {
+    Route::get('/waivers/{booking}', [WaiverSigningController::class, 'show'])
+        ->whereUlid('booking')
+        ->middleware('signed')
+        ->name('waivers.sign');
+    Route::post('/waivers/{booking}', [WaiverSigningController::class, 'store'])
+        ->whereUlid('booking')
+        ->middleware('signed')
+        ->name('waivers.store');
     Route::get('/feedback/{booking}', [FeedbackController::class, 'show'])
         ->whereUlid('booking')
         ->middleware('signed')

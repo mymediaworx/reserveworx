@@ -201,6 +201,8 @@ class CheckInTest extends TestCase
             ->assertSee('Liability')
             ->assertSee('No price yet')
             ->assertSee('This booking still needs Liability')
+            ->assertSee('Open the signing page')
+            ->assertSee('/waivers/'.$booking->id, false)
             ->assertDontSee('Checked in.');
 
         $this->useTenant($alpha['tenant']);

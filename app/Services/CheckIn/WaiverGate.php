@@ -123,6 +123,31 @@ final class WaiverGate
     }
 
     /**
+     * Current versions this booking (when nobody is named) or this named
+     * person has not validly signed yet.
+     *
+     * @param  Collection<int, WaiverSignature>  $signatures
+     * @param  Collection<string, WaiverVersion>  $current
+     * @return list<WaiverVersion>
+     */
+    public function unsigned(Collection $signatures, Collection $current, ?Participant $participant = null): array
+    {
+        $missing = [];
+
+        foreach ($current as $version) {
+            $signed = $participant instanceof Participant
+                ? $this->participantSigned($signatures, $version, $participant)
+                : $this->bookingSigned($signatures, $version);
+
+            if (! $signed) {
+                $missing[] = $version;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
      * @param  Collection<int, WaiverSignature>  $signatures
      */
     private function bookingSigned(Collection $signatures, WaiverVersion $version): bool
