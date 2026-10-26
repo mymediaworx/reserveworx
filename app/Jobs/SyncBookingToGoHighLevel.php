@@ -13,6 +13,7 @@ use App\Models\PricingSnapshot;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\Integrations\GhlContacts;
+use App\Services\Integrations\GhlRateLimitPause;
 use App\Services\Integrations\GhlRequestFailed;
 use App\Services\Integrations\GhlSyncLogger;
 use App\Services\Integrations\GoHighLevelClient;
@@ -32,6 +33,8 @@ class SyncBookingToGoHighLevel implements ShouldQueue
     public int $tries = 5;
 
     public int $timeout = 20;
+
+    public int $rateLimitWaits = 0;
 
     public function __construct(
         public string $tenantId,
@@ -220,18 +223,38 @@ class SyncBookingToGoHighLevel implements ShouldQueue
             $client->addTags($token, $contactId, ['reserveworx', 'reserveworx-'.str_replace('.', '-', $this->kind)]);
             $client->addNote($token, $contactId, $this->note($booking, $customer, $service, $location, $paymentId));
         } catch (GhlRequestFailed $exception) {
+            $pause = new GhlRateLimitPause;
+            $decision = $pause->decide($exception, $this->rateLimitWaits, $this->backoff());
+            $error = $exception->getMessage();
+            $attempt = $this->attempts();
+
+            if ($decision !== null) {
+                $error = $decision['stopped']
+                    ? GhlRateLimitPause::STOPPED
+                    : $pause->waitingError($exception, $decision['seconds']);
+                $attempt = $decision['stopped'] ? $this->tries : 1;
+            }
+
             $logger->write(
                 tenantId: $this->tenantId,
                 kind: $this->kind,
-                attempt: $this->attempts(),
+                attempt: $attempt,
                 status: 'failed',
                 locationId: $locationId,
                 bookingId: $booking->id,
                 paymentId: $paymentId,
                 httpStatus: $exception->httpStatus,
-                error: $exception->getMessage(),
+                error: $error,
                 secret: $token,
             );
+
+            if ($decision !== null) {
+                if (! $decision['stopped']) {
+                    $this->queueAfterRateLimit($decision['seconds']);
+                }
+
+                return;
+            }
 
             throw $exception;
         }
@@ -248,6 +271,14 @@ class SyncBookingToGoHighLevel implements ShouldQueue
             error: null,
             secret: $token,
         );
+    }
+
+    private function queueAfterRateLimit(int $seconds): void
+    {
+        $this->rateLimitWaits++;
+        $next = new self($this->tenantId, $this->bookingId, $this->kind, $this->paymentId);
+        $next->rateLimitWaits = $this->rateLimitWaits;
+        dispatch($next)->onConnection('database')->delay(now()->addSeconds($seconds));
     }
 
     /**
