@@ -2,14 +2,20 @@
 
 namespace Tests\Feature\Seeders;
 
+use App\Models\AddOn;
 use App\Models\AvailabilitySchedule;
 use App\Models\Booking;
+use App\Models\CancellationPolicy;
 use App\Models\Departure;
 use App\Models\Location;
+use App\Models\LocationTaxRule;
 use App\Models\PriceRule;
+use App\Models\RentalCheckout;
 use App\Models\Service;
+use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
+use App\Models\WaiverVersion;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
@@ -81,5 +87,41 @@ class DemoShopSeederTest extends TestCase
         $this->assertFalse(TenantSetting::query()->firstOrFail()->pay_at_pickup);
 
         @unlink($path);
+    }
+
+    public function test_harbor_demo_gets_sample_waiver_add_ons_policy_tax_and_a_rolling_checkout(): void
+    {
+        $path = sys_get_temp_dir().'/reserveworx-demo-logins-'.bin2hex(random_bytes(4)).'.txt';
+        putenv('DEMO_LOGIN_FILE='.$path);
+        $_ENV['DEMO_LOGIN_FILE'] = $path;
+        $_SERVER['DEMO_LOGIN_FILE'] = $path;
+
+        $this->seed(DatabaseSeeder::class);
+        $this->seed(DemoShopSeeder::class);
+        $this->seed(DemoShopSeeder::class);
+
+        $harbor = Tenant::query()->where('slug', 'harbor-demo')->firstOrFail();
+        app(TenantManager::class)->set($harbor);
+
+        $this->assertSame(1, WaiverVersion::query()->count());
+        $this->assertSame(3, AddOn::query()->count());
+        $this->assertSame(1, ServiceDuration::query()->where('duration_minutes', 1440)->count());
+        $this->assertSame(3, CancellationPolicy::query()->count());
+        $this->assertSame(600, LocationTaxRule::query()->sole()->percent_bps);
+        $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
+        $this->assertTrue($checkout->due_at->isFuture());
+
+        $checkout->forceFill(['due_at' => now()->subHour()])->save();
+        app(TenantManager::class)->forget();
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($harbor);
+        $this->assertSame(1, RentalCheckout::query()->whereNull('returned_at')->count());
+        $this->assertTrue(RentalCheckout::query()->sole()->due_at->isFuture(), 'A rerun rolls the demo rental forward.');
+
+        $inland = Tenant::query()->where('slug', 'inland-demo')->firstOrFail();
+        app(TenantManager::class)->set($inland);
+        $this->assertSame(0, WaiverVersion::query()->count());
+        $this->assertSame(0, AddOn::query()->count());
+        $this->assertSame(0, RentalCheckout::query()->count());
     }
 }
