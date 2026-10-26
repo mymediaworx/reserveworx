@@ -4,6 +4,9 @@
         .resources-page .retire-panel { display: grid; gap: 0.6rem; min-width: 0; margin: 0 0 0.75rem; padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
         .resources-page .retire-offers { list-style: none; margin: 0.35rem 0 0.75rem; padding: 0; display: grid; gap: 0.45rem; }
         .resources-page .retire-offers li { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; min-width: 0; }
+        .resources-page .buffer-times { flex: 1 0 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-top: .35rem; }
+        .resources-page .buffer-times .field, .resources-page .buffer-times input { min-width: 0; max-width: 100%; }
+        .resources-page .buffer-times .muted, .resources-page .buffer-times .error { grid-column: 1 / -1; margin: 0; }
         @media (max-width: 390px) {
             .resources-page .retire-panel,
             .resources-page .retire-panel *,
@@ -12,6 +15,8 @@
             .resources-page .retire-panel select,
             .resources-page .retire-panel .button,
             .resources-page .retire-offers .button { width: 100%; }
+            .resources-page .buffer-times { grid-template-columns: 1fr; }
+            .resources-page .buffer-times input, .resources-page .buffer-times .field { width: 100%; }
         }
     </style>
     <header class="page-head">
@@ -97,6 +102,7 @@
                                             <span>{{ $pool->quantity }}</span>
                                             <span class="muted">{{ Display::status($pool->status->value) }}</span>
                                         @endif
+                                        @include('livewire.staff.setup.partials.resource-buffers', ['type' => 'pool', 'resource' => $pool])
                                     </li>
                                     @error('pool-'.$pool->id)<li class="error">{{ $message }}</li>@enderror
                                 @endforeach
@@ -119,6 +125,7 @@
                                         @else
                                             <span class="muted">{{ Display::status($asset->status->value) }}</span>
                                         @endif
+                                        @include('livewire.staff.setup.partials.resource-buffers', ['type' => 'asset', 'resource' => $asset])
                                     </li>
                                     @error('asset-'.$asset->id)<li class="error">{{ $message }}</li>@enderror
                                     @if ($retireAssetId === $asset->id)
@@ -185,7 +192,11 @@
                             <label class="field"><span>Seats</span><input type="number" min="1" max="10000" wire:model="capacity"></label>
                             <label class="check"><input type="checkbox" wire:model="isGuide"><span>This is a guide (a person, not gear)</span></label>
                         @endif
+                        <label class="field"><span>Prep before a booking (minutes)</span><input type="number" min="0" max="1440" wire:model="prepMinutes"></label>
+                        <label class="field"><span>Return after a booking (minutes)</span><input type="number" min="0" max="1440" wire:model="returnMinutes"></label>
                         <label class="field"><span>Turnaround between bookings (minutes)</span><input type="number" min="0" max="1440" wire:model="turnaround"></label>
+                        @error('prepMinutes')<p class="error">{{ $message }}</p>@enderror
+                        @error('returnMinutes')<p class="error">{{ $message }}</p>@enderror
                         @error('name')<p class="error">{{ $message }}</p>@enderror
                         @error('quantity')<p class="error">{{ $message }}</p>@enderror
                         <button type="submit" class="button primary">Add</button>
