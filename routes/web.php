@@ -31,6 +31,7 @@ use App\Livewire\Staff\Branding;
 use App\Livewire\Staff\Calendar;
 use App\Livewire\Staff\CheckIn;
 use App\Livewire\Staff\Closures;
+use App\Livewire\Staff\Customers;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
 use App\Livewire\Staff\Import;
@@ -146,6 +147,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/import/templates/{type}', StaffImportTemplateController::class)
             ->where('type', 'customers|inventory');
         Route::get('/import', Import::class);
+        Route::get('/customers', Customers::class)->name('staff.customers');
         Route::get('/settings', Settings::class);
         Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);

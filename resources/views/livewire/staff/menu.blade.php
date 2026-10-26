@@ -51,6 +51,15 @@
                     </a>
                 </li>
             @endif
+            @if ($canPrivacy)
+                <li>
+                    <a href="/staff/customers" wire:navigate>
+                        <span class="icon-circle tone-neutral"><x-icon name="shield" size="20" /></span>
+                        <span class="menu-text">Customer records<small>Download a record or remove personal details</small></span>
+                        <x-icon name="chevron-right" size="20" />
+                    </a>
+                </li>
+            @endif
             <li>
                 <a href="/staff/settings" wire:navigate>
                     <span class="icon-circle tone-neutral"><x-icon name="settings" size="20" /></span>
