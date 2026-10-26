@@ -2,11 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Enums\TenantStatus;
 use App\Models\Location;
-use App\Models\Tenant;
 use App\Services\Reports\DailySummary;
-use App\Tenancy\TenantManager;
+use App\Support\TenantSweep;
 use Carbon\CarbonImmutable;
 use DateTimeZone;
 use Illuminate\Console\Command;
@@ -17,7 +15,7 @@ class BuildReportSummaries extends Command
 
     protected $description = 'Store utilization, conversion, and revenue per resource-hour for each location.';
 
-    public function handle(TenantManager $tenants, DailySummary $summaries): int
+    public function handle(TenantSweep $sweep, DailySummary $summaries): int
     {
         $date = $this->option('date');
 
@@ -30,30 +28,18 @@ class BuildReportSummaries extends Command
         $fixed = is_string($date) && $date !== '' ? $date : null;
         $written = 0;
 
-        Tenant::query()
-            ->whereIn('status', [TenantStatus::Active->value, TenantStatus::Onboarding->value])
-            ->orderBy('id')
-            ->each(function (Tenant $tenant) use ($tenants, $summaries, $fixed, &$written): void {
-                $previous = $tenants->get();
-                $tenants->set($tenant);
-
-                try {
-                    Location::query()->orderBy('id')->each(function (Location $location) use ($summaries, $fixed, &$written): void {
-                        foreach ($this->datesFor($location, $fixed) as $day) {
-                            $summaries->write($location, $day);
-                            $written++;
-                        }
-                    });
-                } finally {
-                    if ($previous instanceof Tenant) {
-                        $tenants->set($previous);
-                    } else {
-                        $tenants->forget();
-                    }
+        $result = $sweep->each('report-summaries', function () use ($summaries, $fixed, &$written): void {
+            Location::query()->orderBy('id')->each(function (Location $location) use ($summaries, $fixed, &$written): void {
+                foreach ($this->datesFor($location, $fixed) as $day) {
+                    $summaries->write($location, $day);
+                    $written++;
                 }
             });
+        });
 
         $this->line('summaries_written='.$written);
+        $this->line('sweep_visited='.$result->visited);
+        $this->line('sweep_deferred='.($result->deferred ? 'yes' : 'no'));
 
         return self::SUCCESS;
     }

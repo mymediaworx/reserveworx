@@ -13,7 +13,9 @@ class DispatchFeedbackRequests extends Command
 
     public function handle(FeedbackRequests $feedback): int
     {
-        $feedback->dispatchDue();
+        $result = $feedback->dispatchDue();
+        $this->line('sweep_visited='.$result->visited);
+        $this->line('sweep_deferred='.($result->deferred ? 'yes' : 'no'));
 
         return self::SUCCESS;
     }

@@ -1,13 +1,15 @@
 <?php
 
 use App\Support\SchedulerHeartbeat;
+use App\Support\SharedHostBudget;
 use Illuminate\Support\Facades\Schedule;
 
 Schedule::call(fn () => app(SchedulerHeartbeat::class)->beat())
     ->name('scheduler-heartbeat')
-    ->everyMinute();
+    ->everyMinute()
+    ->withoutOverlapping();
 
-$maxTime = max(10, (int) config('reserveworx.queue_work_max_time'));
+$maxTime = SharedHostBudget::seconds();
 
 Schedule::command(sprintf(
     'queue:work database --stop-when-empty --tries=3 --max-time=%d',

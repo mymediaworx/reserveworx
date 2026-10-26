@@ -45,7 +45,8 @@ return [
     | 4,000 PHP executions/hour. Cron every minute is 60 schedule:run executions.
     | Each of those may start one queue:work. 60 x 20 seconds = 1,200 CPU-seconds,
     | leaving the rest of the hour for web requests. Do not raise this without
-    | recounting that budget.
+    | recounting that budget. Workspace sweeps use this same ceiling, clamped
+    | to 10–20 seconds, and stop when the window is used.
     */
     'queue_work_max_time' => (int) env('QUEUE_WORK_MAX_TIME', 20),
 
