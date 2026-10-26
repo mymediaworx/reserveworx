@@ -114,6 +114,24 @@
                     @error('customerName')<p class="error">{{ $message }}</p>@enderror
                     @error('customerEmail')<p class="error">{{ $message }}</p>@enderror
                     <label class="field">
+                        <span>Corporate account</span>
+                        <select wire:model.live="corporateAccountId">
+                            <option value="">No corporate account</option>
+                            @foreach ($accounts as $account)
+                                <option value="{{ $account->id }}">{{ $account->name }}</option>
+                            @endforeach
+                        </select>
+                    </label>
+                    @if ($quote)
+                        <p data-corporate-quote="{{ $quote['total_cents'] }}">
+                            <strong>{{ $quote['label'] }}</strong>
+                            {{ Display::money($quote['total_cents'], $quote['currency']) }}
+                            @if ($quote['detail'])
+                                <span>{{ $quote['detail'] }}</span>
+                            @endif
+                        </p>
+                    @endif
+                    <label class="field">
                         <span>Guide</span>
                         <select wire:model="guideUserId">
                             <option value="">No guide</option>
@@ -132,6 +150,7 @@
 
                 <div class="actions">
                     <button type="submit" class="button primary" wire:loading.attr="disabled">{{ $industry->holdButton() }}</button>
+                    <button type="button" class="button" wire:click="saveQuote" wire:loading.attr="disabled">Save quote</button>
                     @if ($offerWaitlist)
                         <button type="button" class="button" wire:click="joinWaitlist">Add to waitlist instead</button>
                     @endif

@@ -220,7 +220,7 @@ final class WebhookProcessor
             $payload['customer_fee_line_cents'] = (int) $line + (int) $addedLine;
         }
 
-        foreach (['priced_participants', 'priced_duration_minutes', 'priced_on', 'priced_local_start', 'time_windows', 'party_bands'] as $key) {
+        foreach (['priced_participants', 'priced_duration_minutes', 'priced_on', 'priced_local_start', 'time_windows', 'party_bands', 'group_rules'] as $key) {
             if (array_key_exists($key, $pending)) {
                 $payload[$key] = $pending[$key];
             }

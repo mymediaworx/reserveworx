@@ -15,6 +15,7 @@ class PriceRule extends Model
     protected $fillable = [
         'tenant_id', 'service_id', 'name', 'kind', 'amount_cents', 'window', 'duration_minutes', 'starts_on', 'ends_on',
         'local_start_minute', 'local_end_minute', 'weekdays', 'min_participants', 'max_participants',
+        'percent_off', 'corporate_account_id',
     ];
 
     protected $casts = [
@@ -27,6 +28,7 @@ class PriceRule extends Model
         'weekdays' => 'array',
         'min_participants' => 'integer',
         'max_participants' => 'integer',
+        'percent_off' => 'integer',
     ];
 
     /**
@@ -38,7 +40,7 @@ class PriceRule extends Model
     {
         $inputs = [];
 
-        foreach (self::query()->where('service_id', $serviceId)->orderBy('id')->get() as $rule) {
+        foreach (self::query()->with('corporateAccount')->where('service_id', $serviceId)->orderBy('id')->get() as $rule) {
             $inputs[] = $rule->toInput();
         }
 
@@ -59,7 +61,20 @@ class PriceRule extends Model
             $this->weekdayList(),
             $this->min_participants,
             $this->max_participants,
+            $this->percent_off === null ? null : (int) $this->percent_off,
+            $this->id,
+            $this->name,
+            $this->corporate_account_id,
+            $this->corporateAccount?->name,
         );
+    }
+
+    /**
+     * @return BelongsTo<CorporateAccount, $this>
+     */
+    public function corporateAccount(): BelongsTo
+    {
+        return $this->belongsTo(CorporateAccount::class);
     }
 
     private function minute(mixed $value): ?int
