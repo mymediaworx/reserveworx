@@ -11,6 +11,7 @@ use App\Models\Blackout;
 use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
+use App\Models\BookingMutation;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
 use App\Models\CapacityLedger;
@@ -291,6 +292,7 @@ class TenantExporter
             CustomerAccount::class,
             CsvImport::class,
             Booking::class,
+            BookingMutation::class,
             Participant::class,
             BookingLineItem::class,
             Hold::class,

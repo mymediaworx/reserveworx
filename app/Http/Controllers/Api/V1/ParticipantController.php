@@ -11,6 +11,7 @@ use App\Models\WaiverSignature;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\BookingMutationIdempotency;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,10 @@ use Illuminate\Validation\ValidationException;
 
 class ParticipantController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly BookingMutationIdempotency $mutations,
+    ) {}
 
     public function index(Booking $booking): JsonResponse
     {
@@ -96,20 +100,24 @@ class ParticipantController extends Controller
             abort(404);
         }
 
-        if (WaiverSignature::query()->where('participant_id', $participant->id)->exists()) {
-            return response()->json([
-                'message' => 'A signed waiver keeps this participant on the booking.',
-            ], 409);
-        }
+        return $this->mutations->once($request, $booking, 'remove_participant', [
+            'participant_id' => $participant->id,
+        ], function () use ($request, $booking, $participant): JsonResponse {
+            if (WaiverSignature::query()->where('participant_id', $participant->id)->exists()) {
+                return response()->json([
+                    'message' => 'A signed waiver keeps this participant on the booking.',
+                ], 409);
+            }
 
-        $payload = $this->payload($participant);
-        $participant->delete();
-        $this->audit->log('participant.removed', $participant, [
-            'booking_id' => $booking->id,
-            'name' => $payload['name'],
-        ], request: $request);
+            $payload = $this->payload($participant);
+            $participant->delete();
+            $this->audit->log('participant.removed', $participant, [
+                'booking_id' => $booking->id,
+                'name' => $payload['name'],
+            ], request: $request);
 
-        return response()->json(['data' => $payload]);
+            return response()->json(['data' => $payload]);
+        });
     }
 
     /**
