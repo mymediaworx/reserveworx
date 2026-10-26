@@ -8,7 +8,7 @@
         <p class="error" role="alert">{{ $error }}</p>
     @endif
     <form method="post" action="{{ url('/book/'.$token.'/lookup') }}">
-        <label>Booking reference
+        <label>Booking reference <span class="optional">(the 8 characters on your confirmation, or the full reference)</span>
             <input name="reference" type="text" required maxlength="40" autocomplete="off">
         </label>
         <label>Email
