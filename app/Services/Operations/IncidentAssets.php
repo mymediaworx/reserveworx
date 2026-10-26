@@ -13,39 +13,31 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Collection as BaseCollection;
 
 /**
- * Boats a damage report can name for one booking.
+ * Boats and gear types a damage report can name for one booking.
  *
  * An asset already on an allocation, hold, or checkout comes first. A pool
- * row that does not name an asset adds the active assets in that pool's
- * category and location.
+ * adds the active assets in that pool's category at the pool's location.
+ * A pool with no such assets, including a count-only pool, is reported as
+ * the gear type itself.
  */
 final class IncidentAssets
 {
+    public const POOL_PREFIX = 'pool:';
+
     /**
-     * @return Collection<int, Asset>
+     * @return array{assets: Collection<int, Asset>, pools: Collection<int, Pool>}
      */
-    public function forBooking(Booking $booking): Collection
+    public function options(Booking $booking): array
     {
         $rows = $this->rows($booking);
         $specificIds = [];
+        $poolIds = [];
 
         foreach ($rows as $row) {
             $assetId = $this->present($row->getAttribute('asset_id'));
 
             if ($assetId !== null) {
                 $specificIds[$assetId] = $assetId;
-            }
-        }
-
-        $specific = $specificIds === []
-            ? new Collection
-            : Asset::query()->whereIn('id', array_values($specificIds))->orderBy('name')->orderBy('id')->get();
-
-        $poolIds = [];
-
-        foreach ($rows as $row) {
-            if ($this->present($row->getAttribute('asset_id')) !== null) {
-                continue;
             }
 
             $poolId = $this->present($row->getAttribute('pool_id'));
@@ -55,30 +47,42 @@ final class IncidentAssets
             }
         }
 
+        $specific = $specificIds === []
+            ? new Collection
+            : Asset::query()->whereIn('id', array_values($specificIds))->orderBy('name')->orderBy('id')->get();
+
         if ($poolIds === []) {
-            return $specific;
+            return [
+                'assets' => $specific,
+                'pools' => new Collection,
+            ];
         }
 
-        $categories = Pool::query()
-            ->whereIn('id', array_values($poolIds))
-            ->where('location_id', $booking->location_id)
-            ->whereNotNull('resource_category_id')
-            ->pluck('resource_category_id')
-            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
-            ->unique()
-            ->values();
+        $pools = Pool::query()->whereIn('id', array_values($poolIds))->get();
+        $matchedIds = [];
+        $uncoveredIds = [];
 
-        if ($categories->isEmpty()) {
-            return $specific;
+        foreach ($pools as $pool) {
+            $matched = $this->activeAssets($pool);
+
+            if ($matched->isEmpty()) {
+                $uncoveredIds[$pool->id] = $pool->id;
+
+                continue;
+            }
+
+            foreach ($matched as $asset) {
+                if (isset($specificIds[$asset->id])) {
+                    continue;
+                }
+
+                $matchedIds[$asset->id] = $asset->id;
+            }
         }
 
-        $poolAssets = Asset::query()
-            ->where('location_id', $booking->location_id)
-            ->where('status', ResourceStatus::Active)
-            ->whereIn('resource_category_id', $categories->all())
-            ->orderBy('name')
-            ->orderBy('id')
-            ->get();
+        $matchedAssets = $matchedIds === []
+            ? new Collection
+            : Asset::query()->whereIn('id', array_values($matchedIds))->orderBy('name')->orderBy('id')->get();
 
         $assets = new Collection;
 
@@ -86,15 +90,36 @@ final class IncidentAssets
             $assets->push($asset);
         }
 
-        foreach ($poolAssets as $asset) {
-            if ($assets->contains('id', $asset->id)) {
-                continue;
-            }
-
+        foreach ($matchedAssets as $asset) {
             $assets->push($asset);
         }
 
-        return $assets;
+        $uncovered = $uncoveredIds === []
+            ? new Collection
+            : Pool::query()->whereIn('id', array_values($uncoveredIds))->orderBy('name')->orderBy('id')->get();
+
+        return [
+            'assets' => $assets,
+            'pools' => $uncovered,
+        ];
+    }
+
+    /**
+     * @return Collection<int, Asset>
+     */
+    public function forBooking(Booking $booking): Collection
+    {
+        return $this->options($booking)['assets'];
+    }
+
+    /**
+     * Pools on the booking that have no active individual assets to list.
+     *
+     * @return Collection<int, Pool>
+     */
+    public function poolsForBooking(Booking $booking): Collection
+    {
+        return $this->options($booking)['pools'];
     }
 
     public function bookingHasResource(Booking $booking): bool
@@ -106,6 +131,30 @@ final class IncidentAssets
         }
 
         return false;
+    }
+
+    /**
+     * Active boats of this pool's category at the pool's own location.
+     * A count-only pool, or a pool with no category, has none.
+     *
+     * @return Collection<int, Asset>
+     */
+    private function activeAssets(Pool $pool): Collection
+    {
+        $categoryId = $this->present($pool->resource_category_id);
+        $locationId = $this->present($pool->location_id);
+
+        if ($categoryId === null || $locationId === null) {
+            return new Collection;
+        }
+
+        return Asset::query()
+            ->where('location_id', $locationId)
+            ->where('resource_category_id', $categoryId)
+            ->where('status', ResourceStatus::Active)
+            ->orderBy('name')
+            ->orderBy('id')
+            ->get();
     }
 
     /**

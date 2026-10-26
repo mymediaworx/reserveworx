@@ -91,7 +91,7 @@
                 @endphp
                 <li @class(['incident-card', 'is-serious' => $incident->severity === IncidentSeverity::Serious]) data-incident="{{ $incident->id }}" data-severity="{{ $incident->severity?->value ?? '' }}" data-status="{{ $incident->status->value }}" @if (is_int($incident->damage_cents)) data-damage="{{ $incident->damage_cents }}" @endif wire:key="incident-{{ $incident->id }}">
                     <div class="meta">
-                        <strong>{{ $incident->asset?->name ?? 'Boat' }}</strong>
+                        <strong>{{ $incident->asset?->name ?? $incident->pool?->name ?? 'Boat' }}</strong>
                         <span class="badge">{{ $incident->severity?->label() ?? 'Recorded' }}</span>
                         <span class="badge">{{ $incident->status->label() }}</span>
                     </div>

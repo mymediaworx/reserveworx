@@ -8,6 +8,7 @@ use App\Enums\MaintenanceKind;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Incident;
+use App\Models\Pool;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -36,7 +37,8 @@ final class IncidentReport
      */
     public function file(
         Booking $booking,
-        Asset $asset,
+        ?Asset $asset,
+        ?Pool $pool,
         IncidentSeverity $severity,
         string $notes,
         ?int $damageCents,
@@ -45,11 +47,17 @@ final class IncidentReport
         ?array $maintenance,
     ): array {
         $notes = trim($notes);
-        $this->assertAsset($booking, $asset);
+        $this->assertSubject($booking, $asset, $pool);
 
         if (count($uploads) > IncidentPhotos::MAX_PHOTOS) {
             throw ValidationException::withMessages([
                 'photos' => 'You can attach up to 6 photos.',
+            ]);
+        }
+
+        if ($maintenance !== null && ! $asset instanceof Asset) {
+            throw ValidationException::withMessages([
+                'blockAsset' => 'Choose a boat before taking it out for maintenance.',
             ]);
         }
 
@@ -63,11 +71,12 @@ final class IncidentReport
         $paths = [];
 
         try {
-            return DB::transaction(function () use ($booking, $asset, $severity, $notes, $damageCents, $uploads, $reporter, $maintenance, $charging, &$paths): array {
+            return DB::transaction(function () use ($booking, $asset, $pool, $severity, $notes, $damageCents, $uploads, $reporter, $maintenance, $charging, &$paths): array {
                 $incident = Incident::query()->create([
                     'tenant_id' => $booking->tenant_id,
                     'booking_id' => $booking->id,
-                    'asset_id' => $asset->id,
+                    'asset_id' => $asset?->id,
+                    'pool_id' => $pool?->id,
                     'severity' => $severity,
                     'summary' => mb_substr($notes, 0, 500),
                     'notes' => $notes,
@@ -115,18 +124,36 @@ final class IncidentReport
         }
     }
 
-    private function assertAsset(Booking $booking, Asset $asset): void
+    private function assertSubject(Booking $booking, ?Asset $asset, ?Pool $pool): void
     {
-        if ($asset->tenant_id !== $booking->tenant_id || $asset->location_id !== $booking->location_id) {
+        if ($asset instanceof Asset && $pool instanceof Pool) {
             throw ValidationException::withMessages([
                 'assetId' => 'Choose a boat on this booking.',
             ]);
         }
 
-        if (! $this->assets->forBooking($booking)->contains('id', $asset->id)) {
-            throw ValidationException::withMessages([
-                'assetId' => 'Choose a boat on this booking.',
-            ]);
+        if ($asset instanceof Asset) {
+            if ($asset->tenant_id !== $booking->tenant_id || ! $this->assets->forBooking($booking)->contains('id', $asset->id)) {
+                throw ValidationException::withMessages([
+                    'assetId' => 'Choose a boat on this booking.',
+                ]);
+            }
+
+            return;
         }
+
+        if ($pool instanceof Pool) {
+            if ($pool->tenant_id !== $booking->tenant_id || ! $this->assets->poolsForBooking($booking)->contains('id', $pool->id)) {
+                throw ValidationException::withMessages([
+                    'assetId' => 'Choose a boat on this booking.',
+                ]);
+            }
+
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'assetId' => 'Choose a boat on this booking.',
+        ]);
     }
 }

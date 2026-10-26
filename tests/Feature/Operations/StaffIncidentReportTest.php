@@ -444,7 +444,7 @@ class StaffIncidentReportTest extends TestCase
         $south = $this->location($alpha['tenant'], 'South dock');
         $betaDock = $this->location($beta['tenant'], 'Beta dock');
         $fleet = $this->poolFleet($alpha['tenant'], $north, $south, assigned: true);
-        $plain = $this->uncategorizedPoolBooking($alpha['tenant'], $north, 'Harbor Guest');
+        $plain = $this->harborSingleKayak($alpha['tenant'], $north, 'Harbor Guest');
         $empty = $this->bareBooking($alpha['tenant'], $north, 'Empty Guest');
         $foreign = Asset::factory()->create([
             'tenant_id' => $beta['tenant']->id,
@@ -462,16 +462,21 @@ class StaffIncidentReportTest extends TestCase
             ->assertSee('Able kayak')
             ->assertSee('Baker kayak')
             ->assertSee('Zebra skiff')
+            ->assertDontSee('This report covers')
             ->assertDontSee('No boat is assigned to this booking yet.')
             ->assertDontSee('Shop kayak')
             ->assertDontSee('Tandem one')
             ->assertDontSee('South kayak')
             ->assertDontSee('Beta kayak');
-        $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$plain->id))
+        $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$plain['booking']->id))
             ->assertOk()
             ->assertSee('Damage report')
             ->assertSee('File report')
+            ->assertSee('This report covers')
+            ->assertSee('data-gear-type="'.$plain['pool']->id.'"', false)
             ->assertSee('Single kayak × 1')
+            ->assertDontSee('Sam (guide)')
+            ->assertDontSee('wire:model.live="assetId"', false)
             ->assertDontSee('No boat is assigned to this booking yet.');
         $this->get($this->tenantUrl('alpha.test', '/staff/bookings/'.$empty->id))
             ->assertOk()
@@ -549,6 +554,144 @@ class StaffIncidentReportTest extends TestCase
             $fleet['baker']->id,
         ]);
         $checked->assertDontSee('value="'.$fleet['assigned']->id.'"', false);
+    }
+
+    public function test_a_count_only_pool_is_reported_as_its_gear_type(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-16 18:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $north = $this->location($alpha['tenant'], 'North dock');
+        $harbor = $this->harborSingleKayak($alpha['tenant'], $north, 'Harbor Guest');
+        $this->price($alpha['tenant'], $harbor['booking']);
+        $this->actingAs($alpha['user']);
+        $this->useTenant($alpha['tenant']);
+
+        Livewire::test(FileIncident::class, ['bookingId' => $harbor['booking']->id])
+            ->assertSee('This report covers')
+            ->assertSee('Single kayak')
+            ->assertDontSee('Sam (guide)')
+            ->assertDontSee('wire:model.live="assetId"', false)
+            ->set('severity', 'serious')
+            ->assertDontSee('Take this boat out for maintenance')
+            ->set('blockAsset', true)
+            ->set('notes', 'The single kayak hull is scraped.')
+            ->set('damageAmount', '12.50')
+            ->call('file')
+            ->assertHasNoErrors()
+            ->assertSee('Report filed.')
+            ->assertSee('$12.50 was added to the customer total.');
+
+        $incident = Incident::query()->sole();
+        $this->assertNull($incident->asset_id);
+        $this->assertSame($harbor['pool']->id, $incident->pool_id);
+        $this->assertSame(1250, $incident->damage_cents);
+        $this->assertSame(12_350, $this->total($harbor['booking']));
+        $this->assertSame(0, MaintenanceWindow::query()->count());
+        $this->assertSame(0, RentalCheckout::query()->count());
+
+        app(TenantManager::class)->forget();
+        $this->get($this->tenantUrl('alpha.test', '/staff/incidents'))
+            ->assertOk()
+            ->assertSee('Single kayak')
+            ->assertDontSee('>Boat<', false);
+    }
+
+    public function test_a_pool_with_no_active_boats_is_reported_as_its_gear_type(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-16 18:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $north = $this->location($alpha['tenant'], 'North dock');
+        $this->useTenant($alpha['tenant']);
+        $category = ResourceCategory::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'name' => 'Single kayaks',
+            'slug' => 'single-kayaks',
+        ]);
+        $pool = Pool::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'location_id' => $north->id,
+            'resource_category_id' => $category->id,
+            'name' => 'Single kayak',
+            'quantity' => 10,
+            'status' => ResourceStatus::Active,
+        ]);
+        $this->kayak($alpha['tenant'], $north, $category, 'Shop kayak', ResourceStatus::Maintenance);
+        $this->kayak($alpha['tenant'], $north, $category, 'Blocked kayak', ResourceStatus::Blocked);
+        $booking = $this->poolBooking($alpha['tenant'], $north, $pool, 'Inactive Guest', null);
+        $this->actingAs($alpha['user']);
+        $this->useTenant($alpha['tenant']);
+
+        Livewire::test(FileIncident::class, ['bookingId' => $booking->id])
+            ->assertSee('This report covers')
+            ->assertSee('data-gear-type="'.$pool->id.'"', false)
+            ->assertDontSee('Shop kayak')
+            ->assertDontSee('Blocked kayak')
+            ->set('severity', 'serious')
+            ->assertDontSee('Take this boat out for maintenance')
+            ->set('blockAsset', true)
+            ->set('notes', 'Every single kayak is already out of service.')
+            ->call('file')
+            ->assertHasNoErrors()
+            ->assertSee('Report filed.');
+
+        $incident = Incident::query()->sole();
+        $this->assertNull($incident->asset_id);
+        $this->assertSame($pool->id, $incident->pool_id);
+        $this->assertNull($incident->maintenance_window_id);
+        $this->assertSame(0, MaintenanceWindow::query()->count());
+    }
+
+    public function test_boats_are_listed_from_the_pool_location(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-16 18:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $north = $this->location($alpha['tenant'], 'North dock');
+        $south = $this->location($alpha['tenant'], 'South dock');
+        $this->useTenant($alpha['tenant']);
+        $category = ResourceCategory::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'name' => 'Single kayaks',
+            'slug' => 'single-kayaks',
+        ]);
+        $pool = Pool::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'location_id' => $south->id,
+            'resource_category_id' => $category->id,
+            'name' => 'Single kayak',
+            'quantity' => 4,
+            'status' => ResourceStatus::Active,
+        ]);
+        $southBoat = $this->kayak($alpha['tenant'], $south, $category, 'South Able', ResourceStatus::Active);
+        $northBoat = $this->kayak($alpha['tenant'], $north, $category, 'North stray', ResourceStatus::Active);
+        $booking = $this->poolBooking($alpha['tenant'], $north, $pool, 'Moved Guest', null);
+        $this->actingAs($alpha['user']);
+        $this->useTenant($alpha['tenant']);
+
+        $form = Livewire::test(FileIncident::class, ['bookingId' => $booking->id]);
+        $this->assertOptionOrder($form->html(), [$southBoat->id]);
+        $form->assertDontSee('North stray')
+            ->assertDontSee('This report covers')
+            ->set('severity', 'serious')
+            ->assertDontSee('Take this boat out for maintenance')
+            ->set('assetId', $southBoat->id)
+            ->assertSee('Take this boat out for maintenance')
+            ->set('severity', 'minor')
+            ->set('notes', 'The south kayak has a chipped bow.')
+            ->call('file')
+            ->assertHasNoErrors()
+            ->assertSee('Report filed.');
+
+        $incident = Incident::query()->sole();
+        $this->assertSame($southBoat->id, $incident->asset_id);
+        $this->assertNull($incident->pool_id);
+
+        Livewire::test(FileIncident::class, ['bookingId' => $booking->id])
+            ->set('assetId', $northBoat->id)
+            ->set('severity', 'minor')
+            ->set('notes', 'This boat is not in the pool.')
+            ->call('file')
+            ->assertHasErrors(['assetId']);
+        $this->assertSame(1, Incident::query()->count());
     }
 
     private function location(Tenant $tenant, string $name): Location
@@ -851,7 +994,14 @@ class StaffIncidentReportTest extends TestCase
         return $booking;
     }
 
-    private function uncategorizedPoolBooking(Tenant $tenant, Location $location, string $customerName): Booking
+    /**
+     * Harbor Demo's Single kayak rental: a count-only pool with no category
+     * and no kayak rows. The guide asset is at the same dock and is not on
+     * this allocation. The booking is pool-allocated and not checked out.
+     *
+     * @return array{booking: Booking, pool: Pool}
+     */
+    private function harborSingleKayak(Tenant $tenant, Location $location, string $customerName): array
     {
         $this->useTenant($tenant);
         $pool = Pool::factory()->create([
@@ -859,11 +1009,24 @@ class StaffIncidentReportTest extends TestCase
             'location_id' => $location->id,
             'resource_category_id' => null,
             'name' => 'Single kayak',
-            'quantity' => 1,
+            'quantity' => 10,
             'status' => ResourceStatus::Active,
+            'turnaround_minutes' => 15,
+        ]);
+        Asset::factory()->create([
+            'tenant_id' => $tenant->id,
+            'location_id' => $location->id,
+            'resource_category_id' => null,
+            'name' => 'Sam (guide)',
+            'status' => ResourceStatus::Active,
+            'capacity' => 1,
+            'is_guide' => true,
         ]);
 
-        return $this->poolBooking($tenant, $location, $pool, $customerName, null);
+        return [
+            'booking' => $this->poolBooking($tenant, $location, $pool, $customerName, null),
+            'pool' => $pool,
+        ];
     }
 
     private function bareBooking(Tenant $tenant, Location $location, string $customerName): Booking

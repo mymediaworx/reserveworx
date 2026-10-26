@@ -1,6 +1,7 @@
 @php
     use App\Enums\IncidentSeverity;
     use App\Models\Asset;
+    use App\Models\Pool;
     use App\Support\Display;
 @endphp
 <div class="incident-form" data-file-incident="{{ $booking->id }}" @if ($fixedAsset instanceof Asset) data-fixed-asset="{{ $fixedAsset->id }}" @endif>
@@ -35,13 +36,18 @@
         <form wire:submit="file" class="stack">
             @if ($fixedAsset instanceof Asset)
                 <p data-asset-name="{{ $fixedAsset->name }}"><strong>{{ $fixedAsset->name }}</strong></p>
+            @elseif ($gearPool instanceof Pool)
+                <p data-gear-type="{{ $gearPool->id }}">This report covers <strong>{{ $gearPool->name }}</strong>.</p>
             @else
                 <label class="field">
-                    <span>{{ ucfirst($industry->unit()) }}</span>
-                    <select wire:model="assetId">
+                    <span>{{ $assets->isEmpty() ? 'Gear' : ucfirst($industry->unit()) }}</span>
+                    <select wire:model.live="assetId">
                         <option value="">Choose</option>
                         @foreach ($assets as $asset)
                             <option value="{{ $asset->id }}">{{ $asset->name }}</option>
+                        @endforeach
+                        @foreach ($pools as $pool)
+                            <option value="pool:{{ $pool->id }}">{{ $pool->name }}</option>
                         @endforeach
                     </select>
                 </label>
@@ -84,7 +90,7 @@
             <p class="muted small">Added to the customer total, the same way a late fee is. It is not a booking fee, and no payment is taken here.</p>
             @error('damageAmount')<p class="error">{{ $message }}</p>@enderror
 
-            @if ($severity === $serious)
+            @if ($severity === $serious && $maintenanceAllowed)
                 <label class="check">
                     <input type="checkbox" wire:model.live="blockAsset">
                     <span>Take this {{ $industry->unit() }} out for maintenance</span>
@@ -116,7 +122,7 @@
         <ul class="incident-reports">
             @foreach ($reports as $report)
                 <li data-report="{{ $report->id }}">
-                    <span>{{ $report->asset?->name ?? 'Boat' }}</span>
+                    <span>{{ $report->asset?->name ?? $report->pool?->name ?? 'Boat' }}</span>
                     <span>{{ $report->severity?->label() ?? 'Recorded' }}</span>
                     <span>{{ $report->status->label() }}</span>
                     @if (is_int($report->damage_cents) && $report->damage_cents > 0)

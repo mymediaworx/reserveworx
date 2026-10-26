@@ -66,6 +66,7 @@ class Incidents extends Component
         $this->audit('incident.resolved', $incident, [
             'booking_id' => $incident->booking_id,
             'asset_id' => $incident->asset_id,
+            'pool_id' => $incident->pool_id,
         ]);
         $this->flash = 'Marked resolved.';
     }
@@ -113,7 +114,7 @@ class Incidents extends Component
     private function incidents(?Location $selected): Collection
     {
         $query = Incident::query()
-            ->with(['asset', 'photos', 'booking.customer', 'booking.location', 'booking.service', 'maintenanceWindow'])
+            ->with(['asset', 'pool', 'photos', 'booking.customer', 'booking.location', 'booking.service', 'maintenanceWindow'])
             ->whereHas('booking')
             ->orderByDesc('occurred_at')
             ->orderByDesc('id');
