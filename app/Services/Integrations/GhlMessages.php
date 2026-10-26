@@ -304,6 +304,15 @@ final class GhlMessages
         $this->finish($log, 'succeeded', $attempt, null, null, $token, $notice['channel'], $messageId, $connection->location_id);
     }
 
+    /**
+     * A linked workspace sends customer messages through GoHighLevel, so the
+     * app does not email the same message a second time.
+     */
+    public function handlesMessages(string $tenantId): bool
+    {
+        return $this->linked($tenantId);
+    }
+
     private function linked(string $tenantId): bool
     {
         return GhlConnection::withoutGlobalScope(TenantScope::class)

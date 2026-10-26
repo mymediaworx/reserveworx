@@ -13,7 +13,7 @@ class DispatchIntegrations extends Command
 {
     protected $signature = 'integrations:dispatch';
 
-    protected $description = 'Record undelivered notification hooks and advance the GoHighLevel outbox without calling either service.';
+    protected $description = 'Email queued customer notifications and advance the GoHighLevel outbox.';
 
     public function handle(TenantManager $tenants, HookDelivery $delivery, Outbox $outbox): int
     {
@@ -25,7 +25,7 @@ class DispatchIntegrations extends Command
                 $tenants->set($tenant);
 
                 try {
-                    $delivery->skipUnconfigured();
+                    $delivery->deliverQueued();
                     $outbox->attemptDue();
                 } finally {
                     if ($previous instanceof Tenant) {
