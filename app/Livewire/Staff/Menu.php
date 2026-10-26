@@ -5,6 +5,7 @@ namespace App\Livewire\Staff;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
 use App\Models\CsvImport;
+use App\Tenancy\StaffLocationAccess;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -31,6 +32,8 @@ class Menu extends Component
             'user' => $this->currentUser(),
             'canManageTeam' => $this->allows('members.manage'),
             'canImport' => $this->currentUser()->can('viewAny', CsvImport::class),
+            'canPrivacy' => $this->allows('customers.privacy')
+                && ! app(StaffLocationAccess::class)->isRestricted($this->currentUser()),
         ]);
     }
 }
