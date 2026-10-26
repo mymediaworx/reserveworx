@@ -32,6 +32,8 @@ class LocationTax extends Component
 
     public bool $appliesToFees = false;
 
+    public bool $bookingFeeTaxable = false;
+
     public string $editingId = '';
 
     public ?string $flash = null;
@@ -41,6 +43,32 @@ class LocationTax extends Component
         $this->authorize('viewAny', LocationTaxRule::class);
         abort_unless($location->tenant_id === $this->tenant()->id, 404);
         $this->locationId = $location->id;
+        $this->bookingFeeTaxable = (bool) $location->booking_fee_taxable;
+    }
+
+    public function updatedBookingFeeTaxable(mixed $value): void
+    {
+        $this->authorize('create', LocationTaxRule::class);
+        $taxable = $value === true || $value === 1 || $value === '1';
+        $location = $this->location();
+
+        if ($location->booking_fee_taxable === $taxable) {
+            $this->bookingFeeTaxable = $taxable;
+
+            return;
+        }
+
+        $before = $location->booking_fee_taxable;
+        $location->booking_fee_taxable = $taxable;
+        $location->save();
+        $this->bookingFeeTaxable = $taxable;
+        $this->audit('location.booking_fee_tax_updated', $location, [
+            'before' => $before,
+            'after' => $taxable,
+        ]);
+        $this->flash = $taxable
+            ? 'The booking fee is taxed at this location.'
+            : 'The booking fee is not taxed at this location.';
     }
 
     public function create(): void

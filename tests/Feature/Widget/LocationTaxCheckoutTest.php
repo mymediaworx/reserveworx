@@ -177,6 +177,78 @@ class LocationTaxCheckoutTest extends TestCase
             ->assertDontSee('Other dock tax');
     }
 
+    public function test_checkout_taxes_the_booking_fee_only_when_that_location_says_so(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        $elsewhere = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'timezone' => 'UTC',
+            'booking_fee_taxable' => true,
+        ]);
+        app(TenantManager::class)->set($workspace['tenant']);
+        Location::query()->whereKey($service->location_id)->update(['booking_fee_taxable' => true]);
+        LocationTaxRule::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $service->location_id,
+            'name' => 'State sales tax',
+            'percent_bps' => 1_000,
+            'applies_to_rentals' => true,
+            'applies_to_add_ons' => false,
+            'applies_to_fees' => false,
+        ]);
+        LocationTaxRule::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $elsewhere->id,
+            'name' => 'Other dock tax',
+            'percent_bps' => 2_000,
+            'applies_to_rentals' => true,
+            'applies_to_add_ons' => false,
+            'applies_to_fees' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $token = $this->token($workspace);
+        $held = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $this->party('tax-fee'));
+        $held->assertRedirect();
+        $checkoutUrl = (string) $held->headers->get('Location');
+
+        $this->get($checkoutUrl)
+            ->assertOk()
+            ->assertSee('State sales tax')
+            ->assertSee('$10.30')
+            ->assertSee('Booking fee')
+            ->assertSee('$3.00')
+            ->assertSee('$113.30')
+            ->assertDontSee('Other dock tax');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $snapshot = PricingSnapshot::query()->where('booking_id', $this->bookingId($checkoutUrl))->firstOrFail();
+        $this->assertSame(10_000, $snapshot->payload['basis_cents']);
+        $this->assertSame(300, $snapshot->payload['fee_cents']);
+        $this->assertSame(300, $snapshot->payload['application_fee_cents']);
+        $this->assertSame(1_030, $snapshot->payload['tax_cents']);
+        $this->assertSame(11_330, $snapshot->payload['customer_total_cents']);
+        $this->assertTrue($snapshot->payload['tax_includes_booking_fee']);
+        $this->assertSame(10_300, $snapshot->payload['tax_lines'][0]['basis_cents']);
+
+        Location::query()->whereKey($service->location_id)->update(['booking_fee_taxable' => false]);
+        app(TenantManager::class)->forget();
+
+        $later = $this->party('tax-fee-off');
+        $later['start'] = '16:00';
+        $again = $this->post($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id), $later);
+        $again->assertRedirect();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $plain = PricingSnapshot::query()->where('booking_id', $this->bookingId((string) $again->headers->get('Location')))->firstOrFail();
+        app(TenantManager::class)->forget();
+
+        $this->assertSame(1_000, $plain->payload['tax_cents']);
+        $this->assertSame(300, $plain->payload['fee_cents']);
+        $this->assertSame(11_300, $plain->payload['customer_total_cents']);
+        $this->assertFalse($plain->payload['tax_includes_booking_fee']);
+    }
+
     /**
      * @param  array{tenant: Tenant, domain: Domain, user: User, membership: Membership}  $workspace
      */
