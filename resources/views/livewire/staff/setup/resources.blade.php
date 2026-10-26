@@ -1,5 +1,19 @@
 @php use App\Support\Display; @endphp
-<div class="page">
+<div class="page resources-page">
+    <style>
+        .resources-page .retire-panel { display: grid; gap: 0.6rem; min-width: 0; margin: 0 0 0.75rem; padding: 0.8rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+        .resources-page .retire-offers { list-style: none; margin: 0.35rem 0 0.75rem; padding: 0; display: grid; gap: 0.45rem; }
+        .resources-page .retire-offers li { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; min-width: 0; }
+        @media (max-width: 390px) {
+            .resources-page .retire-panel,
+            .resources-page .retire-panel *,
+            .resources-page .retire-offers,
+            .resources-page .retire-offers * { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+            .resources-page .retire-panel select,
+            .resources-page .retire-panel .button,
+            .resources-page .retire-offers .button { width: 100%; }
+        }
+    </style>
     <header class="page-head">
         <div>
             <h1>{{ $industry->catalog() }}</h1>
@@ -93,16 +107,56 @@
                             <ul class="rows">
                                 @foreach ($locAssets as $asset)
                                     <li class="row" id="asset-{{ $asset->id }}">
-                                        <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span></span>
+                                        <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span>@if ($asset->status->value === 'retired' && $asset->replacement) <span class="muted">· replacement {{ $asset->replacement->name }}</span>@endif</span>
                                         @if ($canManage)
                                             <select aria-label="Status of {{ $asset->name }}" wire:change="setStatus('asset', '{{ $asset->id }}', $event.target.value)">
                                                 @foreach ($statuses as $s)@continue($s->value === 'retired' && $asset->status !== $s)<option value="{{ $s->value }}" @selected($asset->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
+                                            @if ($asset->status->value !== 'retired')
+                                                <button type="button" class="button small" wire:click="openRetire('{{ $asset->id }}')">Retire</button>
+                                            @endif
                                             <button type="button" class="button small" wire:click="deleteResource('asset', '{{ $asset->id }}')">Delete</button>
                                         @else
                                             <span class="muted">{{ Display::status($asset->status->value) }}</span>
                                         @endif
                                     </li>
+                                    @error('asset-'.$asset->id)<li class="error">{{ $message }}</li>@enderror
+                                    @if ($retireAssetId === $asset->id)
+                                        <li class="retire-panel" id="retire-{{ $asset->id }}">
+                                            <form wire:submit="retire" class="stack">
+                                                <p>Future bookings stay booked. A replacement has to be another active item of the same type at this location. Moving one later does not change the price.</p>
+                                                <label class="field"><span>Replacement</span>
+                                                    <select wire:model="replacementId" aria-label="Replacement for {{ $asset->name }}">
+                                                        <option value="">No replacement</option>
+                                                        @foreach ($retirement[$asset->id]['candidates'] ?? [] as $candidate)
+                                                            <option value="{{ $candidate['id'] }}">{{ $candidate['name'] }}</option>
+                                                        @endforeach
+                                                    </select>
+                                                </label>
+                                                @error('replacement_asset_id')<p class="error">{{ $message }}</p>@enderror
+                                                @error('status')<p class="error">{{ $message }}</p>@enderror
+                                                <div class="form-row">
+                                                    <button type="submit" class="button primary">Retire {{ $asset->name }}</button>
+                                                    <button type="button" class="button" wire:click="cancelRetire">Cancel</button>
+                                                </div>
+                                            </form>
+                                        </li>
+                                    @endif
+                                    @if ($asset->status->value === 'retired' && ($retirement[$asset->id]['offers'] ?? []) !== [])
+                                        <li>
+                                            <ul class="retire-offers">
+                                                @foreach ($retirement[$asset->id]['offers'] as $offer)
+                                                    <li data-retire-offer="{{ $offer['booking_id'] }}">
+                                                        <a href="/staff/bookings/{{ $offer['booking_id'] }}" wire:navigate>{{ $offer['reference'] }} · {{ $offer['customer'] }} · {{ $offer['when'] }}</a>
+                                                        @if ($canMoveBookings)
+                                                            <button type="button" class="button small" wire:click="acceptOffer('{{ $offer['booking_id'] }}', '{{ $offer['from_asset_id'] }}', '{{ $offer['to_asset_id'] }}')">Move onto {{ $offer['to_name'] }}</button>
+                                                        @endif
+                                                        @error('move-'.$offer['booking_id'])<p class="error">{{ $message }}</p>@enderror
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        </li>
+                                    @endif
                                 @endforeach
                             </ul>
                         @endif
