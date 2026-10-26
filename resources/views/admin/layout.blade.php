@@ -21,8 +21,9 @@
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
         .stat { background: #fff; border: 1px solid #c5d0e0; padding: 0.75rem; }
         .stat strong { display: block; font-size: 1.3rem; }
+        .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; background: #fff; }
-        th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid #c5d0e0; vertical-align: top; }
+        th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid #c5d0e0; vertical-align: top; overflow-wrap: anywhere; }
         .muted { color: #3d4c63; }
     </style>
 </head>

@@ -26,6 +26,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Booking\BookingMutationIdempotency;
+use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\Waitlist;
 use App\Services\Booking\WaitlistPromoter;
@@ -48,6 +49,7 @@ class BookingController extends Controller
         private readonly BookingAddOnLines $addOnLines,
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly RentalExtensions $extensions,
+        private readonly CancellationSettlement $settlement,
         private readonly BookingMutationIdempotency $mutations,
     ) {}
 
@@ -312,6 +314,13 @@ class BookingController extends Controller
         $this->authorize('update', $booking);
 
         return $this->mutations->once($request, $booking, 'no_show', [], function () use ($request, $booking): JsonResponse {
+            $actor = $request->user();
+            $settlement = $this->settlement->refundNoShow($booking, $actor instanceof User ? $actor : null);
+
+            if ($settlement['problem'] !== null) {
+                return response()->json(['message' => 'That booking was not marked as a no-show: '.$settlement['problem']], 409);
+            }
+
             try {
                 $saved = $this->allocator->noShow($booking);
             } catch (AllocationUnavailableException $exception) {
