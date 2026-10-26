@@ -1,7 +1,15 @@
 name: Deploy
 
+# Production deploys only after CI passes. A push to main runs CI, and this
+# workflow starts when that CI run completes. The gate job deploys the exact
+# commit CI tested, and only when it is still the tip of main, so an older run
+# that finishes late cannot replace a newer release.
 on:
-  push:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
     branches:
       - main
   workflow_dispatch:
@@ -28,14 +36,68 @@ permissions:
   contents: read
 
 jobs:
+  gate:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.decide.outputs.go }}
+      sha: ${{ steps.decide.outputs.sha }}
+    steps:
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_EVENT: ${{ github.event.workflow_run.event }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_URL: ${{ github.event.workflow_run.html_url }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tip="$(gh api "repos/${REPO}/commits/main" --jq .sha)"
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+            echo "sha=${tip}" >> "$GITHUB_OUTPUT"
+            echo "Manual run on main ${tip}." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          go=true
+          reason="CI passed on ${CI_SHA} (${CI_URL})."
+          if [[ "$CI_EVENT" != "push" ]]; then
+            go=false
+            reason="CI ran for ${CI_EVENT}, not a push to main."
+          elif [[ "$CI_CONCLUSION" != "success" ]]; then
+            go=false
+            reason="CI ${CI_CONCLUSION} on ${CI_SHA} (${CI_URL}). Nothing was deployed."
+          elif [[ "$CI_SHA" != "$tip" ]]; then
+            go=false
+            reason="${CI_SHA} is no longer the tip of main (${tip}). The newer commit deploys after its own CI passes."
+          fi
+          echo "go=${go}" >> "$GITHUB_OUTPUT"
+          echo "sha=${CI_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Deploy gate"
+            echo
+            echo "- Deploy: ${go}"
+            echo "- ${reason}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$CI_EVENT" == "push" && ( "$CI_CONCLUSION" == "failure" || "$CI_CONCLUSION" == "timed_out" ) ]]; then
+            echo "::error::${reason}"
+            exit 1
+          fi
+
   deploy:
     name: Deploy main
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.gate.outputs.sha }}
 
       - name: Mask connection secrets
         env:
@@ -61,24 +123,24 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ github.event_name == 'push' && 'deploy' || inputs.action }}"
+            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}"
             echo "- Commit: ${sha}"
-            echo "- Migrations requested: ${{ github.event_name == 'push' && 'true' || inputs.run_migrations }}"
+            echo "- Migrations requested: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: shivammathur/setup-php@v2
-        if: github.event_name == 'push' || inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         with:
           php-version: "8.2"
           coverage: none
           tools: composer:v2
 
       - name: Install production dependencies
-        if: github.event_name == 'push' || inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader
 
       - name: Pack one release archive
-        if: github.event_name == 'push' || inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         env:
           RELEASE: ${{ steps.release.outputs.sha }}
         run: |
@@ -102,7 +164,7 @@ jobs:
 
       - name: Back up the application database
         id: dbbackup
-        if: (github.event_name == 'push' || inputs.action == 'deploy') && (github.event_name == 'push' || inputs.run_migrations == true)
+        if: (github.event_name == 'workflow_run' || inputs.action == 'deploy') && (github.event_name == 'workflow_run' || inputs.run_migrations == true)
         env:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}
@@ -149,7 +211,7 @@ jobs:
           echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release archive
-        if: github.event_name == 'push' || inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         env:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}
@@ -182,9 +244,9 @@ jobs:
           SG_PORT: ${{ secrets.SG_PORT }}
           SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
           SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
-          ACTION: ${{ github.event_name == 'push' && 'deploy' || inputs.action }}
+          ACTION: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}
           RELEASE: ${{ steps.release.outputs.sha }}
-          RUN_MIGRATIONS: ${{ github.event_name == 'push' && 'true' || inputs.run_migrations }}
+          RUN_MIGRATIONS: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
           RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
         run: |
@@ -231,7 +293,7 @@ jobs:
           unset RW_MAIL_PASSWORD
 
       - name: Hosting check
-        if: github.event_name == 'push' || inputs.action == 'deploy'
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
         env:
           SG_HOST: ${{ secrets.SG_HOST }}
           SG_USER: ${{ secrets.SG_USER }}

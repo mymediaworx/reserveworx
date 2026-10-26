@@ -7,6 +7,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Support\Hostname;
+use App\Support\SchedulerHeartbeat;
 use App\Tenancy\TenantScope;
 use Database\Seeders\RoleAndPermissionSeeder;
 use DateTimeInterface;
@@ -388,6 +389,12 @@ class Smoke extends Command
         }
 
         $this->fact('scheduler_last_run', $recorded ?? 'not_recorded');
+        $status = app(SchedulerHeartbeat::class)->status();
+        $this->fact('scheduler', match ($status) {
+            'ok' => 'ok',
+            'stale' => 'stale. No schedule:run in '.SchedulerHeartbeat::STALE_AFTER_MINUTES.' minutes. Check the Site Tools cron',
+            default => 'not_seen. Add the Site Tools cron for schedule:run',
+        });
     }
 
     private function recordedTimestamp(mixed $value): ?string
