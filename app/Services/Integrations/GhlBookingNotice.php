@@ -35,9 +35,7 @@ final class GhlBookingNotice
         $email = is_string($customer->email) ? trim($customer->email) : '';
         $phone = is_string($customer->phone) ? trim($customer->phone) : '';
         $channel = $email !== '' ? 'email' : 'sms';
-        $when = $booking->starts_at !== null
-            ? $booking->starts_at->copy()->timezone($timezone)->format('M j, Y g:i A T')
-            : '';
+        $when = $booking->starts_at->copy()->timezone($timezone)->format('M j, Y g:i A T');
         $service = $serviceName !== '' ? $serviceName : 'your booking';
         $reference = 'Booking '.$booking->id;
 

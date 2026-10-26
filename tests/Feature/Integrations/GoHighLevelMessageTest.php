@@ -38,6 +38,7 @@ use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Bus;
@@ -149,7 +150,9 @@ class GoHighLevelMessageTest extends TestCase
         $this->assertSame('queued', $log->status);
         $this->assertSame('booking.confirmed:'.$booking->id, $log->dedupe_key);
         $payload = (string) DB::table('jobs')->value('payload');
-        $this->assertStringContainsString(SendGhlBookingMessage::class, $payload);
+        $decoded = json_decode($payload, true);
+        $this->assertIsArray($decoded);
+        $this->assertSame(SendGhlBookingMessage::class, $decoded['displayName'] ?? null);
         $this->assertStringNotContainsString($token, $payload);
         $this->assertStringNotContainsString($token, serialize(new SendGhlBookingMessage($workspace['tenant']->id, $log->id)));
         $this->assertSame(1, DB::table('jobs')->count());
@@ -265,8 +268,7 @@ class GoHighLevelMessageTest extends TestCase
         app(TenantManager::class)->set($workspace['tenant']);
         app(BookingEvents::class)->confirmed($limited);
         app(TenantManager::class)->forget();
-        Http::preventStrayRequests();
-        Http::fake([
+        $this->replaceHttpFake([
             'https://services.leadconnectorhq.com/contacts/upsert' => Http::response([
                 'contact' => ['id' => 'contact-1', 'locationId' => 'loc_alpha'],
             ], 200),
@@ -400,7 +402,9 @@ class GoHighLevelMessageTest extends TestCase
         $this->assertStringContainsString('Total $55.00', $joined);
         $this->assertStringContainsString('is overdue', $joined);
         $this->assertStringContainsString('120 minutes before the start', $joined);
-        $hook = NotificationHook::query()->where('dedupe_key', 'booking.reminder:'.$reminderBooking->id.':120')->firstOrFail();
+        $hook = NotificationHook::withoutGlobalScope(TenantScope::class)
+            ->where('dedupe_key', 'booking.reminder:'.$reminderBooking->id.':120')
+            ->firstOrFail();
         $this->assertSame('GoHighLevel sends this reminder.', $hook->delivery_error);
         $this->assertStringNotContainsString($token, $joined);
     }
@@ -457,8 +461,7 @@ class GoHighLevelMessageTest extends TestCase
 
     private function fakeGhl(string $locationId, string $messageId): void
     {
-        Http::preventStrayRequests();
-        Http::fake([
+        $this->replaceHttpFake([
             'https://services.leadconnectorhq.com/contacts/upsert' => Http::response([
                 'new' => true,
                 'contact' => ['id' => 'contact-1', 'locationId' => $locationId],
@@ -469,6 +472,16 @@ class GoHighLevelMessageTest extends TestCase
             ], 201),
             'https://services.leadconnectorhq.com/*' => Http::response(['ok' => true], 200),
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $stubs
+     */
+    private function replaceHttpFake(array $stubs): void
+    {
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake($stubs);
     }
 
     private function booking(

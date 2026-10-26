@@ -278,7 +278,7 @@ final class GhlMessages
             ->where('tenant_id', $log->tenant_id)
             ->where('booking_id', $booking->id)
             ->first();
-        $payload = $snapshot instanceof PricingSnapshot && is_array($snapshot->payload) ? $snapshot->payload : [];
+        $payload = $snapshot instanceof PricingSnapshot ? $snapshot->payload : [];
         $notice = $this->notices->compose(
             $kind,
             $booking,
@@ -442,13 +442,10 @@ final class GhlMessages
 
     private function stillDue(GhlMessageKind $kind, Booking $booking, RentalCheckout|false|null $checkout): bool
     {
-        $starts = $booking->starts_at;
-
         return match ($kind) {
             GhlMessageKind::Confirmed => $booking->status === BookingStatus::Confirmed,
             GhlMessageKind::Reminder => $booking->status === BookingStatus::Confirmed
-                && $starts !== null
-                && $starts->greaterThan(now()),
+                && $booking->starts_at->greaterThan(now()),
             GhlMessageKind::Cancelled, GhlMessageKind::GuestCancelled => $booking->status === BookingStatus::Cancelled,
             GhlMessageKind::Receipt, GhlMessageKind::RefundIssued => true,
             GhlMessageKind::Overdue => $checkout instanceof RentalCheckout && $checkout->returned_at === null,
