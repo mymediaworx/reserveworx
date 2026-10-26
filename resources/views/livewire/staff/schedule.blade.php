@@ -72,7 +72,29 @@
             @endif
             <p><a class="button" href="{{ $move['href'] }}">Open booking</a></p>
 
-            @if ($move['canMove'])
+            @if ($move['canMove'] && $move['tour'])
+                <form wire:submit="moveBooking" class="stack top-gap">
+                    @if ($move['departures'] === [])
+                        <p class="muted">No other departures are open.</p>
+                    @else
+                        <label class="field">
+                            <span>Departure</span>
+                            <select wire:model="moveDeparture" required>
+                                <option value="">Choose a departure</option>
+                                @foreach ($move['departures'] as $departure)
+                                    <option value="{{ $departure['id'] }}" @disabled(! $departure['available'])>{{ $departure['label'] }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        @error('moveDeparture')<p class="error">{{ $message }}</p>@enderror
+                        <p class="muted small">The party keeps its price. A full or private departure stays closed.</p>
+                        <button type="submit" class="button primary" wire:loading.attr="disabled" wire:target="moveBooking">
+                            <span wire:loading.remove wire:target="moveBooking">Move booking</span>
+                            <span wire:loading wire:target="moveBooking">Moving…</span>
+                        </button>
+                    @endif
+                </form>
+            @elseif ($move['canMove'])
                 <form wire:submit="moveBooking" class="stack top-gap">
                     <label class="field">
                         <span>New start</span>

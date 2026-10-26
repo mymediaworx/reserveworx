@@ -209,12 +209,33 @@
 
                     <section class="panel">
                         <h2>Change time</h2>
-                        <form wire:submit="reschedule" class="stack">
-                            <label class="field"><span>Start</span><input type="datetime-local" wire:model="rescheduleStart"></label>
-                            <label class="field"><span>End</span><input type="datetime-local" wire:model="rescheduleEnd"></label>
-                            @error('rescheduleEnd')<p class="error">{{ $message }}</p>@enderror
-                            <button type="submit" class="button">Reschedule</button>
-                        </form>
+                        @if ($booking->departure_id)
+                            @if ($departures === [])
+                                <p class="muted">No other departures are open.</p>
+                            @else
+                                <form wire:submit="reschedule" class="stack">
+                                    <label class="field">
+                                        <span>Departure</span>
+                                        <select wire:model="rescheduleDeparture">
+                                            <option value="">Choose a departure</option>
+                                            @foreach ($departures as $departure)
+                                                <option value="{{ $departure['id'] }}" @disabled(! $departure['available'])>{{ $departure['label'] }}</option>
+                                            @endforeach
+                                        </select>
+                                    </label>
+                                    @error('rescheduleDeparture')<p class="error">{{ $message }}</p>@enderror
+                                    <p class="muted small">The party keeps its price. A full or private departure stays closed.</p>
+                                    <button type="submit" class="button">Reschedule</button>
+                                </form>
+                            @endif
+                        @else
+                            <form wire:submit="reschedule" class="stack">
+                                <label class="field"><span>Start</span><input type="datetime-local" wire:model="rescheduleStart"></label>
+                                <label class="field"><span>End</span><input type="datetime-local" wire:model="rescheduleEnd"></label>
+                                @error('rescheduleEnd')<p class="error">{{ $message }}</p>@enderror
+                                <button type="submit" class="button">Reschedule</button>
+                            </form>
+                        @endif
                         @if ($canExtend)
                             <form wire:submit="extend" class="stack top-gap">
                                 <label class="field"><span>New return time</span><input type="datetime-local" wire:model="extendEnd"></label>

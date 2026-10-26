@@ -15,6 +15,7 @@ use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Booking\TourDepartureChoices;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Payments\CheckoutService;
 use App\Services\Schedule\ResourceSchedule;
@@ -49,6 +50,8 @@ class Schedule extends Component
     public string $selected = '';
 
     public string $moveStart = '';
+
+    public string $moveDeparture = '';
 
     public string $moveAsset = '';
 
@@ -95,7 +98,7 @@ class Schedule extends Component
     public function openMove(string $bookingId, string $row): void
     {
         $this->closeBooking();
-        $this->reset('flash', 'problem', 'suggestedTimes', 'suggestedAssets');
+        $this->reset('flash', 'problem', 'suggestedTimes', 'suggestedAssets', 'moveDeparture');
         $booking = $this->booking($bookingId);
         $this->authorize('view', $booking);
         $booking->loadMissing('location');
@@ -115,7 +118,7 @@ class Schedule extends Component
 
     public function closeMove(): void
     {
-        $this->reset('selected', 'moveStart', 'moveAsset', 'fromAsset', 'flash', 'problem', 'suggestedTimes', 'suggestedAssets');
+        $this->reset('selected', 'moveStart', 'moveAsset', 'moveDeparture', 'fromAsset', 'flash', 'problem', 'suggestedTimes', 'suggestedAssets');
     }
 
     public function useTime(string $startsAt): void
@@ -148,6 +151,13 @@ class Schedule extends Component
         $this->reset('flash', 'problem', 'suggestedTimes', 'suggestedAssets');
         $booking = $this->booking($this->selected);
         $this->authorize('update', $booking);
+
+        if ($booking->departure_id !== null && $booking->departure_id !== '') {
+            $this->moveTour($allocator, $hooks, $booking);
+
+            return;
+        }
+
         $this->validate([
             'moveStart' => ['required', 'date_format:Y-m-d\TH:i'],
         ]);
@@ -294,6 +304,7 @@ class Schedule extends Component
         $choices = $this->assetChoices($booking);
         $confirmed = $booking->status === BookingStatus::Confirmed;
         $canMove = $confirmed && $this->allows('bookings.manage');
+        $tour = $booking->departure_id !== null && $booking->departure_id !== '';
 
         return [
             'id' => $booking->id,
@@ -304,10 +315,63 @@ class Schedule extends Component
             'href' => '/staff/bookings/'.$booking->id,
             'confirmed' => $confirmed,
             'canMove' => $canMove,
+            'tour' => $tour,
+            'departures' => $tour ? app(TourDepartureChoices::class)->forBooking($booking) : [],
             'assets' => $choices,
             'resource' => $this->resourceLabel($booking, $choices),
             'zone' => $zone,
         ];
+    }
+
+    private function moveTour(Allocator $allocator, NotificationHooks $hooks, Booking $booking): void
+    {
+        $this->validate([
+            'moveDeparture' => ['required', 'string'],
+        ]);
+        $currentStart = CarbonImmutable::instance($booking->starts_at)->utc();
+        $currentEnd = CarbonImmutable::instance($booking->ends_at)->utc();
+        $fromDeparture = $booking->departure_id;
+
+        try {
+            $saved = $allocator->moveToDeparture($booking, $this->moveDeparture);
+        } catch (AllocationUnavailableException $exception) {
+            $this->warn($exception->getMessage());
+
+            return;
+        }
+
+        $saved->loadMissing('location');
+        $savedStart = CarbonImmutable::instance($saved->starts_at)->utc();
+        $savedEnd = CarbonImmutable::instance($saved->ends_at)->utc();
+
+        if ($fromDeparture === $saved->departure_id
+            && $savedStart->equalTo($currentStart)
+            && $savedEnd->equalTo($currentEnd)) {
+            $this->notice('That booking is already there.');
+
+            return;
+        }
+
+        $this->audit('booking.rescheduled', $saved, [
+            'from_starts_at' => $currentStart->format('Y-m-d\TH:i:s\Z'),
+            'to_starts_at' => $savedStart->format('Y-m-d\TH:i:s\Z'),
+            'from_ends_at' => $currentEnd->format('Y-m-d\TH:i:s\Z'),
+            'to_ends_at' => $savedEnd->format('Y-m-d\TH:i:s\Z'),
+            'from_departure_id' => $fromDeparture,
+            'to_departure_id' => $saved->departure_id,
+        ]);
+        $hooks->record(
+            $saved->tenant_id,
+            $saved->id,
+            'booking.guest_rescheduled',
+            'booking.guest_rescheduled:'.$saved->id.':'.$savedStart->format('YmdHi'),
+            ['booking_id' => $saved->id],
+        );
+        $zone = $this->zoneFor($saved);
+        $this->date = $savedStart->timezone($zone)->toDateString();
+        $this->moveDeparture = '';
+        $this->moveStart = $savedStart->timezone($zone)->format('Y-m-d\TH:i');
+        $this->notice('Moved.');
     }
 
     private function booking(string $id): Booking

@@ -94,6 +94,8 @@ When a hosted booking hold is refused because the time is taken, and that servic
 
 `/staff/schedule` uses `Allocator::move` for a new start and a same-category asset. That is the reschedule and reassignment lock, with this booking left out of the recheck. A conflict lists those same nearby-time hints. The audit actions and the `booking.guest_rescheduled` hook are the ones the booking screen and the guest reschedule already write. A price change stays on increase checkout and the proportional decrease refund.
 
+A confirmed tour uses `Allocator::moveToDeparture` instead. The booking page, the schedule move panel, and the guest manage page list later scheduled departures of that service. A full or private departure is shown and cannot be chosen. The party keeps the price already stored. The boat stays with a party that remains on the original departure.
+
 A new booking from an empty slot uses `Allocator::hold` with the same locks. The services and variants offered are the ones that consume that boat or pool. The quote is `BookingPricer::quote` on the direct channel, with tax 0, no promo, and a full deposit, which is the public checkout quote. Pay at pickup is the existing offline payment. The payment link is the existing Stripe checkout. A taken slot stays empty and shows the usual conflict message. The audit action is `booking.held` with channel `staff_schedule`. `/staff/bookings/new` is unchanged.
 
 ## Platform admin

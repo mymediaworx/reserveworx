@@ -428,9 +428,35 @@ class BookingController extends Controller
     {
         $this->authorize('update', $booking);
         $validated = $request->validate([
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after:starts_at'],
+            'departure_id' => ['sometimes', 'nullable', 'string'],
+            'starts_at' => ['required_without:departure_id', 'date'],
+            'ends_at' => ['required_without:departure_id', 'date', 'after:starts_at'],
         ]);
+        $departureId = $validated['departure_id'] ?? null;
+
+        if (is_string($departureId) && $departureId !== '') {
+            return $this->mutations->once($request, $booking, 'reschedule', [
+                'departure_id' => $departureId,
+            ], function () use ($request, $booking, $departureId): JsonResponse {
+                $from = $booking->departure_id;
+
+                try {
+                    $saved = $this->allocator->moveToDeparture($booking, $departureId);
+                } catch (AllocationUnavailableException $exception) {
+                    return response()->json([
+                        'message' => $exception->getMessage(),
+                        'offers' => $exception->offers,
+                    ], 409);
+                }
+
+                $this->audit->log('booking.rescheduled', $saved, [
+                    'from_departure_id' => $from,
+                    'to_departure_id' => $saved->departure_id,
+                ], request: $request);
+
+                return response()->json(['data' => $this->payload($saved)]);
+            });
+        }
 
         return $this->mutations->once($request, $booking, 'reschedule', [
             'starts_at' => $validated['starts_at'],

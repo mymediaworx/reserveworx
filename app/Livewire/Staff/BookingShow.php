@@ -24,6 +24,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\Booking\BookingCancellation;
 use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
+use App\Services\Booking\TourDepartureChoices;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
@@ -58,6 +59,8 @@ class BookingShow extends Component
     public string $rescheduleStart = '';
 
     public string $rescheduleEnd = '';
+
+    public string $rescheduleDeparture = '';
 
     public string $extendEnd = '';
 
@@ -305,6 +308,30 @@ class BookingShow extends Component
     public function reschedule(Allocator $allocator): void
     {
         $booking = $this->editable();
+
+        if ($booking->departure_id !== null && $booking->departure_id !== '') {
+            $this->validate([
+                'rescheduleDeparture' => ['required', 'string'],
+            ]);
+            $from = $booking->departure_id;
+
+            try {
+                $saved = $allocator->moveToDeparture($booking, $this->rescheduleDeparture);
+            } catch (AllocationUnavailableException $exception) {
+                $this->warn($exception->getMessage());
+
+                return;
+            }
+
+            $this->audit('booking.rescheduled', $saved, [
+                'from_departure_id' => $from,
+                'to_departure_id' => $saved->departure_id,
+            ]);
+            $this->notice('Rescheduled.');
+
+            return;
+        }
+
         $this->validate([
             'rescheduleStart' => ['required', 'date_format:Y-m-d\TH:i'],
             'rescheduleEnd' => ['required', 'date_format:Y-m-d\TH:i'],
@@ -444,6 +471,7 @@ class BookingShow extends Component
             'canExtend' => $booking->status === BookingStatus::Confirmed
                 && $booking->service?->kind?->value === 'rental'
                 && ! in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true),
+            'departures' => app(TourDepartureChoices::class)->forBooking($booking),
         ])->title(($booking->service->name ?? 'Booking').' – '.$booking->starts_at->timezone($zone)->format('M j'));
     }
 

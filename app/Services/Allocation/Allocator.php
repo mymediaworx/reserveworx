@@ -43,6 +43,7 @@ use App\Tenancy\StaffLocationScope;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -404,6 +405,98 @@ class Allocator
             BookingLineItem::query()->where('booking_id', $booking->id)->delete();
             $this->writeRows($booking, $plan, hold: false);
             $this->refreshCounters($plan);
+            $this->webhooks->bookingChanged($booking);
+
+            return $booking->load(['allocations', 'lineItems', 'service']);
+        }));
+    }
+
+    /**
+     * Move a confirmed tour booking onto another scheduled departure of the same
+     * service. The party size and the pricing snapshot stay. A conflict rolls
+     * the whole move back, including any boat handed to the party that stays.
+     */
+    public function moveToDeparture(Booking $booking, string $departureId): Booking
+    {
+        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $departureId): Booking {
+            $this->enterTenant($booking->tenant_id);
+            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+
+            if ($booking->status !== BookingStatus::Confirmed) {
+                throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
+            }
+
+            if ($this->presentId($booking->departure_id) === null) {
+                throw new AllocationUnavailableException('Choose a time to move a rental.');
+            }
+
+            $target = Departure::query()->with('service')->find($departureId);
+
+            if (! $target instanceof Departure) {
+                throw new AllocationUnavailableException('That departure is not available.');
+            }
+
+            if ($target->id === $booking->departure_id) {
+                return $booking->load(['allocations', 'lineItems', 'service']);
+            }
+
+            $this->assertSameTour($target, $booking);
+            $this->lockDepartures([(string) $booking->departure_id, $target->id]);
+            $target = Departure::query()->with('service')->find($target->id);
+
+            if (! $target instanceof Departure) {
+                throw new AllocationUnavailableException('That departure is not available.');
+            }
+
+            $this->assertSameTour($target, $booking);
+            $this->assertTargetSeats($target, $booking);
+
+            $starts = CarbonImmutable::instance($target->starts_at)->utc();
+            $ends = CarbonImmutable::instance($target->ends_at)->utc();
+            $guide = $this->guideForMovedDeparture($booking, $target);
+            $occupied = $this->departureHasResourceHolder($target, $booking->id);
+
+            if (! $this->seatOnly($booking)) {
+                $inheritor = $this->resourceInheritor($booking);
+
+                if ($inheritor instanceof Booking) {
+                    $this->handResources($booking, $inheritor);
+                } else {
+                    $this->releaseResources($booking);
+                }
+            }
+
+            $booking->departure_id = $target->id;
+            $booking->starts_at = Carbon::instance($starts);
+            $booking->ends_at = Carbon::instance($ends);
+            $booking->guide_user_id = $guide;
+            $booking->save();
+
+            if (! $occupied) {
+                $intent = new AllocationIntent(
+                    $booking->tenant_id,
+                    $booking->service_id,
+                    $starts,
+                    $ends,
+                    $booking->participants,
+                    null,
+                    null,
+                    null,
+                    $target->id,
+                    $guide,
+                    variantId: $booking->service_variant_id,
+                );
+                $this->assertDuration($intent);
+                $plan = $this->plan($intent);
+                $this->lock($plan);
+                $this->recheck($plan, $booking->id);
+                $this->writeRows($booking, $plan, hold: false);
+                $this->refreshCounters($plan);
+            } else {
+                $this->lockGuide($guide);
+                $this->assertGuideFree($guide, $starts, $ends, $target->id, $booking->id);
+            }
+
             $this->webhooks->bookingChanged($booking);
 
             return $booking->load(['allocations', 'lineItems', 'service']);
@@ -1541,6 +1634,13 @@ class Allocator
         return max(5, min(120, $minutes));
     }
 
+    private function ledgerMinutes(string $tenantId): int
+    {
+        $settings = TenantSetting::query()->where('tenant_id', $tenantId)->first();
+
+        return $settings instanceof TenantSetting ? $settings->ledger_bucket_minutes : 15;
+    }
+
     private function customerId(AllocationIntent $intent): ?string
     {
         $chosen = $this->presentId($intent->customerId);
@@ -1821,6 +1921,271 @@ class Allocator
         if ($cap !== null && $others + $participants > $cap && $participants >= $booking->participants) {
             throw new AllocationUnavailableException('That departure is full.');
         }
+    }
+
+    private function assertSameTour(Departure $departure, Booking $booking): void
+    {
+        if ($departure->service === null || $departure->service_id !== $booking->service_id) {
+            throw new AllocationUnavailableException('That departure is for a different service.');
+        }
+
+        if ($departure->status !== DepartureStatus::Scheduled) {
+            throw new AllocationUnavailableException('That departure is cancelled.');
+        }
+    }
+
+    private function assertTargetSeats(Departure $departure, Booking $booking): void
+    {
+        $others = (int) $departure->bookings()
+            ->where('id', '!=', $booking->id)
+            ->occupyingSeats()
+            ->sum('participants');
+
+        if ($departure->private && $others > 0) {
+            throw new AllocationUnavailableException('That private departure already has a booking.');
+        }
+
+        $cap = $departure->seats ?? $departure->service?->max_participants;
+
+        if ($cap !== null && $others + $booking->participants > $cap) {
+            throw new AllocationUnavailableException('That departure is full.');
+        }
+    }
+
+    /**
+     * @param  list<string>  $ids
+     */
+    private function lockDepartures(array $ids): void
+    {
+        $ids = array_values(array_unique(array_filter(
+            $ids,
+            fn (string $id): bool => $id !== '',
+        )));
+        sort($ids);
+
+        foreach ($ids as $id) {
+            $locked = DB::select('select id from departures where id = ? for update', [$id]);
+
+            if ($locked === []) {
+                throw new AllocationUnavailableException('That departure is not available.');
+            }
+        }
+    }
+
+    private function departureHasResourceHolder(Departure $departure, string $ignoreBookingId): bool
+    {
+        $ids = $departure->bookings()
+            ->where('id', '!=', $ignoreBookingId)
+            ->occupyingSeats()
+            ->pluck('id');
+
+        if ($ids->isEmpty()) {
+            return false;
+        }
+
+        $allocated = Allocation::query()
+            ->whereIn('booking_id', $ids)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->exists();
+
+        if ($allocated) {
+            return true;
+        }
+
+        return Hold::query()
+            ->whereIn('booking_id', $ids)
+            ->where('expires_at', '>', now())
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->exists();
+    }
+
+    /**
+     * The oldest confirmed party still on this departure, or the oldest held
+     * party when nobody confirmed is left. A pending payment does not inherit
+     * the boat.
+     */
+    private function resourceInheritor(Booking $booking): ?Booking
+    {
+        $confirmed = Booking::query()
+            ->where('departure_id', $booking->departure_id)
+            ->where('id', '!=', $booking->id)
+            ->where('status', BookingStatus::Confirmed)
+            ->occupyingSeats()
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->first();
+
+        if ($confirmed instanceof Booking) {
+            return $confirmed;
+        }
+
+        $held = Booking::query()
+            ->where('departure_id', $booking->departure_id)
+            ->where('id', '!=', $booking->id)
+            ->where('status', BookingStatus::Held)
+            ->occupyingSeats()
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->first();
+
+        return $held instanceof Booking ? $held : null;
+    }
+
+    /**
+     * Leave the source interval's boat with the party that stays. Times on the
+     * rows do not change. A held party receives holds instead of allocations.
+     */
+    private function handResources(Booking $from, Booking $to): void
+    {
+        if ($this->presentId($from->guide_user_id) !== null && $this->presentId($to->guide_user_id) === null) {
+            $to->guide_user_id = $from->guide_user_id;
+            $to->save();
+        }
+
+        $spans = $this->poolSpans($from->id);
+
+        if ($to->status !== BookingStatus::Confirmed) {
+            $existing = Hold::query()->where('booking_id', $to->id)->max('expires_at');
+            $expiresAt = is_string($existing) || $existing instanceof \DateTimeInterface
+                ? CarbonImmutable::parse($existing)
+                : now()->addMinutes($this->holdMinutes($to->tenant_id));
+
+            foreach ($this->resourceAllocations($from->id)->get() as $allocation) {
+                Hold::query()->create([
+                    'tenant_id' => $allocation->tenant_id,
+                    'booking_id' => $to->id,
+                    'asset_id' => $allocation->asset_id,
+                    'pool_id' => $allocation->pool_id,
+                    'quantity' => $allocation->quantity,
+                    'starts_at' => $allocation->starts_at,
+                    'ends_at' => $allocation->ends_at,
+                    'expires_at' => $expiresAt,
+                ]);
+                $allocation->delete();
+            }
+        } else {
+            $this->resourceAllocations($from->id)->update(['booking_id' => $to->id]);
+        }
+
+        Hold::query()
+            ->where('booking_id', $from->id)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->update(['booking_id' => $to->id]);
+        BookingLineItem::query()
+            ->where('booking_id', $from->id)
+            ->whereNotNull('resource_id')
+            ->update(['booking_id' => $to->id]);
+        $this->refreshPoolSpans($from->tenant_id, $spans);
+    }
+
+    private function releaseResources(Booking $booking): void
+    {
+        $spans = $this->poolSpans($booking->id);
+        $this->resourceAllocations($booking->id)->delete();
+        Hold::query()
+            ->where('booking_id', $booking->id)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            })
+            ->delete();
+        BookingLineItem::query()
+            ->where('booking_id', $booking->id)
+            ->whereNotNull('resource_id')
+            ->delete();
+        $this->refreshPoolSpans($booking->tenant_id, $spans);
+    }
+
+    /**
+     * @return Builder<Allocation>
+     */
+    private function resourceAllocations(string $bookingId): Builder
+    {
+        return Allocation::query()
+            ->where('booking_id', $bookingId)
+            ->where(function ($query): void {
+                $query->whereNotNull('asset_id')->orWhereNotNull('pool_id');
+            });
+    }
+
+    /**
+     * @return list<array{pool_id: string, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>
+     */
+    private function poolSpans(string $bookingId): array
+    {
+        $spans = [];
+
+        foreach (Allocation::query()->where('booking_id', $bookingId)->whereNotNull('pool_id')->get() as $row) {
+            if (! is_string($row->pool_id) || $row->pool_id === '') {
+                continue;
+            }
+
+            $spans[] = [
+                'pool_id' => $row->pool_id,
+                'starts_at' => CarbonImmutable::instance($row->starts_at)->utc(),
+                'ends_at' => CarbonImmutable::instance($row->ends_at)->utc(),
+            ];
+        }
+
+        foreach (Hold::query()->where('booking_id', $bookingId)->whereNotNull('pool_id')->where('expires_at', '>', now())->get() as $row) {
+            if (! is_string($row->pool_id) || $row->pool_id === '') {
+                continue;
+            }
+
+            $spans[] = [
+                'pool_id' => $row->pool_id,
+                'starts_at' => CarbonImmutable::instance($row->starts_at)->utc(),
+                'ends_at' => CarbonImmutable::instance($row->ends_at)->utc(),
+            ];
+        }
+
+        return $spans;
+    }
+
+    /**
+     * @param  list<array{pool_id: string, starts_at: CarbonImmutable, ends_at: CarbonImmutable}>  $spans
+     */
+    private function refreshPoolSpans(string $tenantId, array $spans): void
+    {
+        $minutes = $this->ledgerMinutes($tenantId);
+
+        foreach ($spans as $span) {
+            foreach ($this->buckets->covering($span['starts_at'], $span['ends_at'], $minutes) as $bucket) {
+                $start = CarbonImmutable::parse('@'.$bucket)->utc();
+                $end = $start->addSeconds($minutes * 60);
+                CapacityLedger::query()
+                    ->where('pool_id', $span['pool_id'])
+                    ->where('bucket_start_utc', $start->format('Y-m-d H:i:s'))
+                    ->update([
+                        'allocated_units' => $this->sumOnly(Allocation::class, $span['pool_id'], $start, $end),
+                        'held_units' => $this->sumOnly(Hold::class, $span['pool_id'], $start, $end, unexpired: true),
+                    ]);
+            }
+        }
+    }
+
+    private function guideForMovedDeparture(Booking $booking, Departure $target): ?string
+    {
+        $shared = Booking::query()
+            ->where('departure_id', $target->id)
+            ->where('id', '!=', $booking->id)
+            ->occupyingSeats()
+            ->whereNotNull('guide_user_id')
+            ->where('guide_user_id', '!=', '')
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->value('guide_user_id');
+
+        if (is_string($shared) && $shared !== '') {
+            return $shared;
+        }
+
+        return $this->presentId($booking->guide_user_id);
     }
 
     private function seatOnly(Booking $booking): bool
