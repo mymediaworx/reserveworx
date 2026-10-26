@@ -26,16 +26,9 @@ class GoHighLevelClient
      */
     public function upsertContact(string $token, string $locationId, array $contact): string
     {
-        $payload = [
-            'locationId' => $locationId,
-            'source' => 'ReserveWorx',
-        ];
-
-        foreach (['email', 'phone', 'name', 'firstName', 'lastName'] as $key) {
-            if (isset($contact[$key]) && $contact[$key] !== '') {
-                $payload[$key] = $contact[$key];
-            }
-        }
+        $payload = $this->contactPayload($contact);
+        $payload['locationId'] = $locationId;
+        $payload['createNewIfDuplicateAllowed'] = false;
 
         $response = $this->send('POST', $token, '/contacts/upsert', $payload, 'upsert');
         $id = $this->contactId($response, $locationId);
@@ -45,6 +38,46 @@ class GoHighLevelClient
         }
 
         return $id;
+    }
+
+    /**
+     * @param  array{
+     *     email?: string,
+     *     phone?: string,
+     *     name?: string,
+     *     firstName?: string,
+     *     lastName?: string
+     * }  $contact
+     */
+    public function updateContact(string $token, string $contactId, string $locationId, array $contact): void
+    {
+        $response = $this->send(
+            'PUT',
+            $token,
+            '/contacts/'.rawurlencode($contactId),
+            $this->contactPayload($contact),
+            'update',
+        );
+        $payload = $response->json();
+
+        if (! is_array($payload)) {
+            return;
+        }
+
+        $body = $payload['contact'] ?? null;
+
+        if (! is_array($body)) {
+            return;
+        }
+
+        $returnedLocation = $body['locationId'] ?? null;
+        $returnedId = $body['id'] ?? null;
+        $locationMismatch = is_string($returnedLocation) && $returnedLocation !== '' && $returnedLocation !== $locationId;
+        $idMismatch = is_string($returnedId) && $returnedId !== '' && $returnedId !== $contactId;
+
+        if ($locationMismatch || $idMismatch) {
+            throw new GhlRequestFailed($response->status(), 'update', true, true);
+        }
     }
 
     /**
@@ -131,6 +164,29 @@ class GoHighLevelClient
         }
 
         return $response;
+    }
+
+    /**
+     * @param  array{
+     *     email?: string,
+     *     phone?: string,
+     *     name?: string,
+     *     firstName?: string,
+     *     lastName?: string
+     * }  $contact
+     * @return array{source: string, email?: string, phone?: string, name?: string, firstName?: string, lastName?: string}
+     */
+    private function contactPayload(array $contact): array
+    {
+        $payload = ['source' => 'ReserveWorx'];
+
+        foreach (['email', 'phone', 'name', 'firstName', 'lastName'] as $key) {
+            if (isset($contact[$key]) && $contact[$key] !== '') {
+                $payload[$key] = $contact[$key];
+            }
+        }
+
+        return $payload;
     }
 
     private function contactId(Response $response, string $locationId): ?string

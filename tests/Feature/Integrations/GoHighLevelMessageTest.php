@@ -18,6 +18,7 @@ use App\Models\Booking;
 use App\Models\BookingReminder;
 use App\Models\Customer;
 use App\Models\GhlConnection;
+use App\Models\GhlMapping;
 use App\Models\GhlMessageLog;
 use App\Models\Location;
 use App\Models\NotificationHook;
@@ -448,6 +449,52 @@ class GoHighLevelMessageTest extends TestCase
                 && str_contains((string) $request->data()['message'], 'Tax refunded: $0.00');
         });
         $this->assertStringNotContainsString($token, (string) DB::table('ghl_message_logs')->get()->toJson());
+    }
+
+    public function test_a_message_updates_the_stored_contact_instead_of_creating_one(): void
+    {
+        Bus::fake([SyncBookingToGoHighLevel::class]);
+        $workspace = $this->workspace('alpha.test');
+        $token = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
+        $this->link($workspace['tenant']->id, 'loc_alpha', $token);
+        $booking = $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Sunset rental');
+        GhlMapping::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'customer_id' => $booking->customer_id,
+            'location_id' => 'loc_alpha',
+            'contact_id' => 'contact-stored',
+        ]);
+        app(TenantManager::class)->set($workspace['tenant']);
+        app(BookingEvents::class)->confirmed($booking);
+        app(TenantManager::class)->forget();
+        $this->replaceHttpFake([
+            'https://services.leadconnectorhq.com/contacts/contact-stored' => Http::response([
+                'succeeded' => true,
+                'contact' => ['id' => 'contact-stored', 'locationId' => 'loc_alpha'],
+            ], 200),
+            'https://services.leadconnectorhq.com/conversations/messages' => Http::response([
+                'conversationId' => 'conv-1',
+                'messageId' => 'msg-stored',
+            ], 201),
+        ]);
+
+        app()->call([new SendGhlBookingMessage(
+            $workspace['tenant']->id,
+            GhlMessageLog::withoutGlobalScope(TenantScope::class)->firstOrFail()->id,
+        ), 'handle']);
+
+        Http::assertNotSent(fn (Request $request): bool => str_contains($request->url(), '/contacts/upsert'));
+        Http::assertSent(function (Request $request) use ($token): bool {
+            return $request->method() === 'PUT'
+                && $request->url() === 'https://services.leadconnectorhq.com/contacts/contact-stored'
+                && $request->hasHeader('Authorization', 'Bearer '.$token)
+                && $request->data()['email'] === 'ada@example.com'
+                && $request->data()['source'] === 'ReserveWorx'
+                && ! array_key_exists('tags', $request->data());
+        });
+        Http::assertSent(fn (Request $request): bool => ($request->data()['contactId'] ?? null) === 'contact-stored');
+        $this->assertSame('contact-stored', GhlMapping::withoutGlobalScope(TenantScope::class)->value('contact_id'));
+        $this->assertSame('succeeded', GhlMessageLog::withoutGlobalScope(TenantScope::class)->value('status'));
     }
 
     private function link(string $tenantId, string $locationId, string $token): void

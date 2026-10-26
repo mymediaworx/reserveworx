@@ -10,6 +10,7 @@ use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
 use App\Models\CustomerSignInToken;
 use App\Models\FeedbackRequest;
+use App\Models\GhlMapping;
 use App\Models\Incident;
 use App\Models\IntegrationOutbox;
 use App\Models\NotificationHook;
@@ -19,6 +20,7 @@ use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Models\WaiverSignature;
 use App\Services\AuditLogger;
+use App\Tenancy\TenantScope;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -153,6 +155,11 @@ class CustomerDataEraser
             $this->scrubAudits($subjectIds, $fragments, $names);
 
             $anonymizedAt = now();
+            GhlMapping::withoutGlobalScope(TenantScope::class)
+                ->where('tenant_id', $locked->tenant_id)
+                ->where('customer_id', $locked->id)
+                ->delete();
+
             $locked->forceFill([
                 'name' => self::REMOVED_CUSTOMER,
                 'email' => null,

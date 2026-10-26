@@ -14,6 +14,7 @@ use App\Models\BookingLineItem;
 use App\Models\BookingMutation;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
+use App\Models\CancellationPolicy;
 use App\Models\CapacityLedger;
 use App\Models\CsvImport;
 use App\Models\Customer;
@@ -22,6 +23,7 @@ use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
 use App\Models\GhlConnection;
+use App\Models\GhlMapping;
 use App\Models\GhlMessageLog;
 use App\Models\GhlSyncLog;
 use App\Models\Hold;
@@ -302,6 +304,7 @@ class TenantExporter
             Departure::class,
             WaitlistEntry::class,
             PriceRule::class,
+            CancellationPolicy::class,
             PromoCode::class,
             AddOn::class,
             BookingAddOn::class,
@@ -329,6 +332,7 @@ class TenantExporter
             IntegrationOutbox::class,
             IntegrationLog::class,
             GhlConnection::class,
+            GhlMapping::class,
             GhlSyncLog::class,
             GhlMessageLog::class,
             AuditLog::class,

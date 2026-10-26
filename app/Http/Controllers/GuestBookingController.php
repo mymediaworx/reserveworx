@@ -14,6 +14,8 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Booking\CancellationPolicies;
+use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
@@ -35,6 +37,8 @@ class GuestBookingController extends Controller
         private readonly NotificationHooks $hooks,
         private readonly RentalExtensions $extensions,
         private readonly GhlMessages $ghlMessages,
+        private readonly CancellationSettlement $settlement,
+        private readonly CancellationPolicies $policies,
     ) {}
 
     public function lookupForm(Request $request, string $token): View
@@ -88,6 +92,12 @@ class GuestBookingController extends Controller
 
         if ($block !== null) {
             return $this->manageResponse($token, $booking, $block, 409);
+        }
+
+        $settlement = $this->settlement->refundCustomerCancel($booking, CarbonImmutable::now());
+
+        if ($settlement['problem'] !== null) {
+            return $this->manageResponse($token, $booking, 'This booking was not cancelled: '.$settlement['problem'], 409);
         }
 
         $this->allocator->cancel($booking, false);
@@ -267,7 +277,7 @@ class GuestBookingController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $offers
-     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string}
+     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string}
      */
     private function manageData(string $token, Booking $booking, ?string $error, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): array
     {
@@ -306,6 +316,8 @@ class GuestBookingController extends Controller
             'canCancel' => $block === null,
             'canExtend' => $this->canExtend($booking),
             'cancelMessage' => $block,
+            'cancelNote' => $this->policies->cancelNote($booking, CarbonImmutable::now()),
+            'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => $error,
             'offers' => $offers,
             'offerAssets' => $offerAssets,

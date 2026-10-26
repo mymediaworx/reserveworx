@@ -7,6 +7,7 @@ use App\Domain\Fees\FeeBasis;
 use App\Domain\Fees\FeeCalculator;
 use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
+use App\Domain\Fees\Refunds\FeeRefundCalculator;
 use App\Domain\Fees\Rounding;
 use App\Enums\FeePayer;
 use Carbon\CarbonImmutable;
@@ -21,6 +22,7 @@ final class PricingEngine
      * @param  list<array<string, mixed>>  $addOnLines
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      * @param  list<array<string, mixed>>  $locationTaxRules  Empty keeps the single rental rate in $taxBasisPoints.
+     * @param  bool  $taxBookingFee  When true, a customer-paid booking fee is taxed with the rental rates.
      */
     public function price(
         FeeChannel $channel,
@@ -39,6 +41,7 @@ final class PricingEngine
         array $addOnLines = [],
         array $operatorFeeDefinitions = [],
         array $locationTaxRules = [],
+        bool $taxBookingFee = false,
     ): PricedBooking {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -67,26 +70,29 @@ final class PricingEngine
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
-        $assessed = $this->locationTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules);
-        $taxLines = [];
-
-        if ($assessed !== null) {
-            $tax = $assessed['cents'];
-            $taxLines = $assessed['lines'];
-        }
-
-        $quote = $this->fees->quote($channel, $rate, $payer, new FeeBasis(
+        $basis = new FeeBasis(
             $services,
             addOnsCents: $addOnsCents,
             mandatoryOperatorFeesCents: $operatorCents,
             discountsCents: $discount,
-        ), $tax);
+        );
+        $preliminary = $this->resolvedTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules, $tax, $taxBasisPoints, 0);
+        $quote = $this->fees->quote($channel, $rate, $payer, $basis, $preliminary['cents']);
+        $bookingFeeCents = $taxBookingFee && $payer === FeePayer::CustomerPaid ? $quote->feeCents : 0;
+        $final = $bookingFeeCents > 0
+            ? $this->resolvedTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules, $tax, $taxBasisPoints, $bookingFeeCents)
+            : $preliminary;
+
+        if ($final['cents'] !== $preliminary['cents']) {
+            $quote = $this->fees->quote($channel, $rate, $payer, $basis, $final['cents']);
+        }
+
         $requested = Rounding::halfUp($quote->customerTotalCents() * $depositPercent, 100);
 
         return new PricedBooking(
             $services,
             $discount,
-            $tax,
+            $final['cents'],
             $quote,
             $this->fees->firstStripePayment($quote, $requested),
             $promoCode,
@@ -95,7 +101,8 @@ final class PricingEngine
             $timeWindows,
             $operatorCents,
             $operatorLines,
-            $taxLines,
+            $final['lines'] ?? [],
+            $final['includes_booking_fee'],
             $partyBands,
         );
     }
@@ -119,11 +126,15 @@ final class PricingEngine
      * the increase uses the percentage alone. Add-on lines are part of the fee
      * basis. With no location rates, tax stays on the discounted service total.
      * Stored location rates can also include add-ons and required fees. The
-     * booking fee stays out of the tax and out of the fee basis.
+     * booking fee stays out of the fee basis. It stays out of the tax unless
+     * the quote already taxed it. The new customer booking-fee line is taxed
+     * with the rental rates.
      *
      * @param  list<PriceRuleInput>  $rules
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      * @param  list<array<string, mixed>>  $locationTaxRules
+     * @param  bool  $taxBookingFee  True when the stored quote taxed the customer booking fee.
+     * @param  int  $quotedCustomerFeeCents  Customer booking-fee line already on that quote.
      */
     public function increaseFromQuote(
         FeeChannel $channel,
@@ -144,6 +155,8 @@ final class PricingEngine
         int $quotedOperatorFeesCents = 0,
         array $operatorFeeDefinitions = [],
         array $locationTaxRules = [],
+        bool $taxBookingFee = false,
+        int $quotedCustomerFeeCents = 0,
     ): PriceIncrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -160,32 +173,31 @@ final class PricingEngine
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
-        $assessed = $this->locationTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules);
-        $replacement = null;
-
-        if ($assessed !== null) {
-            $tax = $assessed['cents'];
-
-            if ($tax > $quotedTaxCents) {
-                $replacement = $assessed['lines'];
-            }
-        }
-
         $servicesDelta = $services - $quotedServicesCents;
         $discountDelta = $discount - $quotedDiscountCents;
         $addOnsDelta = $addOnsCents - $quotedAddOnsCents;
         $operatorDelta = $operatorCents - $quotedOperatorFeesCents;
         $basisDelta = $servicesDelta - $discountDelta + $addOnsDelta + $operatorDelta;
-        $taxDelta = $tax - $quotedTaxCents;
 
         if ($basisDelta <= 0) {
             throw new InvalidArgumentException('This booking has no price increase.');
         }
 
+        $bookingFeeCents = 0;
+
+        if ($taxBookingFee && $payer === FeePayer::CustomerPaid) {
+            $preview = $this->fees->quoteIncrease($channel, $rate, $payer, new FeeBasis($basisDelta), 0);
+            $bookingFeeCents = $quotedCustomerFeeCents + $preview->feeCents;
+        }
+
+        $final = $this->resolvedTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules, $tax, $taxBasisPoints, $bookingFeeCents);
+        $taxDelta = $final['cents'] - $quotedTaxCents;
+
         if ($taxDelta < 0) {
             $taxDelta = 0;
         }
 
+        $replacement = $final['lines'] !== null && $final['cents'] > $quotedTaxCents ? $final['lines'] : null;
         $increase = $this->fees->quoteIncrease($channel, $rate, $payer, new FeeBasis($basisDelta), $taxDelta);
 
         return new PriceIncrease(
@@ -210,11 +222,15 @@ final class PricingEngine
      * A lower tax is refunded with the subtotal. A higher tax is not collected here.
      * Add-on lines are part of the subtotal. With no location rates, tax stays
      * on the discounted service total. Stored location rates can also include
-     * add-ons and required fees. The booking fee stays out of the tax.
+     * add-ons and required fees. The booking fee stays out of the tax unless
+     * the quote already taxed it. The share that remains is taxed with the
+     * rental rates, using the same proportion as the fee refund.
      *
      * @param  list<PriceRuleInput>  $rules
      * @param  list<array{operator_fee_id: string, name: string, pricing: string, scope: string, amount_cents: int|null, percent_bps: int|null}>  $operatorFeeDefinitions
      * @param  list<array<string, mixed>>  $locationTaxRules
+     * @param  bool  $taxBookingFee  True when the stored quote taxed the customer booking fee.
+     * @param  int  $quotedCustomerFeeCents  Customer booking-fee line already on that quote.
      */
     public function decreaseFromQuote(
         array $rules,
@@ -232,6 +248,8 @@ final class PricingEngine
         int $quotedOperatorFeesCents = 0,
         array $operatorFeeDefinitions = [],
         array $locationTaxRules = [],
+        bool $taxBookingFee = false,
+        int $quotedCustomerFeeCents = 0,
     ): PriceDecrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -248,17 +266,6 @@ final class PricingEngine
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
-        $assessed = $this->locationTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules);
-        $replacement = null;
-
-        if ($assessed !== null) {
-            $tax = $assessed['cents'];
-
-            if ($tax < $quotedTaxCents) {
-                $replacement = $assessed['lines'];
-            }
-        }
-
         $basisDelta = ($services - $quotedServicesCents)
             - ($discount - $quotedDiscountCents)
             + ($addOnsCents - $quotedAddOnsCents)
@@ -268,7 +275,20 @@ final class PricingEngine
             throw new InvalidArgumentException('This booking has no price decrease.');
         }
 
-        $taxReduction = $tax < $quotedTaxCents ? $quotedTaxCents - $tax : 0;
+        $bookingFeeCents = 0;
+
+        if ($taxBookingFee && $quotedCustomerFeeCents > 0) {
+            $quotedBasis = max(0, $quotedServicesCents - $quotedDiscountCents + $quotedAddOnsCents + $quotedOperatorFeesCents);
+            $share = min(-$basisDelta, $quotedBasis);
+            $refundedFee = $quotedBasis > 0
+                ? FeeRefundCalculator::proportionalFeeFor($quotedCustomerFeeCents, $quotedBasis, $share)
+                : 0;
+            $bookingFeeCents = max(0, $quotedCustomerFeeCents - $refundedFee);
+        }
+
+        $final = $this->resolvedTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules, $tax, $taxBasisPoints, $bookingFeeCents);
+        $taxReduction = $final['cents'] < $quotedTaxCents ? $quotedTaxCents - $final['cents'] : 0;
+        $replacement = $final['lines'] !== null && $final['cents'] < $quotedTaxCents ? $final['lines'] : null;
 
         return new PriceDecrease($services, $discount, -$basisDelta, $taxReduction, $addOnsCents, $timeWindows, $operatorCents, $operatorLines, $replacement, $partyBands);
     }
@@ -279,13 +299,74 @@ final class PricingEngine
      * @param  list<array<string, mixed>>  $locationTaxRules
      * @return array{cents: int, lines: list<array<string, mixed>>}|null
      */
-    private function locationTax(int $services, int $discount, int $addOnsCents, int $operatorCents, array $locationTaxRules): ?array
+    private function locationTax(int $services, int $discount, int $addOnsCents, int $operatorCents, array $locationTaxRules, int $bookingFeeCents = 0): ?array
     {
         if ($locationTaxRules === []) {
             return null;
         }
 
-        return LocationTax::assess($locationTaxRules, max(0, $services - $discount), $addOnsCents, $operatorCents);
+        return LocationTax::assess($locationTaxRules, max(0, $services - $discount), $addOnsCents, $operatorCents, $bookingFeeCents);
+    }
+
+    /**
+     * Tax for the current price. A customer booking fee is included only when
+     * the caller passes one. Location rates that apply to rentals take it.
+     * With no location rates, the single rental rate takes it.
+     *
+     * @param  list<array<string, mixed>>  $locationTaxRules
+     * @return array{cents: int, lines: list<array<string, mixed>>|null, includes_booking_fee: bool}
+     */
+    private function resolvedTax(
+        int $services,
+        int $discount,
+        int $addOnsCents,
+        int $operatorCents,
+        array $locationTaxRules,
+        int $singleRateTaxCents,
+        int $taxBasisPoints,
+        int $bookingFeeCents,
+    ): array {
+        if ($bookingFeeCents < 0) {
+            throw new InvalidArgumentException('Tax bases must not be negative.');
+        }
+
+        $assessed = $this->locationTax($services, $discount, $addOnsCents, $operatorCents, $locationTaxRules, $bookingFeeCents);
+
+        if ($assessed !== null) {
+            return [
+                'cents' => $assessed['cents'],
+                'lines' => $assessed['lines'],
+                'includes_booking_fee' => $bookingFeeCents > 0 && $this->rentalRateExists($locationTaxRules),
+            ];
+        }
+
+        $cents = $singleRateTaxCents;
+
+        if ($bookingFeeCents > 0 && $taxBasisPoints > 0) {
+            $cents += Rounding::basisPointsOf($bookingFeeCents, $taxBasisPoints);
+        }
+
+        return [
+            'cents' => $cents,
+            'lines' => null,
+            'includes_booking_fee' => $bookingFeeCents > 0 && $taxBasisPoints > 0,
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rules
+     */
+    private function rentalRateExists(array $rules): bool
+    {
+        foreach ($rules as $rule) {
+            $applies = $rule['applies_to_rentals'] ?? false;
+
+            if ($applies === true || $applies === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

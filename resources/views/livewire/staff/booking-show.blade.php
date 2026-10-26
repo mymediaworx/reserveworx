@@ -55,6 +55,16 @@
                 <dl class="facts">
                     <div><dt>Customer</dt><dd>{{ $customer?->name ?: 'Walk-in' }}@if($customer?->email)<br><a href="mailto:{{ $customer->email }}">{{ $customer->email }}</a>@endif</dd></div>
                     <div><dt>Party</dt><dd>{{ $booking->participants }} {{ $booking->participants === 1 ? 'person' : 'people' }}</dd></div>
+                    @if ($booking->namedParticipants->isNotEmpty())
+                        <div>
+                            <dt>Named</dt>
+                            <dd>
+                                @foreach ($booking->namedParticipants as $person)
+                                    <span class="tag" data-participant="{{ $person->id }}">{{ $person->name }}@if ($person->is_minor) <span class="muted">under 18, {{ $person->guardian_name }}</span>@endif</span>
+                                @endforeach
+                            </dd>
+                        </div>
+                    @endif
                     <div><dt>Location</dt><dd>{{ $booking->location?->name }}</dd></div>
                     <div><dt>Payment</dt><dd>{{ Display::status($booking->payment_status->value) }}</dd></div>
                     <div><dt>On the water</dt><dd>{{ Display::status($booking->operational_status->value) }}</dd></div>
