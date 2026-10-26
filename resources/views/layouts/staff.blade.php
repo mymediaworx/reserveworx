@@ -32,7 +32,7 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/waivers', 'staff/promo-codes', 'staff/import', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/incidents', 'staff/incidents/*', 'staff/maintenance', 'staff/manifest', 'staff/waitlist')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/waivers', 'staff/promo-codes', 'staff/import', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/incidents', 'staff/incidents/*', 'staff/maintenance', 'staff/manifest', 'staff/reports', 'staff/waitlist')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*', 'staff/locations/*/tax')],
@@ -94,6 +94,9 @@
                 </a>
                 <a href="/staff/manifest" wire:navigate @class(['is-active' => request()->is('staff/manifest')]) @if(request()->is('staff/manifest')) aria-current="page" @endif>
                     <x-icon name="manifest" size="20" /> Manifest
+                </a>
+                <a href="/staff/reports" wire:navigate @class(['is-active' => request()->is('staff/reports')]) @if(request()->is('staff/reports')) aria-current="page" @endif>
+                    <x-icon name="trending" size="20" /> Reports
                 </a>
                 <a href="/staff/waitlist" wire:navigate @class(['is-active' => request()->is('staff/waitlist')]) @if(request()->is('staff/waitlist')) aria-current="page" @endif>
                     <x-icon name="clock" size="20" /> Waitlist

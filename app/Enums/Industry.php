@@ -121,6 +121,11 @@ enum Industry: string
         };
     }
 
+    public function resourceHour(): string
+    {
+        return $this->unit().'-hour';
+    }
+
     public function units(): string
     {
         return match ($this) {

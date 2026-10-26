@@ -37,21 +37,7 @@ final class CustomerReport
      */
     public function build(string $from, string $to): array
     {
-        $fromStart = CarbonImmutable::parse($from.' 00:00:00', 'UTC')->subDay();
-        $toEnd = CarbonImmutable::parse($to.' 00:00:00', 'UTC')->addDays(2);
-
-        $bookings = Booking::query()
-            ->with('location')
-            ->where('starts_at', '>=', $fromStart)
-            ->where('starts_at', '<', $toEnd)
-            ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::NoShow->value])
-            ->get();
-
-        $included = $bookings->filter(function (Booking $booking) use ($from, $to): bool {
-            $date = $this->localDate($booking->starts_at, $this->zone($booking->location));
-
-            return $date !== null && $date >= $from && $date <= $to;
-        })->values();
+        $included = $this->includedBookings($from, $to, null);
 
         if ($included->isEmpty()) {
             return ['customers' => [], 'attribution' => []];
@@ -154,6 +140,85 @@ final class CustomerReport
         ];
     }
 
+    /**
+     * Unique customers for one window. A customer is new when their earliest
+     * confirmed or no-show booking is inside this window. Anyone else who
+     * booked in the window is a repeat. A second visit in the same window
+     * does not also count that new customer as a repeat. Daily rows are not
+     * added together, because the same person would be counted twice.
+     *
+     * @return array{
+     *     new_customers: int,
+     *     repeat_customers: int,
+     *     attribution: list<array{channel: string, bookings: int}>
+     * }
+     */
+    public function windowTotals(string $from, string $to, ?string $locationId): array
+    {
+        $included = $this->includedBookings($from, $to, $locationId);
+
+        if ($included->isEmpty()) {
+            return [
+                'new_customers' => 0,
+                'repeat_customers' => 0,
+                'attribution' => [],
+            ];
+        }
+
+        $firstIds = $this->firstBookingIds($included);
+        $channels = $this->channels($included);
+        /** @var array<string, true> $includedIds */
+        $includedIds = [];
+
+        foreach ($included as $booking) {
+            $includedIds[(string) $booking->id] = true;
+        }
+
+        /** @var array<string, true> $new */
+        $new = [];
+        /** @var array<string, true> $repeat */
+        $repeat = [];
+        /** @var array<string, int> $attribution */
+        $attribution = [];
+
+        foreach ($included as $booking) {
+            $bookingId = (string) $booking->id;
+            $customerId = $booking->customer_id;
+
+            if (is_string($customerId) && $customerId !== '') {
+                $firstId = $firstIds[$customerId] ?? null;
+
+                if ($firstId !== null && isset($includedIds[$firstId])) {
+                    $new[$customerId] = true;
+                } else {
+                    $repeat[$customerId] = true;
+                }
+            }
+
+            $channel = $channels[$bookingId] ?? 'unrecorded';
+            $attribution[$channel] = ($attribution[$channel] ?? 0) + 1;
+        }
+
+        $repeat = array_diff_key($repeat, $new);
+        /** @var list<array{channel: string, bookings: int}> $rows */
+        $rows = [];
+
+        foreach ($attribution as $channel => $bookings) {
+            $rows[] = [
+                'channel' => $channel,
+                'bookings' => $bookings,
+            ];
+        }
+
+        usort($rows, fn (array $left, array $right): int => $left['channel'] <=> $right['channel']);
+
+        return [
+            'new_customers' => count($new),
+            'repeat_customers' => count($repeat),
+            'attribution' => $rows,
+        ];
+    }
+
     public function toCsv(string $from, string $to): string
     {
         $report = $this->build($from, $to);
@@ -204,6 +269,36 @@ final class CustomerReport
             'anonymous_bookings',
             'channel',
         ], $rows);
+    }
+
+    /**
+     * @return Collection<int, Booking>
+     */
+    private function includedBookings(string $from, string $to, ?string $locationId): Collection
+    {
+        $fromStart = CarbonImmutable::parse($from.' 00:00:00', 'UTC')->subDay();
+        $toEnd = CarbonImmutable::parse($to.' 00:00:00', 'UTC')->addDays(2);
+
+        $bookings = Booking::query()
+            ->with('location')
+            ->where('starts_at', '>=', $fromStart)
+            ->where('starts_at', '<', $toEnd)
+            ->whereIn('status', [BookingStatus::Confirmed->value, BookingStatus::NoShow->value])
+            ->get();
+
+        $included = $bookings->filter(function (Booking $booking) use ($from, $to): bool {
+            $date = $this->localDate($booking->starts_at, $this->zone($booking->location));
+
+            return $date !== null && $date >= $from && $date <= $to;
+        })->values();
+
+        if ($locationId === null || $locationId === '') {
+            return $included;
+        }
+
+        return $included->filter(
+            fn (Booking $booking): bool => (string) $booking->location_id === $locationId,
+        )->values();
     }
 
     /**
