@@ -13,6 +13,7 @@ use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Models\Booking;
 use App\Models\DisclosureVersion;
+use App\Models\Location;
 use App\Models\LocationTaxRule;
 use App\Models\Payment;
 use App\Models\PriceRule;
@@ -201,6 +202,7 @@ final class BookingPricer
             $addOnLines,
             $operatorDefinitions,
             $locationTaxRules,
+            $this->bookingFeeIsTaxable($locationId),
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
         $payload = $priced->toSnapshot();
@@ -248,6 +250,17 @@ final class BookingPricer
             ->get()
             ->map(fn (LocationTaxRule $rule): array => $rule->toPricingRule())
             ->all();
+    }
+
+    private function bookingFeeIsTaxable(?string $locationId): bool
+    {
+        if ($locationId === null || $locationId === '') {
+            return false;
+        }
+
+        $location = Location::query()->find($locationId);
+
+        return $location instanceof Location && $location->booking_fee_taxable;
     }
 
     private function channelFrom(PricingSnapshot $snapshot): FeeChannel

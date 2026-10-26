@@ -615,4 +615,188 @@ class PricingEngineTest extends TestCase
             100,
         );
     }
+
+    public function test_a_taxable_booking_fee_is_added_to_rental_tax_and_not_to_the_fee(): void
+    {
+        $rental = [[
+            'id' => '01STATE',
+            'name' => 'State sales tax',
+            'percent_bps' => 1_000,
+            'applies_to_rentals' => true,
+            'applies_to_add_ons' => false,
+            'applies_to_fees' => false,
+        ]];
+        $on = CarbonImmutable::parse('2026-06-15');
+        $rules = [new PriceRuleInput('base', 10_000, 'weekday')];
+        $priced = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            $rules,
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            null,
+            100,
+            0,
+            [],
+            [],
+            $rental,
+            true,
+        );
+        $snapshot = $priced->toSnapshot();
+
+        $this->assertSame(10_000, $snapshot['basis_cents']);
+        $this->assertSame(300, $snapshot['fee_cents']);
+        $this->assertSame(300, $snapshot['application_fee_cents']);
+        $this->assertSame(1_030, $snapshot['tax_cents']);
+        $this->assertSame(10_300, $snapshot['tax_lines'][0]['basis_cents']);
+        $this->assertSame(11_330, $snapshot['customer_total_cents']);
+        $this->assertTrue($snapshot['tax_includes_booking_fee']);
+
+        $absorbed = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::OperatorAbsorbed,
+            $rules,
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            null,
+            100,
+            0,
+            [],
+            [],
+            $rental,
+            true,
+        )->toSnapshot();
+
+        $this->assertSame(300, $absorbed['fee_cents']);
+        $this->assertNull($absorbed['customer_fee_line_cents']);
+        $this->assertSame(1_000, $absorbed['tax_cents']);
+        $this->assertSame(11_000, $absorbed['customer_total_cents']);
+        $this->assertFalse($absorbed['tax_includes_booking_fee']);
+
+        $single = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            $rules,
+            1,
+            60,
+            $on,
+            1_000,
+            null,
+            null,
+            null,
+            100,
+            0,
+            [],
+            [],
+            [],
+            true,
+        )->toSnapshot();
+
+        $this->assertSame(1_030, $single['tax_cents']);
+        $this->assertTrue($single['tax_includes_booking_fee']);
+        $this->assertArrayNotHasKey('tax_lines', $single);
+
+        $fuelOnly = $this->engine->price(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            $rules,
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            null,
+            100,
+            0,
+            [],
+            [[
+                'operator_fee_id' => '01FUEL',
+                'name' => 'Fuel',
+                'pricing' => 'flat',
+                'scope' => 'service',
+                'amount_cents' => 500,
+                'percent_bps' => null,
+            ]],
+            [[
+                'id' => '01FUELTAX',
+                'name' => 'Fuel tax',
+                'percent_bps' => 1_000,
+                'applies_to_rentals' => false,
+                'applies_to_add_ons' => false,
+                'applies_to_fees' => true,
+            ]],
+            true,
+        )->toSnapshot();
+
+        $this->assertSame(50, $fuelOnly['tax_cents']);
+        $this->assertSame(500, $fuelOnly['tax_lines'][0]['basis_cents']);
+        $this->assertFalse($fuelOnly['tax_includes_booking_fee']);
+
+        $increase = $this->engine->increaseFromQuote(
+            FeeChannel::Direct,
+            FeeRate::defaultFor(FeeChannel::Direct),
+            FeePayer::CustomerPaid,
+            [new PriceRuleInput('base', 20_000, 'weekday')],
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            10_000,
+            0,
+            1_030,
+            0,
+            0,
+            0,
+            [],
+            $rental,
+            true,
+            300,
+        );
+
+        $this->assertSame(10_000, $increase->basisCents);
+        $this->assertSame(300, $increase->quote->feeCents);
+        $this->assertSame(1_030, $increase->taxCents);
+        $this->assertIsArray($increase->taxLines);
+        $this->assertSame(20_600, $increase->taxLines[0]['basis_cents']);
+
+        $decrease = $this->engine->decreaseFromQuote(
+            $rules,
+            1,
+            60,
+            $on,
+            0,
+            null,
+            null,
+            20_000,
+            0,
+            2_060,
+            0,
+            0,
+            0,
+            [],
+            $rental,
+            true,
+            600,
+        );
+
+        $this->assertSame(10_000, $decrease->basisReductionCents);
+        $this->assertSame(1_030, $decrease->taxReductionCents);
+        $this->assertIsArray($decrease->taxLines);
+        $this->assertSame(10_300, $decrease->taxLines[0]['basis_cents']);
+    }
 }

@@ -5,7 +5,7 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 ## From Section 18.2
 
 1. **SiteGround plan and access.** Partially answered. The product owner says GitHub Actions can SSH in and that `SG_PORT` is 18765. The plan name, PHP versions, memory, cron interval, MySQL version, and the rest of Section 2.2 are still unknown until **Hosting check** runs on `main`.
-2. **Attorney review.** An attorney must confirm fee disclosure wording, all-in pricing, taxability of the booking fee, the e-signature process, and the waiver approach for the launch jurisdictions.
+2. **Attorney review.** An attorney must confirm fee disclosure wording, all-in pricing, taxability of the booking fee, the e-signature process, and the waiver approach for the launch jurisdictions. Spec Section 7.6.7 asks for a per-location setting while that answer is open. `locations.booking_fee_taxable` is that setting. It defaults to off, so the booking fee is not taxed until an owner or manager turns it on for one location. Turning it on is not a legal conclusion.
 3. **Waiver retention.** How long should waivers be kept by default after the activity date?
 4. **Minimum booking fee.** Should there be a minimum per transaction? The spec default is none.
 5. **Proportional fee refund.** Confirm Section 7.7 for partial refunds. The spec's proposed default is in place and is described in [`FEES.md`](FEES.md). Stripe's proportional application-fee refund does not match that basis. See [`INTEGRATIONS.md`](INTEGRATIONS.md).

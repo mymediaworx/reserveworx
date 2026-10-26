@@ -599,6 +599,8 @@ final class CheckoutService
                 $quotedOperatorFees,
                 $operatorDefinitions,
                 $this->locationTaxRules($payload),
+                $this->taxesBookingFee($payload),
+                $this->cents($payload, 'customer_fee_line_cents'),
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -651,6 +653,8 @@ final class CheckoutService
                 $quotedOperatorFees,
                 $operatorDefinitions,
                 $this->locationTaxRules($payload),
+                $this->taxesBookingFee($payload),
+                $this->cents($payload, 'customer_fee_line_cents'),
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -822,6 +826,14 @@ final class CheckoutService
         }
 
         return $clean;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function taxesBookingFee(array $payload): bool
+    {
+        return ($payload['tax_includes_booking_fee'] ?? false) === true;
     }
 
     private function cents(array $payload, string $key): int

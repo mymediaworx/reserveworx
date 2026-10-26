@@ -26,6 +26,7 @@ final readonly class PricedBooking
         public int $operatorFeesCents = 0,
         public array $operatorFeeLines = [],
         public array $taxLines = [],
+        public bool $taxIncludesBookingFee = false,
     ) {}
 
     /**
@@ -41,7 +42,7 @@ final readonly class PricedBooking
             'operator_fees' => $this->operatorFeeLines,
             'discount_cents' => $this->discountCents,
             'promo_code' => $this->promoCode,
-            'tax_includes_booking_fee' => false,
+            'tax_includes_booking_fee' => $this->taxIncludesBookingFee,
             'charge_cents' => $this->payment->chargeCents,
             'application_fee_cents' => $this->payment->applicationFeeCents,
             'deposit_was_raised' => $this->payment->depositWasRaised(),
