@@ -44,6 +44,7 @@
             <p>The price stays the same.</p>
         @endif
     @elseif ($booking->status->value === 'confirmed')
+        <p>Length: {{ \App\Support\Display::minutes($lengthMinutes) }}. The price stays the same.</p>
         <form method="post" action="{{ $rescheduleUrl }}">
             <label>New date
                 <input name="date" type="date" required>
@@ -51,11 +52,18 @@
             <label>New start
                 <input name="start" type="time" required>
             </label>
-            <label>Duration in minutes
-                <input name="duration_minutes" type="number" min="1" max="1440" required value="60">
-            </label>
             <button type="submit">Reschedule</button>
         </form>
+        @if ($offerTimes !== [])
+            <h2>Other times</h2>
+            @foreach ($offerTimes as $time)
+                <form method="post" action="{{ $rescheduleUrl }}">
+                    <input type="hidden" name="date" value="{{ $time['date'] }}">
+                    <input type="hidden" name="start" value="{{ $time['start'] }}">
+                    <button type="submit">{{ $time['label'] }}</button>
+                </form>
+            @endforeach
+        @endif
     @endif
     @if ($canExtend)
         <form method="post" action="{{ $extendUrl }}">

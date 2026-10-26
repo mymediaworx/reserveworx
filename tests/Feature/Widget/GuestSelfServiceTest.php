@@ -101,16 +101,22 @@ class GuestSelfServiceTest extends TestCase
             'reference' => $bookingId,
             'email' => 'ada@example.com',
         ])->assertRedirect();
-        $manage = $this->get((string) $found->headers->get('Location'))->assertOk()->assertSee('Reschedule');
+        $manage = $this->get((string) $found->headers->get('Location'))
+            ->assertOk()
+            ->assertSee('Reschedule')
+            ->assertSee('Length: 1 hour')
+            ->assertDontSee('Duration in minutes');
         preg_match('/action="([^"]*reschedule[^"]*)"/', (string) $manage->getContent(), $action);
 
         $this->post(html_entity_decode($action[1]), [
             'date' => '2026-06-15',
             'start' => '17:00',
-            'duration_minutes' => 60,
         ])->assertOk()->assertSee('2026-06-15T17:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
+        $moved = Booking::query()->findOrFail($bookingId);
+        $this->assertSame('2026-06-15 17:00:00', $moved->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-06-15 18:00:00', $moved->ends_at->utc()->format('Y-m-d H:i:s'));
         $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.guest_rescheduled')->count());
         app(TenantManager::class)->forget();
     }
