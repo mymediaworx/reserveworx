@@ -273,7 +273,16 @@ class LateReturnFeeTest extends TestCase
             ->assertSee('data-overdue="1"', false)
             ->assertSee('data-overdue-list="1"', false)
             ->assertSee('data-overdue-checkout="'.$overdue['checkout']->id.'" data-minutes="60"', false)
-            ->assertDontSee('Later skiff')
+            ->assertSee('data-checked-out="2"', false)
+            ->assertSee('data-checked-out-later="1"', false)
+            ->assertSee('data-checked-out-row="'.$later['checkout']->id.'"', false)
+            ->assertSee('Later skiff')
+            ->assertSee('Later Guest')
+            ->assertSee('Due Tue, Jun 16, 7:00 PM')
+            ->assertDontSee('data-checked-out-row="'.$overdue['checkout']->id.'"', false)
+            ->assertDontSee('data-overdue-checkout="'.$later['checkout']->id.'"', false)
+            ->assertDontSee('data-checked-out-row="'.$back['checkout']->id.'"', false)
+            ->assertDontSee('data-overdue-checkout="'.$back['checkout']->id.'"', false)
             ->assertDontSee('Back skiff')
             ->assertDontSee('Beta skiff');
     }
