@@ -1580,8 +1580,7 @@ class Allocator
 
         return MaintenanceWindow::query()
             ->where($type === ResourceType::Asset ? 'asset_id' : 'pool_id', $resourceId)
-            ->where('starts_at', '<', $end)
-            ->where('ends_at', '>', $start)
+            ->blocking($start, $end)
             ->exists();
     }
 

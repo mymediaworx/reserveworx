@@ -16,6 +16,9 @@
                 </div>
                 <span>{{ $window->reason }}</span>
                 <span class="muted">{{ Display::range($window->starts_at, $window->ends_at, $zone) }}</span>
+                @if ($canEnd ?? false)
+                    <button type="button" class="button small" wire:click="endWindow('{{ $window->id }}')" wire:confirm="End this now? It can be booked again after the current time. Bookings stay where they are.">End now</button>
+                @endif
                 @if ($hits->isNotEmpty())
                     <div class="affected">
                         <p class="muted small">{{ $hits->count() }} future {{ $hits->count() === 1 ? 'booking overlaps' : 'bookings overlap' }}. {{ $hits->count() === 1 ? 'It stays' : 'They stay' }} booked until you move or contact the guest.</p>

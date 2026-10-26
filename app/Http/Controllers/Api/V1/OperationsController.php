@@ -14,7 +14,9 @@ use App\Models\Pool;
 use App\Models\Tenant;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
+use App\Services\AuditLogger;
 use App\Services\Operations\MaintenancePlanner;
+use App\Services\Operations\MaintenanceWindowAlreadyEndedException;
 use App\Services\Operations\WaiverPdf;
 use App\Services\Waivers\WaiverSigner;
 use Carbon\CarbonImmutable;
@@ -29,6 +31,7 @@ class OperationsController extends Controller
     public function __construct(
         private readonly MaintenancePlanner $maintenance,
         private readonly WaiverSigner $waivers,
+        private readonly AuditLogger $audit,
     ) {}
 
     public function indexMaintenance(): JsonResponse
@@ -44,6 +47,7 @@ class OperationsController extends Controller
                 'kind' => $window->kind->value,
                 'starts_at' => $window->starts_at->toIso8601String(),
                 'ends_at' => $window->ends_at->toIso8601String(),
+                'ended_at' => $window->ended_at?->toIso8601String(),
                 'reason' => $window->reason,
             ];
         }
@@ -85,6 +89,35 @@ class OperationsController extends Controller
             'kind' => $scheduled['window']->kind->value,
             'flagged_bookings' => $scheduled['flagged'],
         ]], 201);
+    }
+
+    public function endMaintenance(Request $request, MaintenanceWindow $maintenance_window): JsonResponse
+    {
+        $resource = $this->maintenanceResource($maintenance_window);
+        $this->authorize('update', $resource);
+
+        try {
+            $ended = $this->maintenance->end($maintenance_window);
+        } catch (MaintenanceWindowAlreadyEndedException $exception) {
+            throw ValidationException::withMessages(['window' => $exception->getMessage()]);
+        }
+
+        $window = $ended['window'];
+        $this->audit->log('maintenance.ended', $window, [
+            'kind' => $window->kind->value,
+            'asset_id' => $window->asset_id,
+            'pool_id' => $window->pool_id,
+            'ends_at' => $window->ends_at->toIso8601String(),
+            'ended_at' => $window->ended_at?->toIso8601String(),
+            'cleared_bookings' => $ended['cleared'],
+        ], request: $request);
+
+        return response()->json(['data' => [
+            'id' => $window->id,
+            'ends_at' => $window->ends_at->toIso8601String(),
+            'ended_at' => $window->ended_at?->toIso8601String(),
+            'cleared_bookings' => $ended['cleared'],
+        ]]);
     }
 
     public function indexMaintenanceRecords(Asset $asset): JsonResponse
@@ -305,6 +338,25 @@ class OperationsController extends Controller
             'inspected_at' => $record->inspected_at->toIso8601String(),
             'summary' => $record->summary,
         ];
+    }
+
+    private function maintenanceResource(MaintenanceWindow $window): Asset|Pool
+    {
+        if ($window->asset_id !== null) {
+            $asset = Asset::query()->find($window->asset_id);
+            abort_unless($asset instanceof Asset, 404);
+
+            return $asset;
+        }
+
+        if ($window->pool_id !== null) {
+            $pool = Pool::query()->find($window->pool_id);
+            abort_unless($pool instanceof Pool, 404);
+
+            return $pool;
+        }
+
+        abort(404);
     }
 
     private function tenant(Request $request): Tenant

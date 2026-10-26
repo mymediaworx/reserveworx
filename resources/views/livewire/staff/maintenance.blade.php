@@ -30,6 +30,7 @@
 
     <div aria-live="polite">
         @if ($flash)<p class="flash ok">{{ $flash }}</p>@endif
+        @error('window')<p class="error">{{ $message }}</p>@enderror
     </div>
 
     @if ($resources->isEmpty() && $resource === '')
@@ -65,12 +66,12 @@
             <div class="stack">
                 <section class="panel" aria-labelledby="live-heading">
                     <h2 id="live-heading">In progress</h2>
-                    @include('livewire.staff.partials.maintenance-windows', ['windows' => $inProgress, 'live' => true, 'emptyText' => 'Nothing is out of service right now.'])
+                    @include('livewire.staff.partials.maintenance-windows', ['windows' => $inProgress, 'live' => true, 'canEnd' => $canManage, 'emptyText' => 'Nothing is out of service right now.'])
                 </section>
 
                 <section class="panel" aria-labelledby="upcoming-heading">
                     <h2 id="upcoming-heading">Upcoming</h2>
-                    @include('livewire.staff.partials.maintenance-windows', ['windows' => $upcoming, 'live' => false, 'emptyText' => 'No maintenance or blocks scheduled.'])
+                    @include('livewire.staff.partials.maintenance-windows', ['windows' => $upcoming, 'live' => false, 'canEnd' => $canManage, 'emptyText' => 'No maintenance or blocks scheduled.'])
                 </section>
 
                 <section class="panel" aria-labelledby="inspections-heading">
@@ -135,6 +136,9 @@
                                     <span class="grow">
                                         <strong>{{ ($window->asset ?? $window->pool)?->name }}</strong>
                                         <span class="muted">{{ $window->reason }} · {{ Display::range($window->starts_at, $window->ends_at, $zone) }}</span>
+                                        @if ($window->ended_at !== null && $window->ended_at->lessThan($window->ends_at))
+                                            <span class="muted">Ended {{ Display::dateTime($window->ended_at, $zone) }}</span>
+                                        @endif
                                     </span>
                                     <span class="badge">{{ $window->kind->label() }}</span>
                                 </li>
