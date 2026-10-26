@@ -393,6 +393,63 @@ class FleetDeliveryTest extends TestCase
             ->assertSee('walk-ins held');
     }
 
+    public function test_the_location_edit_form_renders_the_walk_in_switch_when_delivered_from_fleet(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->actingAs($workspace['user']);
+        $location = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'name' => 'North beach',
+            'timezone' => 'America/New_York',
+        ]);
+        $label = 'Allow walk-ins (hold back units at this location for counter sales)';
+
+        $hidden = Livewire::test(Locations::class)
+            ->call('edit', $location->id)
+            ->assertSeeHtml('wire:model.live="editDelivered"')
+            ->assertSeeHtml('wire:model.live="editWalkIns"')
+            ->assertSee($label)
+            ->html();
+
+        $this->assertMatchesRegularExpression(
+            '/data-location-walk-ins[^>]*style="display: none"/',
+            $hidden,
+        );
+
+        $shown = Livewire::test(Locations::class)
+            ->call('edit', $location->id)
+            ->set('editDelivered', true)
+            ->assertSee($label)
+            ->assertSeeHtml('wire:show="editDelivered"')
+            ->assertSeeHtml('wire:model.live="editWalkIns"')
+            ->html();
+
+        $this->assertMatchesRegularExpression(
+            '/data-location-walk-ins(?![^>]*style="display: none")[^>]*>[\s\S]*wire:model\.live="editWalkIns"[\s\S]*'.preg_quote($label, '/').'/',
+            $shown,
+        );
+
+        $alreadyDelivered = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'name' => 'South beach',
+            'timezone' => 'America/New_York',
+            'delivered_from_fleet' => true,
+            'walk_ins_enabled' => true,
+        ]);
+
+        $open = Livewire::test(Locations::class)
+            ->call('edit', $alreadyDelivered->id)
+            ->assertSee($label)
+            ->assertSeeHtml('wire:model.live="editWalkIns"')
+            ->html();
+
+        $this->assertMatchesRegularExpression(
+            '/data-location-walk-ins(?![^>]*style="display: none")[^>]*>[\s\S]*'.preg_quote($label, '/').'/',
+            $open,
+        );
+    }
+
     /**
      * @return array{north: Location, south: Location, item: FleetItem, northService: Service, southService: Service}
      */
