@@ -22,6 +22,11 @@ final readonly class PriceRuleInput
         public ?array $weekdays = null,
         public ?int $minParticipants = null,
         public ?int $maxParticipants = null,
+        public ?int $percentOff = null,
+        public ?string $ruleId = null,
+        public ?string $name = null,
+        public ?string $corporateAccountId = null,
+        public ?string $corporateAccountName = null,
     ) {
         if (! in_array($kind, ['base', 'per_person', 'duration'], true)) {
             throw new InvalidArgumentException('A price rule kind must be base, per_person, or duration.');
@@ -85,6 +90,26 @@ final readonly class PriceRuleInput
         if ($minParticipants !== null && $hasStart) {
             throw new InvalidArgumentException('A party size price cannot also name a clock window.');
         }
+
+        if ($percentOff !== null && ($percentOff < 1 || $percentOff > 100)) {
+            throw new InvalidArgumentException('A percent off must be from 1 to 100.');
+        }
+
+        if ($percentOff !== null && $minParticipants === null) {
+            throw new InvalidArgumentException('A percent off needs a party size.');
+        }
+
+        if ($percentOff !== null && $amountCents !== 0) {
+            throw new InvalidArgumentException('A percent off does not also name an amount.');
+        }
+
+        if ($corporateAccountId === '') {
+            throw new InvalidArgumentException('A corporate account id cannot be blank.');
+        }
+
+        if ($corporateAccountId !== null && $hasStart) {
+            throw new InvalidArgumentException('A corporate rate cannot also name a clock window.');
+        }
     }
 
     public function hasPartyBand(): bool
@@ -132,6 +157,11 @@ final readonly class PriceRuleInput
             'duration_minutes' => $this->durationMinutes,
             'starts_on' => $this->startsOn,
             'ends_on' => $this->endsOn,
+            'price_rule_id' => $this->ruleId,
+            'name' => $this->name,
+            'percent_off' => $this->percentOff,
+            'corporate_account_id' => $this->corporateAccountId,
+            'corporate_account_name' => $this->corporateAccountName,
         ];
     }
 

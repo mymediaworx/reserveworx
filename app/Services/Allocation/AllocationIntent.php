@@ -24,6 +24,7 @@ readonly class AllocationIntent
         public array $addOns = [],
         public ?string $variantId = null,
         public ?string $customerId = null,
+        public ?string $corporateAccountId = null,
     ) {}
 
     public function payloadHash(): string
@@ -54,6 +55,10 @@ readonly class AllocationIntent
 
         if ($this->variantId !== null && $this->variantId !== '') {
             $fields['variant_id'] = $this->variantId;
+        }
+
+        if ($this->corporateAccountId !== null && $this->corporateAccountId !== '') {
+            $fields['corporate_account_id'] = $this->corporateAccountId;
         }
 
         $encoded = json_encode($fields, JSON_THROW_ON_ERROR);

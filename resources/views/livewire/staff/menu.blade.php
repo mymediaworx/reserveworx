@@ -31,6 +31,7 @@
             <a href="/staff/setup/resources" wire:navigate><span class="app-circle"><x-icon :name="$industry->icon()" size="26" /></span>{{ $industry->catalog() }}</a>
             <a href="/staff/setup/services" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Services & prices</a>
             <a href="/staff/promo-codes" wire:navigate><span class="app-circle"><x-icon name="tag" size="26" /></span>Promo codes</a>
+            <a href="/staff/corporate-accounts" wire:navigate><span class="app-circle"><x-icon name="users" size="26" /></span>Corporate accounts</a>
             @if ($canImport)
                 <a href="/staff/import" wire:navigate><span class="app-circle"><x-icon name="upload" size="26" /></span>Import</a>
             @endif

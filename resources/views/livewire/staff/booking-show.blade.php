@@ -1,4 +1,5 @@
 @php
+    use App\Domain\Pricing\GroupPriceCopy;
     use App\Support\Display;
     $status = $booking->status->value;
     $isRental = $booking->service?->kind?->value === 'rental';
@@ -55,6 +56,9 @@
                 <dl class="facts">
                     <div><dt>Customer</dt><dd>{{ $customer?->name ?: 'Walk-in' }}@if($customer?->email)<br><a href="mailto:{{ $customer->email }}">{{ $customer->email }}</a>@endif</dd></div>
                     <div><dt>Party</dt><dd>{{ $booking->participants }} {{ $booking->participants === 1 ? 'person' : 'people' }}</dd></div>
+                    @if ($booking->corporateAccount)
+                        <div><dt>Corporate account</dt><dd>{{ $booking->corporateAccount->name }}</dd></div>
+                    @endif
                     @if ($booking->namedParticipants->isNotEmpty())
                         <div>
                             <dt>Named</dt>
@@ -113,6 +117,13 @@
                         'currency' => $currency,
                         'refundTerms' => $disclosure,
                     ])
+                    @php
+                        $groupBands = is_array($p['party_bands'] ?? null) ? $p['party_bands'] : [];
+                        $groupDetail = GroupPriceCopy::detail($groupBands);
+                    @endphp
+                    @if ($groupDetail)
+                        <p data-group-price="{{ (int) ($p['customer_total_cents'] ?? 0) }}"><strong>{{ GroupPriceCopy::label($groupBands) }}</strong> {{ $groupDetail }}</p>
+                    @endif
                     @if ((int) ($p['damage_cents'] ?? 0) > 0)
                         <p data-damage="{{ (int) $p['damage_cents'] }}">Damage {{ Display::money((int) $p['damage_cents'], $currency) }} is included in the total. It is not a booking fee.</p>
                     @endif

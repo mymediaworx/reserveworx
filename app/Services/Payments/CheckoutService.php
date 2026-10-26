@@ -10,6 +10,7 @@ use App\Domain\Fees\Refunds\RefundReason;
 use App\Domain\Payments\CheckoutSessionSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
+use App\Domain\Pricing\GroupPriceCopy;
 use App\Domain\Pricing\PriceDecrease;
 use App\Domain\Pricing\PriceIncrease;
 use App\Domain\Pricing\PriceRuleInput;
@@ -349,6 +350,7 @@ final class CheckoutService
             'priced_local_start' => $this->pricedLocalStart($booking),
             'time_windows' => $increase->timeWindows,
             'party_bands' => $increase->partyBands,
+            'group_rules' => GroupPriceCopy::rules($increase->partyBands),
             'operator_fees_delta_cents' => $increase->operatorFeesDeltaCents,
             'operator_fees' => $increase->operatorFeeLines,
         ];
@@ -602,6 +604,7 @@ final class CheckoutService
                 $this->locationTaxRules($payload),
                 $this->taxesBookingFee($payload),
                 $this->cents($payload, 'customer_fee_line_cents'),
+                $this->corporateAccountId($booking),
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -656,6 +659,7 @@ final class CheckoutService
                 $this->locationTaxRules($payload),
                 $this->taxesBookingFee($payload),
                 $this->cents($payload, 'customer_fee_line_cents'),
+                $this->corporateAccountId($booking),
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -716,6 +720,7 @@ final class CheckoutService
         $payload['priced_local_start'] = $this->pricedLocalStart($booking);
         $payload['time_windows'] = $decrease->timeWindows;
         $payload['party_bands'] = $decrease->partyBands;
+        $payload['group_rules'] = GroupPriceCopy::rules($decrease->partyBands);
         $payload['mandatory_operator_fees_cents'] = $decrease->operatorFeesCents;
         $payload['operator_fees'] = $this->operatorFees->replace($booking, $decrease->operatorFeeLines);
         $snapshot->payload = $payload;
@@ -836,6 +841,13 @@ final class CheckoutService
     private function taxesBookingFee(array $payload): bool
     {
         return ($payload['tax_includes_booking_fee'] ?? false) === true;
+    }
+
+    private function corporateAccountId(Booking $booking): ?string
+    {
+        $id = $booking->corporate_account_id;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     private function cents(array $payload, string $key): int

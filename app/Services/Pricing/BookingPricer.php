@@ -60,6 +60,7 @@ final class BookingPricer
             $taxBasisPoints,
             $promoCode,
             $depositPercent,
+            $this->corporateAccountId($booking),
         );
         $payload = $selection['payload'];
         $payload['operator_fees'] = $this->operatorFees->replace($booking, $selection['priced']->operatorFeeLines);
@@ -113,6 +114,7 @@ final class BookingPricer
             is_numeric($tax) ? (int) $tax : 0,
             $promoCode,
             100,
+            $this->corporateAccountId($booking),
         );
         $payload = $selection['payload'];
         $payload['operator_fees'] = $this->operatorFees->replace($booking, $selection['priced']->operatorFeeLines);
@@ -146,6 +148,7 @@ final class BookingPricer
         int $taxBasisPoints,
         ?string $promoCode,
         int $depositPercent,
+        ?string $corporateAccountId = null,
     ): array {
         if ($variant instanceof ServiceVariant && $variant->service_id !== $serviceId) {
             throw new InvalidArgumentException('That variant is not available.');
@@ -203,6 +206,7 @@ final class BookingPricer
             $operatorDefinitions,
             $locationTaxRules,
             $this->bookingFeeIsTaxable($locationId),
+            $corporateAccountId,
         );
         $disclosure = $this->disclosures->currentBookingFeeRefundTerms($tenant, $payer);
         $payload = $priced->toSnapshot();
@@ -250,6 +254,13 @@ final class BookingPricer
             ->get()
             ->map(fn (LocationTaxRule $rule): array => $rule->toPricingRule())
             ->all();
+    }
+
+    private function corporateAccountId(Booking $booking): ?string
+    {
+        $id = $booking->corporate_account_id;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     private function bookingFeeIsTaxable(?string $locationId): bool

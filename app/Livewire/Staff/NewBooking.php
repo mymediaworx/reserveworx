@@ -2,9 +2,12 @@
 
 namespace App\Livewire\Staff;
 
+use App\Domain\Fees\FeeChannel;
+use App\Domain\Pricing\GroupPriceCopy;
 use App\Enums\ServiceKind;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
+use App\Models\CorporateAccount;
 use App\Models\Departure;
 use App\Models\Service;
 use App\Services\Allocation\AllocationIntent;
@@ -14,9 +17,11 @@ use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Booking\GuideRoster;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
+use App\Services\Pricing\BookingPricer;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -47,6 +52,8 @@ class NewBooking extends Component
     public string $customerEmail = '';
 
     public string $guideUserId = '';
+
+    public string $corporateAccountId = '';
 
     public ?string $problem = null;
 
@@ -106,6 +113,12 @@ class NewBooking extends Component
             return;
         }
 
+        $accountId = $this->chosenAccountId();
+
+        if ($accountId === false) {
+            return;
+        }
+
         $intent = new AllocationIntent(
             $this->tenant()->id,
             $service->id,
@@ -117,6 +130,7 @@ class NewBooking extends Component
             $this->customerEmail !== '' ? $this->customerEmail : null,
             $departureId,
             $guideUserId,
+            corporateAccountId: $accountId,
         );
 
         try {
@@ -142,6 +156,91 @@ class NewBooking extends Component
         $this->audit('booking.held', $booking, [
             'service_id' => $booking->service_id,
             'starts_at' => $booking->starts_at->toIso8601String(),
+            'channel' => 'staff_web',
+        ]);
+
+        $this->redirect('/staff/bookings/'.$booking->id, navigate: true);
+    }
+
+    public function saveQuote(Allocator $allocator, BookingPricer $pricer): void
+    {
+        $this->authorize('create', Booking::class);
+        $service = $this->service();
+        abort_unless($service instanceof Service, 404);
+        $accountId = $this->chosenAccountId();
+
+        if ($accountId === false) {
+            return;
+        }
+
+        if ($this->customerName === '' && is_string($accountId)) {
+            $account = CorporateAccount::query()->find($accountId);
+
+            if ($account instanceof CorporateAccount) {
+                $this->customerName = $account->name;
+            }
+        }
+
+        $this->validate([
+            'participants' => ['required', 'integer', 'min:1', 'max:500'],
+            'customerName' => ['required', 'string', 'max:120'],
+            'customerEmail' => ['nullable', 'email', 'max:255'],
+        ]);
+
+        [$start, $end, $departureId] = $this->interval($service);
+
+        if ($start === null || $end === null) {
+            $this->problem = $service->kind === ServiceKind::Tour ? 'Choose a departure.' : 'Choose a start time.';
+
+            return;
+        }
+
+        $guideUserId = $this->guideUserId !== '' ? $this->guideUserId : null;
+
+        if ($guideUserId !== null && ! app(GuideRoster::class)->accepts($guideUserId)) {
+            $this->problem = 'That guide is not an active member of this workspace.';
+
+            return;
+        }
+
+        $intent = new AllocationIntent(
+            $this->tenant()->id,
+            $service->id,
+            $start,
+            $end,
+            $this->participants,
+            $this->idempotencyKey,
+            $this->customerName,
+            $this->customerEmail !== '' ? $this->customerEmail : null,
+            $departureId,
+            $guideUserId,
+            corporateAccountId: $accountId,
+        );
+
+        try {
+            $booking = $allocator->hold($intent);
+            $pricer->quote($booking->load('location'), $this->tenant(), FeeChannel::Direct, 0, null, 100);
+        } catch (AllocationUnavailableException|InvalidArgumentException $exception) {
+            $this->problem = $exception->getMessage();
+            $this->offerWaitlist = $exception instanceof AllocationUnavailableException && $service->waitlist_enabled;
+            $this->idempotencyKey = (string) Str::uuid();
+
+            return;
+        } catch (IdempotencyConflictException $exception) {
+            $this->problem = $exception->getMessage();
+            $this->idempotencyKey = (string) Str::uuid();
+
+            return;
+        }
+
+        if ($booking->created_by === null) {
+            $booking->created_by = $this->currentUser()->id;
+            $booking->save();
+        }
+
+        $this->audit('booking.quoted', $booking, [
+            'service_id' => $booking->service_id,
+            'corporate_account_id' => $booking->corporate_account_id,
             'channel' => 'staff_web',
         ]);
 
@@ -201,6 +300,8 @@ class NewBooking extends Component
             'departures' => $departures,
             'zone' => $service->location->timezone ?? $this->defaultTimezone(),
             'guides' => app(GuideRoster::class)->active(),
+            'accounts' => CorporateAccount::query()->where('active', true)->orderBy('name')->get(),
+            'quote' => $service instanceof Service ? $this->liveQuote($service) : null,
         ]);
     }
 
@@ -249,5 +350,67 @@ class NewBooking extends Component
         }
 
         return [$start, $start->addMinutes($this->durationMinutes), null];
+    }
+
+    /**
+     * @return array{total_cents: int, currency: string, label: string, detail: ?string}|null
+     */
+    private function liveQuote(Service $service): ?array
+    {
+        [$start, $end] = $this->interval($service);
+
+        if ($start === null || $end === null) {
+            return null;
+        }
+
+        $accountId = $this->corporateAccountId !== '' ? $this->corporateAccountId : null;
+
+        try {
+            $selection = app(BookingPricer::class)->priceSelection(
+                $this->tenant(),
+                $service->id,
+                $service->location_id,
+                $service->location->timezone ?? 'UTC',
+                null,
+                $start,
+                $end,
+                max(1, $this->participants),
+                [],
+                FeeChannel::Direct,
+                0,
+                null,
+                100,
+                $accountId,
+            );
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+
+        $bands = is_array($selection['payload']['party_bands'] ?? null) ? $selection['payload']['party_bands'] : [];
+        $detail = GroupPriceCopy::detail($bands);
+
+        return [
+            'total_cents' => (int) ($selection['payload']['customer_total_cents'] ?? 0),
+            'currency' => $selection['currency'],
+            'label' => $detail === null ? 'Quote' : GroupPriceCopy::label($bands),
+            'detail' => $detail,
+        ];
+    }
+
+    private function chosenAccountId(): string|false|null
+    {
+        if ($this->corporateAccountId === '') {
+            return null;
+        }
+
+        $account = CorporateAccount::query()->where('active', true)->find($this->corporateAccountId);
+
+        if (! $account instanceof CorporateAccount) {
+            $this->problem = 'That corporate account is not available.';
+
+            return false;
+        }
+
+        return $account->id;
     }
 }
