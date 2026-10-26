@@ -29,6 +29,7 @@ use App\Services\Payments\UnconfiguredStripeGateway;
 use App\Services\Webhooks\HostAddressLookup;
 use App\Services\Webhooks\SystemHostAddressLookup;
 use App\Services\Webhooks\WebhookPublisher;
+use App\Support\SharedHostBudget;
 use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
 use App\View\Composers\IndustryComposer;
@@ -46,6 +47,7 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(TenantManager::class);
+        $this->app->bind(SharedHostBudget::class, fn (): SharedHostBudget => SharedHostBudget::start());
         $this->app->singleton(StaffLocationAccess::class);
         $this->app->singleton(CurrentWorkspaceBranding::class);
         $this->app->singleton(HostAddressLookup::class, SystemHostAddressLookup::class);

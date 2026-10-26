@@ -119,7 +119,10 @@ final class StaffUndo
         return $this->commitOne($action->id);
     }
 
-    public function commitDue(): int
+    /**
+     * @param  (callable(): bool)|null  $shouldStop
+     */
+    public function commitDue(?callable $shouldStop = null): int
     {
         $ids = StaffUndoAction::withoutGlobalScope(TenantScope::class)
             ->whereNull('undone_at')
@@ -131,6 +134,10 @@ final class StaffUndo
         $count = 0;
 
         foreach ($ids as $id) {
+            if ($shouldStop !== null && $shouldStop()) {
+                break;
+            }
+
             if (is_string($id) && $this->commitOne($id)) {
                 $count++;
             }

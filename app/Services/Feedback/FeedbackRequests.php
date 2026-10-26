@@ -4,7 +4,6 @@ namespace App\Services\Feedback;
 
 use App\Enums\BookingStatus;
 use App\Enums\OperationalStatus;
-use App\Enums\TenantStatus;
 use App\Enums\TransactionalEmail;
 use App\Jobs\SendFeedbackRequest;
 use App\Models\Booking;
@@ -19,6 +18,8 @@ use App\Services\AuditLogger;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Notifications\TransactionalEmailPreferences;
 use App\Services\Tenancy\WorkspaceOrigin;
+use App\Support\SweepResult;
+use App\Support\TenantSweep;
 use App\Tenancy\TenantContextException;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
@@ -45,6 +46,7 @@ final class FeedbackRequests
         private readonly TransactionalEmailPreferences $preferences,
         private readonly AuditLogger $audit,
         private readonly WorkspaceOrigin $origins,
+        private readonly TenantSweep $sweep,
     ) {}
 
     public function queue(Booking $booking, bool $fromReturn = false): void
@@ -77,40 +79,26 @@ final class FeedbackRequests
         }
     }
 
-    public function dispatchDue(): void
+    public function dispatchDue(): SweepResult
     {
-        Tenant::query()
-            ->whereIn('status', [TenantStatus::Active->value, TenantStatus::Onboarding->value])
-            ->orderBy('id')
-            ->each(function (Tenant $tenant): void {
-                $previous = $this->tenants->get();
-                $this->tenants->set($tenant);
+        return $this->sweep->each('feedback', function (Tenant $tenant): void {
+            $ids = FeedbackRequest::query()
+                ->whereNull('sent_at')
+                ->whereNull('skipped_at')
+                ->where('send_at', '<=', CarbonImmutable::now('UTC'))
+                ->orderBy('send_at')
+                ->orderBy('id')
+                ->limit(50)
+                ->pluck('id');
 
-                try {
-                    $ids = FeedbackRequest::query()
-                        ->whereNull('sent_at')
-                        ->whereNull('skipped_at')
-                        ->where('send_at', '<=', CarbonImmutable::now('UTC'))
-                        ->orderBy('send_at')
-                        ->orderBy('id')
-                        ->limit(50)
-                        ->pluck('id');
-
-                    foreach ($ids as $id) {
-                        if (! is_string($id)) {
-                            continue;
-                        }
-
-                        SendFeedbackRequest::dispatch($tenant->id, $id);
-                    }
-                } finally {
-                    if ($previous instanceof Tenant) {
-                        $this->tenants->set($previous);
-                    } else {
-                        $this->tenants->forget();
-                    }
+            foreach ($ids as $id) {
+                if (! is_string($id)) {
+                    continue;
                 }
-            });
+
+                SendFeedbackRequest::dispatch($tenant->id, $id);
+            }
+        });
     }
 
     public function deliver(Tenant $tenant, string $feedbackRequestId): void

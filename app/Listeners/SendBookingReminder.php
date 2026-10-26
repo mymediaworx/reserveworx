@@ -28,6 +28,8 @@ class SendBookingReminder implements ShouldQueue
 
     public int $tries = 3;
 
+    public int $timeout = 20;
+
     public function __construct(
         private readonly TenantManager $tenants,
         private readonly NotificationHooks $hooks,

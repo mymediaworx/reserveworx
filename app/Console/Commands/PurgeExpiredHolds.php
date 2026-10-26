@@ -5,8 +5,10 @@ namespace App\Console\Commands;
 use App\Models\Booking;
 use App\Models\Hold;
 use App\Services\Booking\WaitlistPromoter;
+use App\Support\SharedHostBudget;
 use App\Tenancy\TenantScope;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 
 class PurgeExpiredHolds extends Command
 {
@@ -14,27 +16,37 @@ class PurgeExpiredHolds extends Command
 
     protected $description = 'Delete holds whose expiry has passed, then promote the oldest eligible waitlist entry.';
 
-    public function handle(WaitlistPromoter $promoter): int
+    public function handle(WaitlistPromoter $promoter, SharedHostBudget $budget): int
     {
-        $holds = Hold::withoutGlobalScope(TenantScope::class)
-            ->where('expires_at', '<=', now())
-            ->get(['id', 'booking_id']);
-
-        $bookingIds = $holds->pluck('booking_id')->unique()->filter()->values();
+        $purged = 0;
 
         Hold::withoutGlobalScope(TenantScope::class)
-            ->whereIn('id', $holds->pluck('id'))
-            ->delete();
+            ->where('expires_at', '<=', now())
+            ->chunkById(100, function (Collection $holds) use ($promoter, $budget, &$purged): bool {
+                if ($budget->expired()) {
+                    return false;
+                }
 
-        $bookings = Booking::withoutGlobalScope(TenantScope::class)
-            ->whereIn('id', $bookingIds)
-            ->get();
+                $bookingIds = $holds->pluck('booking_id')->unique()->filter()->values();
 
-        foreach ($bookings as $booking) {
-            $promoter->afterRelease($booking);
-        }
+                Hold::withoutGlobalScope(TenantScope::class)
+                    ->whereIn('id', $holds->pluck('id'))
+                    ->delete();
 
-        $this->line('holds_purged='.$holds->count());
+                $bookings = Booking::withoutGlobalScope(TenantScope::class)
+                    ->whereIn('id', $bookingIds)
+                    ->get();
+
+                foreach ($bookings as $booking) {
+                    $promoter->afterRelease($booking);
+                }
+
+                $purged += $holds->count();
+
+                return true;
+            });
+
+        $this->line('holds_purged='.$purged);
 
         return self::SUCCESS;
     }

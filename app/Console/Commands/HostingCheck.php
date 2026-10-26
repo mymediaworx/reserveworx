@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Support\SchedulerHeartbeat;
+use App\Support\SharedHostBudget;
 use Illuminate\Console\Command;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
@@ -165,6 +166,7 @@ class HostingCheck extends Command
 
         $this->fact('queue_connection', is_string($connection) ? $connection : '');
         $this->fact('queue_work_max_time', is_numeric($maxTime) ? (string) (int) $maxTime : '');
+        $this->fact('shared_host_window', (string) SharedHostBudget::seconds());
 
         foreach ($schedule->events() as $event) {
             $command = $this->scheduledCommand($event);
