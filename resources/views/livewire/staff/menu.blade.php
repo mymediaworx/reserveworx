@@ -16,6 +16,7 @@
             <a href="/staff/incidents" wire:navigate><span class="app-circle"><x-icon name="alert" size="26" /></span>Incidents</a>
             <a href="/staff/maintenance" wire:navigate><span class="app-circle"><x-icon name="wrench" size="26" /></span>Maintenance</a>
             <a href="/staff/manifest" wire:navigate><span class="app-circle"><x-icon name="manifest" size="26" /></span>Manifest</a>
+            <a href="/staff/load-sheet" wire:navigate><span class="app-circle"><x-icon name="truck" size="26" /></span>Load sheet</a>
             <a href="/staff/reports" wire:navigate><span class="app-circle"><x-icon name="trending" size="26" /></span>Reports</a>
             <a href="/staff/waitlist" wire:navigate><span class="app-circle"><x-icon name="clock" size="26" /></span>Waitlist</a>
             <a href="/staff/share" wire:navigate><span class="app-circle"><x-icon name="share" size="26" /></span>Share & embed</a>

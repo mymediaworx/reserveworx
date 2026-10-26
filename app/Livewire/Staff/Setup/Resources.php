@@ -3,12 +3,18 @@
 namespace App\Livewire\Staff\Setup;
 
 use App\Enums\ResourceStatus;
+use App\Enums\ResourceType;
 use App\Enums\StaffUndoKind;
 use App\Livewire\Concerns\PresentsUndoToast;
 use App\Livewire\Concerns\WithinTenant;
+use App\Models\Allocation;
 use App\Models\Asset;
+use App\Models\FleetItem;
+use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Models\ResourceRequirement;
+use App\Models\ServiceVariantResource;
 use App\Services\Staff\StaffUndo;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\View\View;
@@ -37,6 +43,10 @@ class Resources extends Component
     public bool $isGuide = false;
 
     public int $turnaround = 0;
+
+    public string $fleetName = '';
+
+    public int $fleetQuantity = 1;
 
     public ?string $flash = null;
 
@@ -140,6 +150,70 @@ class Resources extends Component
         $this->flash = $name.' removed.';
     }
 
+    public function createFleet(): void
+    {
+        $this->authorize('create', FleetItem::class);
+        $this->validate([
+            'fleetName' => ['required', 'string', 'max:120'],
+            'fleetQuantity' => ['required', 'integer', 'between:0,100000'],
+        ]);
+
+        $item = FleetItem::query()->create([
+            'tenant_id' => $this->tenant()->id,
+            'name' => $this->fleetName,
+            'quantity' => $this->fleetQuantity,
+            'status' => ResourceStatus::Active,
+        ]);
+        $this->audit('fleet_item.created', $item, ['quantity' => $item->quantity]);
+        $this->reset('fleetName');
+        $this->fleetQuantity = 1;
+        $this->flash = 'Fleet item added. Mark a location as delivered from fleet, then link this item on a service.';
+    }
+
+    public function setFleetQuantity(string $id, int $quantity): void
+    {
+        $item = $this->fleetItem($id);
+        $this->authorize('update', $item);
+
+        if ($quantity < 0 || $quantity > 100000) {
+            $this->addError('fleet-'.$id, 'Enter a count between 0 and 100,000.');
+
+            return;
+        }
+
+        $item->quantity = $quantity;
+        $item->save();
+        $this->audit('fleet_item.updated', $item, ['quantity' => $quantity]);
+        $this->flash = 'Fleet count updated.';
+    }
+
+    public function deleteFleet(string $id): void
+    {
+        $item = $this->fleetItem($id);
+        $this->authorize('delete', $item);
+        $linked = ResourceRequirement::query()
+            ->where('resource_type', ResourceType::Fleet)
+            ->where('resource_id', $item->id)
+            ->exists()
+            || ServiceVariantResource::query()
+                ->where('resource_type', ResourceType::Fleet)
+                ->where('resource_id', $item->id)
+                ->exists()
+            || Allocation::query()->where('fleet_item_id', $item->id)->exists()
+            || Hold::query()->where('fleet_item_id', $item->id)->exists();
+
+        if ($linked) {
+            $this->addError('fleet-'.$id, 'That item is on a service or a booking, so it stays.');
+
+            return;
+        }
+
+        $name = $item->name;
+        $item->delete();
+        $this->audit('fleet_item.deleted', $item);
+        $this->flash = $name.' removed from the fleet.';
+    }
+
     public function render(): View
     {
         $locations = Location::query()->orderBy('name')->get();
@@ -152,9 +226,19 @@ class Resources extends Component
             'locations' => $locations,
             'pools' => Pool::query()->orderBy('name')->get()->groupBy('location_id'),
             'assets' => Asset::query()->orderBy('name')->get()->groupBy('location_id'),
+            'fleetItems' => FleetItem::query()->orderBy('name')->get(),
             'canManage' => $this->allows('inventory.manage'),
+            'canManageFleet' => auth()->user()?->can('create', FleetItem::class) ?? false,
             'statuses' => ResourceStatus::cases(),
         ])->title($this->tenant()->industry->catalog());
+    }
+
+    private function fleetItem(string $id): FleetItem
+    {
+        $item = FleetItem::query()->find($id);
+        abort_unless($item instanceof FleetItem, 404);
+
+        return $item;
     }
 
     private function resource(string $type, string $id): Asset|Pool

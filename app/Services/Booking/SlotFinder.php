@@ -3,6 +3,7 @@
 namespace App\Services\Booking;
 
 use App\Enums\DepartureStatus;
+use App\Enums\ResourceType;
 use App\Enums\ScheduleOwnerType;
 use App\Models\AvailabilitySchedule;
 use App\Models\Departure;
@@ -45,7 +46,7 @@ final class SlotFinder
      *
      * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
      */
-    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null): array
+    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null, bool $counterSale = false): array
     {
         $location = $service->location;
 
@@ -87,6 +88,7 @@ final class SlotFinder
                     null,
                     null,
                     null,
+                    counterSale: $counterSale,
                 ))['available'];
 
             $slots[] = [
@@ -205,6 +207,10 @@ final class SlotFinder
         }
 
         foreach ($service->requirements as $requirement) {
+            if ($requirement->resourceType() === ResourceType::Fleet) {
+                continue;
+            }
+
             $resource = $this->hours->assess($location, $start, $end, $requirement->resourceType()->value, $requirement->resourceId());
 
             if ($resource['closed']) {

@@ -39,6 +39,7 @@ class Booking extends Model
         'starts_at',
         'ends_at',
         'participants',
+        'counter_sale',
         'idempotency_key',
         'payload_hash',
     ];
@@ -51,6 +52,7 @@ class Booking extends Model
         'starts_at' => 'datetime',
         'ends_at' => 'datetime',
         'participants' => 'integer',
+        'counter_sale' => 'boolean',
     ];
 
     /**

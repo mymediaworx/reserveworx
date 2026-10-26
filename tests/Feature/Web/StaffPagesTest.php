@@ -65,6 +65,7 @@ class StaffPagesTest extends TestCase
             '/staff/check-in' => "Today's arrivals",
             '/staff/returns' => 'Due back today',
             '/staff/manifest' => 'Dispatch manifest',
+            '/staff/load-sheet' => 'Daily load sheet',
             '/staff/reports' => 'Daily summaries have not been built for this range yet.',
             '/staff/waitlist' => 'No one is waiting on this date.',
             '/staff/menu' => 'Set up your business',

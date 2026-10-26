@@ -7,6 +7,8 @@ use App\Enums\ResourceType;
 use App\Enums\ServiceKind;
 use App\Http\Controllers\Controller;
 use App\Models\Asset;
+use App\Models\FleetItem;
+use App\Models\Location;
 use App\Models\Pool;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
@@ -166,6 +168,19 @@ class ServiceController extends Controller
 
     private function assertResource(Service $service, ResourceType $type, string $id): void
     {
+        if ($type === ResourceType::Fleet) {
+            $fleetItem = FleetItem::query()->whereKey($id)->first();
+            $location = $service->location;
+
+            if (! $fleetItem instanceof FleetItem || ! $location instanceof Location || ! $location->delivered_from_fleet) {
+                throw ValidationException::withMessages([
+                    'resource_id' => 'That fleet item is not available at this location.',
+                ]);
+            }
+
+            return;
+        }
+
         $resource = match ($type) {
             ResourceType::Asset => Asset::query()->whereKey($id)->first(),
             ResourceType::Pool => Pool::query()->whereKey($id)->first(),

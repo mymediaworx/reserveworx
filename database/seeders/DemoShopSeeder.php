@@ -295,22 +295,30 @@ class DemoShopSeeder extends Seeder
 
     /**
      * One demo rental that is out right now. The booking covers the same four
-     * hours as the checkout: it started an hour ago and is due back in three.
+     * hours as the checkout. It starts an hour ago and is due back in three
+     * when that return is still inside the marina's hours. When it would pass
+     * closing, the return is at closing and the pickup is four hours earlier.
      * A rerun moves both forward together once the return is under an hour away
      * or when the booking and the checkout disagree.
      */
     private function rollingCheckout(Tenant $tenant): void
     {
-        $service = Service::query()->where('name', 'Tandem kayak rental')->first();
+        $service = Service::query()->with('location')->where('name', 'Tandem kayak rental')->first();
         $pool = Pool::query()->where('name', 'Tandem kayak')->first();
+        $location = $service?->location;
 
-        if (! $service instanceof Service || ! $pool instanceof Pool) {
+        if (! $service instanceof Service || ! $pool instanceof Pool || ! $location instanceof Location) {
             return;
         }
 
         $now = CarbonImmutable::now()->utc()->startOfMinute();
-        $start = $now->subHour();
-        $due = $start->addMinutes(240);
+        $window = $this->openCheckoutWindow($location, $now);
+
+        if ($window === null) {
+            return;
+        }
+
+        [$start, $due] = $window;
         $allocator = app(Allocator::class);
         $booking = Booking::query()->where('idempotency_key', self::DEMO_CHECKOUT_KEY)->first();
 
@@ -364,6 +372,74 @@ class DemoShopSeeder extends Seeder
         }
 
         $checkout->forceFill(['checked_out_at' => $start, 'due_at' => $due])->save();
+    }
+
+    /**
+     * A four-hour span that has already started and is still due, with the
+     * pickup and the return inside today's open window. A location with no
+     * hours keeps the hour-ago span. A closed shop has no such span.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}|null
+     */
+    private function openCheckoutWindow(Location $location, CarbonImmutable $now): ?array
+    {
+        $minutes = 240;
+        $zone = $location->timezone;
+        $localNow = $now->timezone($zone);
+        $start = $localNow->subHour();
+        $due = $start->addMinutes($minutes);
+        $hours = AvailabilitySchedule::query()
+            ->where('owner_type', ScheduleOwnerType::Location)
+            ->where('owner_id', $location->id)
+            ->where('weekday', $localNow->dayOfWeek)
+            ->get();
+
+        if ($hours->isEmpty()) {
+            return [$start->utc(), $due->utc()];
+        }
+
+        $row = $hours->first(function (AvailabilitySchedule $schedule) use ($localNow): bool {
+            $opens = $this->clock($schedule->opens_local);
+            $closes = $this->clock($schedule->closes_local);
+
+            return $closes > $opens
+                && $localNow->format('H:i:s') >= $opens
+                && $localNow->format('H:i:s') < $closes;
+        });
+
+        if (! $row instanceof AvailabilitySchedule) {
+            return null;
+        }
+
+        $opens = CarbonImmutable::parse($localNow->toDateString().' '.$this->clock($row->opens_local), $zone);
+        $closes = CarbonImmutable::parse($localNow->toDateString().' '.$this->clock($row->closes_local), $zone);
+
+        if ($due->greaterThan($closes)) {
+            $due = $closes;
+            $start = $due->subMinutes($minutes);
+        }
+
+        if ($start->lessThan($opens)) {
+            $start = $opens;
+            $due = $start->addMinutes($minutes);
+        }
+
+        if ($start->greaterThanOrEqualTo($localNow) || $due->lessThanOrEqualTo($localNow) || $due->greaterThan($closes) || $start->lessThan($opens)) {
+            return null;
+        }
+
+        return [$start->utc(), $due->utc()];
+    }
+
+    private function clock(mixed $value): string
+    {
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('H:i:s');
+        }
+
+        $text = (string) $value;
+
+        return strlen($text) === 5 ? $text.':00' : $text;
     }
 
     /**

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Allocation;
 
 use App\Models\Asset;
+use App\Models\FleetItem;
 use App\Models\Location;
 use App\Models\Pool;
 use App\Models\ResourceCategory;
@@ -32,6 +33,12 @@ class ConcurrencyTest extends TestCase
     {
         [$service] = $this->serviceOnPool(quantity: 2, units: 2);
         $this->contend($service, '2026-06-15T15:00:00Z', '2026-06-15T16:00:00Z', asset: false);
+    }
+
+    public function test_two_requests_for_the_last_fleet_unit(): void
+    {
+        $service = $this->serviceOnFleet();
+        $this->contendFleet($service, '2026-06-15T15:00:00Z', '2026-06-15T16:00:00Z');
     }
 
     public function test_a_tour_and_a_rental_compete_for_the_same_kayaks(): void
@@ -516,6 +523,109 @@ class ConcurrencyTest extends TestCase
             fn (int $unix): string => CarbonImmutable::parse('@'.$unix)->utc()->format('Y-m-d H:i:s'),
             app(BucketPlanner::class)->covering(CarbonImmutable::parse($startsAt), CarbonImmutable::parse($endsAt), 15),
         );
+    }
+
+    private function contendFleet(Service $service, string $startsAt, string $endsAt): void
+    {
+        $requirement = ResourceRequirement::withoutGlobalScope(TenantScope::class)
+            ->where('service_id', $service->id)
+            ->firstOrFail();
+        $resourceId = $requirement->resource_id;
+
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        DB::beginTransaction();
+        DB::statement('set innodb_lock_wait_timeout = 15');
+        DB::select('select id from fleet_items where id = ? for update', [$resourceId]);
+
+        $payload = tempnam(sys_get_temp_dir(), 'hold-');
+        $this->assertNotFalse($payload);
+        file_put_contents($payload, json_encode([
+            'tenant_id' => $service->tenant_id,
+            'service_id' => $service->id,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+            'participants' => 1,
+            'idempotency_key' => 'child-'.Str::lower(Str::random(8)),
+        ], JSON_THROW_ON_ERROR));
+
+        $bookingsBefore = DB::table('bookings')->count();
+        $process = new Process(
+            [PHP_BINARY, base_path('tests/Support/concurrent_hold.php'), $payload],
+            base_path(),
+            $this->childEnvironment(),
+        );
+        $process->setTimeout(30);
+        $started = microtime(true);
+        $process->start();
+        $waited = $this->waitForLock($process, $started);
+
+        $bookingId = (string) Str::ulid();
+        DB::table('bookings')->insert([
+            'id' => $bookingId,
+            'tenant_id' => $service->tenant_id,
+            'location_id' => $service->location_id,
+            'service_id' => $service->id,
+            'status' => 'confirmed',
+            'payment_status' => 'unpaid',
+            'operational_status' => 'not_arrived',
+            'starts_at' => CarbonImmutable::parse($startsAt)->utc()->format('Y-m-d H:i:s'),
+            'ends_at' => CarbonImmutable::parse($endsAt)->utc()->format('Y-m-d H:i:s'),
+            'participants' => 1,
+            'idempotency_key' => 'winner-'.Str::lower(Str::random(8)),
+            'payload_hash' => str_repeat('b', 64),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('allocations')->insert([
+            'id' => (string) Str::ulid(),
+            'tenant_id' => $service->tenant_id,
+            'booking_id' => $bookingId,
+            'fleet_item_id' => $resourceId,
+            'quantity' => 1,
+            'starts_at' => CarbonImmutable::parse($startsAt)->utc()->format('Y-m-d H:i:s'),
+            'ends_at' => CarbonImmutable::parse($endsAt)->utc()->format('Y-m-d H:i:s'),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::commit();
+        DB::statement('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+
+        $process->wait();
+        @unlink($payload);
+
+        $this->assertTrue($waited, 'The second connection did not wait on the fleet row. '.$process->getOutput().$process->getErrorOutput());
+        $this->assertSame(2, $process->getExitCode(), $process->getOutput().$process->getErrorOutput());
+        $this->assertSame($bookingsBefore + 1, DB::table('bookings')->count());
+        $this->assertLessThanOrEqual(1, (int) DB::table('allocations')->where('fleet_item_id', $resourceId)->sum('quantity'));
+    }
+
+    private function serviceOnFleet(): Service
+    {
+        $workspace = $this->workspace('fleet.test');
+        $location = Location::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'timezone' => 'UTC',
+            'delivered_from_fleet' => true,
+        ]);
+        $item = FleetItem::factory()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'quantity' => 1,
+        ]);
+        $service = Service::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'location_id' => $location->id,
+            'name' => 'Fleet rental',
+            'kind' => 'rental',
+        ]);
+        ResourceRequirement::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'service_id' => $service->id,
+            'resource_type' => 'fleet',
+            'resource_id' => $item->id,
+            'quantity' => 1,
+        ]);
+
+        return $service;
     }
 
     /**

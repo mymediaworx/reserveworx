@@ -118,13 +118,14 @@
                 </ul>
             @endif
             @if ($canManage)
-                @if ($pools->isEmpty() && $assets->isEmpty())
+                @if ($pools->isEmpty() && $assets->isEmpty() && $fleetItems->isEmpty())
                     <p class="muted">There is no gear at {{ $service->location?->name }} yet. <a href="/staff/setup/resources" wire:navigate>Add gear</a>.</p>
                 @else
                     <form wire:submit="addRequirement" class="form-row top-gap">
                         <label class="field compact grow"><span>Gear</span>
                             <select wire:model="requirementResource" required>
                                 <option value="">Choose</option>
+                                @foreach ($fleetItems as $item)<option value="fleet:{{ $item->id }}">{{ $item->name }} (fleet {{ $item->quantity }})</option>@endforeach
                                 @foreach ($pools as $pool)<option value="pool:{{ $pool->id }}">{{ $pool->name }} ({{ $pool->quantity }})</option>@endforeach
                                 @foreach ($assets as $asset)<option value="asset:{{ $asset->id }}">{{ $asset->name }}</option>@endforeach
                             </select>

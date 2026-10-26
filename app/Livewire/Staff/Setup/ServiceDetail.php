@@ -10,6 +10,7 @@ use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
 use App\Models\CorporateAccount;
 use App\Models\Departure;
+use App\Models\FleetItem;
 use App\Models\Pool;
 use App\Models\PriceRule;
 use App\Models\ResourceRequirement;
@@ -148,25 +149,40 @@ class ServiceDetail extends Component
     {
         $service = $this->editable();
         $this->validate([
-            'requirementResource' => ['required', 'string', 'regex:/^(asset|pool):[0-9A-Za-z]+$/'],
+            'requirementResource' => ['required', 'string', 'regex:/^(asset|pool|fleet):[0-9A-Za-z]+$/'],
             'requirementQuantity' => ['required', 'integer', 'min:1'],
             'requirementPer' => ['nullable', 'integer', 'min:1'],
         ]);
         [$type, $id] = explode(':', $this->requirementResource, 2);
         $resourceType = ResourceType::from($type);
-        $resource = $resourceType === ResourceType::Asset ? Asset::query()->find($id) : Pool::query()->find($id);
 
-        if ($resource === null || $resource->location_id !== $service->location_id) {
-            $this->addError('requirementResource', 'That gear is not at this service’s location.');
+        if ($resourceType === ResourceType::Fleet) {
+            $fleetItem = FleetItem::query()->find($id);
 
-            return;
+            if (! $fleetItem instanceof FleetItem || ! $service->location?->delivered_from_fleet) {
+                $this->addError('requirementResource', 'That fleet item is not available at this location.');
+
+                return;
+            }
+
+            $resourceId = $fleetItem->id;
+        } else {
+            $resource = $resourceType === ResourceType::Asset ? Asset::query()->find($id) : Pool::query()->find($id);
+
+            if ($resource === null || $resource->location_id !== $service->location_id) {
+                $this->addError('requirementResource', 'That gear is not at this service’s location.');
+
+                return;
+            }
+
+            $resourceId = $resource->id;
         }
 
         $requirement = ResourceRequirement::query()->create([
             'tenant_id' => $this->tenant()->id,
             'service_id' => $service->id,
             'resource_type' => $resourceType,
-            'resource_id' => $resource->id,
+            'resource_id' => $resourceId,
             'quantity' => $this->requirementQuantity,
             'per_participants' => $this->requirementPer,
         ]);
@@ -292,7 +308,12 @@ class ServiceDetail extends Component
             'accounts' => CorporateAccount::query()->where('active', true)->orderBy('name')->get(),
             'pools' => Pool::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
             'assets' => Asset::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
-            'resourceNames' => Pool::query()->pluck('name', 'id')->union(Asset::query()->pluck('name', 'id')),
+            'fleetItems' => $service->location?->delivered_from_fleet
+                ? FleetItem::query()->orderBy('name')->get()
+                : collect(),
+            'resourceNames' => Pool::query()->pluck('name', 'id')
+                ->union(Asset::query()->pluck('name', 'id'))
+                ->union(FleetItem::query()->pluck('name', 'id')),
             'departures' => $service->kind === ServiceKind::Tour
                 ? Departure::query()->where('service_id', $service->id)->where('starts_at', '>=', now()->subDay())->orderBy('starts_at')->limit(30)->get()
                 : collect(),

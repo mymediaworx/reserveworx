@@ -130,6 +130,7 @@ class NewBooking extends Component
             $this->customerEmail !== '' ? $this->customerEmail : null,
             $departureId,
             $guideUserId,
+            counterSale: true,
             corporateAccountId: $accountId,
         );
 
@@ -214,6 +215,7 @@ class NewBooking extends Component
             $this->customerEmail !== '' ? $this->customerEmail : null,
             $departureId,
             $guideUserId,
+            counterSale: true,
             corporateAccountId: $accountId,
         );
 
@@ -289,7 +291,7 @@ class NewBooking extends Component
             if ($service->kind === ServiceKind::Tour) {
                 $departures = $slots->departures($service, $this->date);
             } elseif ($this->durationMinutes > 0) {
-                $times = $slots->rentalSlots($service, $this->date, $this->durationMinutes, max(1, $this->participants));
+                $times = $slots->rentalSlots($service, $this->date, $this->durationMinutes, max(1, $this->participants), counterSale: true);
             }
         }
 
