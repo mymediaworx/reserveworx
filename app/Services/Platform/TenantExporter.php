@@ -28,6 +28,7 @@ use App\Models\Hold;
 use App\Models\Incident;
 use App\Models\IncidentPhoto;
 use App\Models\InspectionSchedule;
+use App\Models\IntegrationLog;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
 use App\Models\LocationTaxRule;
@@ -326,6 +327,7 @@ class TenantExporter
             BookingReminder::class,
             NotificationHook::class,
             IntegrationOutbox::class,
+            IntegrationLog::class,
             GhlConnection::class,
             GhlSyncLog::class,
             GhlMessageLog::class,
