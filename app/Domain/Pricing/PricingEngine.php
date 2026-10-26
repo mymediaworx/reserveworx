@@ -42,6 +42,7 @@ final class PricingEngine
         array $operatorFeeDefinitions = [],
         array $locationTaxRules = [],
         bool $taxBookingFee = false,
+        ?string $corporateAccountId = null,
     ): PricedBooking {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -67,6 +68,7 @@ final class PricingEngine
             $taxBasisPoints,
             $percentOff,
             $amountOffCents,
+            $corporateAccountId,
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
@@ -112,9 +114,9 @@ final class PricingEngine
      *
      * @param  list<PriceRuleInput>  $rules
      */
-    public function serviceCents(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): int
+    public function serviceCents(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on, ?string $corporateAccountId = null): int
     {
-        [$services] = $this->components($rules, $participants, $durationMinutes, $on, 0, null, null);
+        [$services] = $this->components($rules, $participants, $durationMinutes, $on, 0, null, null, $corporateAccountId);
 
         return $services;
     }
@@ -157,6 +159,7 @@ final class PricingEngine
         array $locationTaxRules = [],
         bool $taxBookingFee = false,
         int $quotedCustomerFeeCents = 0,
+        ?string $corporateAccountId = null,
     ): PriceIncrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -170,6 +173,7 @@ final class PricingEngine
             $taxBasisPoints,
             $percentOff,
             $amountOffCents,
+            $corporateAccountId,
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
@@ -250,6 +254,7 @@ final class PricingEngine
         array $locationTaxRules = [],
         bool $taxBookingFee = false,
         int $quotedCustomerFeeCents = 0,
+        ?string $corporateAccountId = null,
     ): PriceDecrease {
         if ($quotedAddOnsCents < 0 || $addOnsCents < 0) {
             throw new InvalidArgumentException('Add-ons must not be negative.');
@@ -263,6 +268,7 @@ final class PricingEngine
             $taxBasisPoints,
             $percentOff,
             $amountOffCents,
+            $corporateAccountId,
         );
         $operatorLines = OperatorFeeCharge::lines($operatorFeeDefinitions, $participants, $services);
         $operatorCents = OperatorFeeCharge::cents($operatorLines);
@@ -381,6 +387,7 @@ final class PricingEngine
         int $taxBasisPoints,
         ?int $percentOff,
         ?int $amountOffCents,
+        ?string $corporateAccountId = null,
     ): array {
         if ($participants < 1) {
             throw new InvalidArgumentException('A party needs at least one person.');
@@ -394,6 +401,7 @@ final class PricingEngine
         $matched = false;
         $timeWindows = [];
         $partyBands = [];
+        $usedCorporate = false;
         $peakPresent = false;
 
         foreach ($rules as $rule) {
@@ -404,13 +412,32 @@ final class PricingEngine
         }
 
         if ($peakPresent) {
-            [$services, $matched, $timeWindows, $partyBands] = $this->pricedWithPeaks($rules, $participants, $durationMinutes, $on);
+            [$services, $matched, $timeWindows, $partyBands, $usedCorporate] = $this->pricedWithPeaks(
+                $rules,
+                $participants,
+                $durationMinutes,
+                $on,
+                $corporateAccountId,
+            );
         } else {
-            [$services, $matched, $partyBands] = $this->pricedFlat($rules, $participants, $durationMinutes, $on);
+            [$services, $matched, $partyBands, $usedCorporate] = $this->pricedFlat(
+                $rules,
+                $participants,
+                $durationMinutes,
+                $on,
+                $corporateAccountId,
+            );
         }
 
         if (! $matched) {
             throw new InvalidArgumentException('This service has no price for that date.');
+        }
+
+        $percentRule = $this->winningPercentOff($rules, $participants, $durationMinutes, $on, $corporateAccountId, $usedCorporate);
+
+        if ($percentRule !== null && $percentRule->percentOff !== null) {
+            $services -= Rounding::basisPointsOf($services, $percentRule->percentOff * 100);
+            $partyBands[] = $percentRule->partyBandSnapshot();
         }
 
         $discount = 0;
@@ -431,58 +458,82 @@ final class PricingEngine
     /**
      * A party-size price replaces every open price of the same kind. Overlapping
      * sizes keep the higher minimum, then the narrower maximum, then the earlier rule.
+     * A named corporate rate of that kind replaces the public rate when the quote
+     * names that account. A percent off is applied later, to the service total.
      *
      * @param  list<PriceRuleInput>  $rules
-     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>}
+     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>, 3: bool}
      */
-    private function pricedFlat(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): array
+    private function pricedFlat(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on, ?string $corporateAccountId = null): array
     {
-        /** @var array<string, int> $open */
-        $open = [];
-        /** @var array<string, true> $openMatched */
-        $openMatched = [];
-        /** @var array<string, list<array{index: int, rule: PriceRuleInput}>> $bands */
-        $bands = [];
+        /** @var array<string, array<string, int>> $open */
+        $open = ['public' => [], 'corporate' => []];
+        /** @var array<string, array<string, true>> $openMatched */
+        $openMatched = ['public' => [], 'corporate' => []];
+        /** @var array<string, array<string, list<array{index: int, rule: PriceRuleInput}>>> $bands */
+        $bands = ['public' => [], 'corporate' => []];
+        /** @var array<string, list<PriceRuleInput>> $corporateOpen */
+        $corporateOpen = [];
 
         foreach ($rules as $index => $rule) {
-            if (! $rule->applies($on, $durationMinutes)) {
+            if ($rule->percentOff !== null) {
+                continue;
+            }
+
+            $scope = $this->accountScope($rule, $corporateAccountId);
+
+            if ($scope === 'other' || ! $rule->applies($on, $durationMinutes)) {
                 continue;
             }
 
             if ($rule->hasPartyBand()) {
                 if ($rule->containsParty($participants)) {
-                    $bands[$rule->kind][] = ['index' => $index, 'rule' => $rule];
+                    $bands[$scope][$rule->kind][] = ['index' => $index, 'rule' => $rule];
                 }
 
                 continue;
             }
 
-            $open[$rule->kind] = ($open[$rule->kind] ?? 0) + $rule->amountCents;
-            $openMatched[$rule->kind] = true;
+            $open[$scope][$rule->kind] = ($open[$scope][$rule->kind] ?? 0) + $rule->amountCents;
+            $openMatched[$scope][$rule->kind] = true;
+
+            if ($scope === 'corporate') {
+                $corporateOpen[$rule->kind][] = $rule;
+            }
         }
 
         $services = 0;
         $matched = false;
         $partyBands = [];
+        $usedCorporate = false;
 
         foreach (['base', 'per_person', 'duration'] as $kind) {
-            $winner = $this->winningParty($bands[$kind] ?? []);
+            [$amount, $kindMatched, $band, $corporate, $openRules] = $this->chooseKindAmount(
+                $kind,
+                $bands,
+                $open,
+                $openMatched,
+                $corporateOpen,
+            );
 
-            if ($winner !== null) {
-                $matched = true;
-                $amount = $winner->amountCents;
-                $partyBands[] = $winner->partyBandSnapshot();
-            } elseif ($openMatched[$kind] ?? false) {
-                $matched = true;
-                $amount = $open[$kind] ?? 0;
-            } else {
+            if (! $kindMatched) {
                 continue;
             }
 
+            $matched = true;
+            $usedCorporate = $usedCorporate || $corporate;
             $services += $kind === 'per_person' ? $amount * $participants : $amount;
+
+            if ($band !== null) {
+                $partyBands[] = $band->partyBandSnapshot();
+            }
+
+            foreach ($openRules as $openRule) {
+                $partyBands[] = $openRule->partyBandSnapshot();
+            }
         }
 
-        return [$services, $matched, $partyBands];
+        return [$services, $matched, $partyBands, $usedCorporate];
     }
 
     /**
@@ -494,12 +545,13 @@ final class PricingEngine
      *
      * A party-size price replaces the open rate of that kind. Minutes inside a
      * clock window still use the winning peak. The party size is recorded when
-     * at least one minute uses that open rate.
+     * at least one minute uses that open rate. A corporate rate is recorded
+     * only when at least one minute uses it.
      *
      * @param  list<PriceRuleInput>  $rules
-     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>, 3: list<array<string, mixed>>}
+     * @return array{0: int, 1: bool, 2: list<array<string, mixed>>, 3: list<array<string, mixed>>, 4: bool}
      */
-    private function pricedWithPeaks(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on): array
+    private function pricedWithPeaks(array $rules, int $participants, int $durationMinutes, CarbonImmutable $on, ?string $corporateAccountId = null): array
     {
         if ($durationMinutes < 1) {
             throw new InvalidArgumentException('Choose a valid interval.');
@@ -509,6 +561,10 @@ final class PricingEngine
         $kinds = ['base' => [], 'per_person' => [], 'duration' => []];
 
         foreach ($rules as $index => $rule) {
+            if ($rule->percentOff !== null || $this->accountScope($rule, $corporateAccountId) === 'other') {
+                continue;
+            }
+
             $kinds[$rule->kind][] = ['index' => $index, 'rule' => $rule];
         }
 
@@ -516,27 +572,38 @@ final class PricingEngine
         $matched = false;
         $windows = [];
         $partyBands = [];
+        $usedCorporate = false;
         $startUtc = $on->utc();
         $timezone = $on->getTimezone();
 
         foreach ($kinds as $kind => $indexed) {
-            $openAmount = 0;
-            $openMatched = false;
+            /** @var array<string, array<string, int>> $open */
+            $open = ['public' => [], 'corporate' => []];
+            /** @var array<string, array<string, true>> $openMatchedFlags */
+            $openMatchedFlags = ['public' => [], 'corporate' => []];
+            /** @var array<string, array<string, list<array{index: int, rule: PriceRuleInput}>>> $bands */
+            $bands = ['public' => [], 'corporate' => []];
+            /** @var array<string, list<PriceRuleInput>> $corporateOpen */
+            $corporateOpen = [];
             $peaks = [];
-            $bandRows = [];
 
             foreach ($indexed as $row) {
                 $rule = $row['rule'];
+                $scope = $this->accountScope($rule, $corporateAccountId);
 
                 if ($rule->hasPartyBand()) {
                     if ($rule->applies($on, $durationMinutes) && $rule->containsParty($participants)) {
-                        $bandRows[] = $row;
+                        $bands[$scope][$kind][] = $row;
                     }
 
                     continue;
                 }
 
                 if ($rule->hasTimeWindow()) {
+                    if ($scope !== 'public') {
+                        continue;
+                    }
+
                     if ($rule->kind === 'duration' && $rule->durationMinutes !== $durationMinutes) {
                         continue;
                     }
@@ -547,17 +614,22 @@ final class PricingEngine
                 }
 
                 if ($rule->applies($on, $durationMinutes)) {
-                    $openMatched = true;
-                    $openAmount += $rule->amountCents;
+                    $open[$scope][$kind] = ($open[$scope][$kind] ?? 0) + $rule->amountCents;
+                    $openMatchedFlags[$scope][$kind] = true;
+
+                    if ($scope === 'corporate') {
+                        $corporateOpen[$kind][] = $rule;
+                    }
                 }
             }
 
-            $band = $this->winningParty($bandRows);
-
-            if ($band !== null) {
-                $openMatched = true;
-                $openAmount = $band->amountCents;
-            }
+            [$openAmount, $openMatched, $band, $corporate, $openRules] = $this->chooseKindAmount(
+                $kind,
+                $bands,
+                $open,
+                $openMatchedFlags,
+                $corporateOpen,
+            );
 
             if ($peaks === []) {
                 if (! $openMatched) {
@@ -565,10 +637,15 @@ final class PricingEngine
                 }
 
                 $matched = true;
+                $usedCorporate = $usedCorporate || $corporate;
                 $services += $kind === 'per_person' ? $openAmount * $participants : $openAmount;
 
                 if ($band !== null) {
                     $partyBands[] = $band->partyBandSnapshot();
+                }
+
+                foreach ($openRules as $openRule) {
+                    $partyBands[] = $openRule->partyBandSnapshot();
                 }
 
                 continue;
@@ -620,12 +697,117 @@ final class PricingEngine
                 $windows[] = $row['rule']->timeWindowSnapshot($peakMinutes[$position]);
             }
 
-            if ($band !== null && $openMinutes > 0) {
-                $partyBands[] = $band->partyBandSnapshot();
+            if ($corporate && $openMinutes > 0) {
+                $usedCorporate = true;
+            }
+
+            if ($openMinutes > 0) {
+                if ($band !== null) {
+                    $partyBands[] = $band->partyBandSnapshot();
+                }
+
+                foreach ($openRules as $openRule) {
+                    $partyBands[] = $openRule->partyBandSnapshot();
+                }
             }
         }
 
-        return [$services, $matched, $windows, $partyBands];
+        return [$services, $matched, $windows, $partyBands, $usedCorporate];
+    }
+
+    private function accountScope(PriceRuleInput $rule, ?string $corporateAccountId): string
+    {
+        if ($rule->corporateAccountId === null) {
+            return 'public';
+        }
+
+        if ($corporateAccountId !== null && $rule->corporateAccountId === $corporateAccountId) {
+            return 'corporate';
+        }
+
+        return 'other';
+    }
+
+    /**
+     * A matching corporate rate of this kind replaces the public rate, even when
+     * the public party band has a higher minimum. Open corporate rules are
+     * recorded only when no corporate party band won.
+     *
+     * @param  array<string, array<string, list<array{index: int, rule: PriceRuleInput}>>>  $bands
+     * @param  array<string, array<string, int>>  $open
+     * @param  array<string, array<string, true>>  $openMatched
+     * @param  array<string, list<PriceRuleInput>>  $corporateOpen
+     * @return array{0: int, 1: bool, 2: ?PriceRuleInput, 3: bool, 4: list<PriceRuleInput>}
+     */
+    private function chooseKindAmount(string $kind, array $bands, array $open, array $openMatched, array $corporateOpen): array
+    {
+        $corporateBand = $this->winningParty($bands['corporate'][$kind] ?? []);
+
+        if ($corporateBand !== null) {
+            return [$corporateBand->amountCents, true, $corporateBand, true, []];
+        }
+
+        if ($openMatched['corporate'][$kind] ?? false) {
+            return [$open['corporate'][$kind] ?? 0, true, null, true, $corporateOpen[$kind] ?? []];
+        }
+
+        $publicBand = $this->winningParty($bands['public'][$kind] ?? []);
+
+        if ($publicBand !== null) {
+            return [$publicBand->amountCents, true, $publicBand, false, []];
+        }
+
+        if ($openMatched['public'][$kind] ?? false) {
+            return [$open['public'][$kind] ?? 0, true, null, false, []];
+        }
+
+        return [0, false, null, false, []];
+    }
+
+    /**
+     * A matching corporate percent replaces a public one. A public percent is
+     * left off when a corporate dollar rate was actually used.
+     *
+     * @param  list<PriceRuleInput>  $rules
+     */
+    private function winningPercentOff(
+        array $rules,
+        int $participants,
+        int $durationMinutes,
+        CarbonImmutable $on,
+        ?string $corporateAccountId,
+        bool $usedCorporate,
+    ): ?PriceRuleInput {
+        /** @var list<array{index: int, rule: PriceRuleInput}> $corporate */
+        $corporate = [];
+        /** @var list<array{index: int, rule: PriceRuleInput}> $public */
+        $public = [];
+
+        foreach ($rules as $index => $rule) {
+            if ($rule->percentOff === null || ! $rule->applies($on, $durationMinutes) || ! $rule->containsParty($participants)) {
+                continue;
+            }
+
+            $scope = $this->accountScope($rule, $corporateAccountId);
+
+            if ($scope === 'corporate') {
+                $corporate[] = ['index' => $index, 'rule' => $rule];
+            } elseif ($scope === 'public') {
+                $public[] = ['index' => $index, 'rule' => $rule];
+            }
+        }
+
+        $corporateWinner = $this->winningParty($corporate);
+
+        if ($corporateWinner !== null) {
+            return $corporateWinner;
+        }
+
+        if ($usedCorporate) {
+            return null;
+        }
+
+        return $this->winningParty($public);
     }
 
     /**

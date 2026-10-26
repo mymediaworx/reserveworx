@@ -17,6 +17,7 @@ use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
 use App\Models\CapacityLedger;
+use App\Models\CorporateAccount;
 use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Hold;
@@ -42,6 +43,7 @@ use App\Services\Webhooks\WebhookPublisher;
 use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\StaffLocationScope;
 use App\Tenancy\TenantManager;
+use App\Tenancy\TenantScope;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -1276,6 +1278,7 @@ class Allocator
             'departure_id' => $intent->departureId,
             'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $this->customerId($intent),
+            'corporate_account_id' => $this->corporateAccountId($intent),
             'status' => BookingStatus::Held,
             'payment_status' => PaymentStatus::Unpaid,
             'operational_status' => OperationalStatus::NotArrived,
@@ -1551,6 +1554,7 @@ class Allocator
             'departure_id' => $this->presentId($intent->departureId),
             'guide_user_id' => $this->presentId($intent->guideUserId),
             'customer_id' => $customerId,
+            'corporate_account_id' => $this->corporateAccountId($intent),
             'status' => $status,
             'payment_status' => PaymentStatus::Unpaid,
             'operational_status' => OperationalStatus::NotArrived,
@@ -1708,6 +1712,27 @@ class Allocator
         $settings = TenantSetting::query()->where('tenant_id', $tenantId)->first();
 
         return $settings instanceof TenantSetting ? $settings->ledger_bucket_minutes : 15;
+    }
+
+    private function corporateAccountId(AllocationIntent $intent): ?string
+    {
+        $id = $intent->corporateAccountId;
+
+        if ($id === null || $id === '') {
+            return null;
+        }
+
+        $account = CorporateAccount::query()
+            ->withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $intent->tenantId)
+            ->where('active', true)
+            ->find($id);
+
+        if (! $account instanceof CorporateAccount) {
+            throw new AllocationUnavailableException('That corporate account is not available.');
+        }
+
+        return $account->id;
     }
 
     private function customerId(AllocationIntent $intent): ?string

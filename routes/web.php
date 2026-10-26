@@ -45,6 +45,7 @@ use App\Livewire\Staff\Reports;
 use App\Livewire\Staff\Returns;
 use App\Livewire\Staff\Schedule;
 use App\Livewire\Staff\Settings;
+use App\Livewire\Staff\Setup\CorporateAccounts;
 use App\Livewire\Staff\Setup\Locations;
 use App\Livewire\Staff\Setup\PromoCodes;
 use App\Livewire\Staff\Setup\Resources;
@@ -146,6 +147,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/setup/services', Services::class);
         Route::get('/setup/services/{service}', ServiceDetail::class);
         Route::get('/promo-codes', PromoCodes::class);
+        Route::get('/corporate-accounts', CorporateAccounts::class);
         Route::get('/import/templates/{type}', StaffImportTemplateController::class)
             ->where('type', 'customers|inventory');
         Route::get('/import', Import::class);

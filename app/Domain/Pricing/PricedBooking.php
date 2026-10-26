@@ -50,6 +50,7 @@ final readonly class PricedBooking
             'deposit_was_raised' => $this->payment->depositWasRaised(),
             'time_windows' => $this->timeWindows,
             'party_bands' => $this->partyBands,
+            'group_rules' => GroupPriceCopy::rules($this->partyBands),
         ];
 
         if ($this->taxLines !== []) {

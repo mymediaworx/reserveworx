@@ -18,7 +18,17 @@
         $serviceCents = is_numeric($priced['services_cents'] ?? null) ? (int) $priced['services_cents'] : 0;
         $discountCents = is_numeric($priced['discount_cents'] ?? null) ? (int) $priced['discount_cents'] : 0;
         $promoCode = is_string($priced['promo_code'] ?? null) ? $priced['promo_code'] : '';
+        $groupBands = is_array($priced['party_bands'] ?? null) ? $priced['party_bands'] : [];
+        $groupDetail = \App\Domain\Pricing\GroupPriceCopy::detail($groupBands, $booking->corporate_account_id === null);
+        $groupPrice = $groupDetail === null ? null : [
+            'label' => \App\Domain\Pricing\GroupPriceCopy::label($groupBands),
+            'detail' => $groupDetail,
+            'total_cents' => (int) ($priced['customer_total_cents'] ?? 0),
+            'currency' => $snapshot->currency,
+            'fee_included' => is_numeric($priced['customer_fee_line_cents'] ?? null) && (int) $priced['customer_fee_line_cents'] > 0,
+        ];
     @endphp
+    @include('widget.partials.group-price')
     @include('widget.partials.priced-lines', [
         'serviceName' => $booking->service?->name,
         'serviceCents' => $serviceCents,

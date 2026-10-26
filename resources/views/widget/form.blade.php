@@ -4,6 +4,7 @@
 @section('content')
     <p><a href="{{ url('/book/'.$token) }}">All services</a></p>
     <h1>{{ $service->name }}</h1>
+    @include('widget.partials.group-price')
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
     @endif
@@ -54,6 +55,14 @@
         </div>
     @endif
     @if ($service->kind->value === 'tour')
+        @if ($hasPublicGroupTier ?? false)
+            <form method="get" action="{{ url('/book/'.$token.'/services/'.$service->id) }}" class="time-finder">
+                <label>Party size
+                    <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? '' }}">
+                </label>
+                <button type="submit">Show group price</button>
+            </form>
+        @endif
         <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id) }}">
             @if ($departureChoices === [])
                 <p>No upcoming departures. Check back when a departure is scheduled.</p>

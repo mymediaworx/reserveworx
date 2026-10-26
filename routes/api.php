@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\BookingReminderOffsetController;
 use App\Http\Controllers\Api\V1\BrandingLogoController;
 use App\Http\Controllers\Api\V1\CancellationPolicyController;
+use App\Http\Controllers\Api\V1\CorporateAccountController;
 use App\Http\Controllers\Api\V1\CurrentTenantController;
 use App\Http\Controllers\Api\V1\CustomerAccountController;
 use App\Http\Controllers\Api\V1\CustomerBookingController;
@@ -166,6 +167,9 @@ Route::prefix('v1')->group(function (): void {
             Route::patch('/services/{service}/variants/{service_variant}', [ServiceVariantController::class, 'update']);
             Route::delete('/services/{service}/variants/{service_variant}', [ServiceVariantController::class, 'destroy']);
             Route::post('/services/{service}/prices', [PricingController::class, 'storeRule']);
+            Route::get('/corporate-accounts', [CorporateAccountController::class, 'index']);
+            Route::post('/corporate-accounts', [CorporateAccountController::class, 'store']);
+            Route::patch('/corporate-accounts/{corporate_account}', [CorporateAccountController::class, 'update']);
             Route::post('/promo-codes', [PricingController::class, 'storePromo']);
             Route::get('/availability', [AvailabilityController::class, 'show'])->middleware('throttle:availability');
             Route::get('/calendar', [BookingController::class, 'calendar']);

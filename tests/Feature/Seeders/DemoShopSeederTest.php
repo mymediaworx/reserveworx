@@ -32,8 +32,19 @@ class DemoShopSeederTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // Harbor is open 08:00–20:00 America/New_York. The sample checkout starts
+        // an hour ago and lasts four hours, so this afternoon keeps the return
+        // inside those hours no matter when the suite runs.
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-26 18:00:00', 'UTC'));
+    }
+
     protected function tearDown(): void
     {
+        CarbonImmutable::setTestNow();
         app(TenantManager::class)->forget();
         parent::tearDown();
     }

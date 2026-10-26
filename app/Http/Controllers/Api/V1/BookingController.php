@@ -9,6 +9,7 @@ use App\Enums\ReturnCondition;
 use App\Http\Controllers\Controller;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\CorporateAccount;
 use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\Membership;
@@ -91,6 +92,7 @@ class BookingController extends Controller
             'add_ons' => ['sometimes', 'array', 'max:20'],
             'add_ons.*.id' => ['required', 'string', 'distinct'],
             'add_ons.*.quantity' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'corporate_account_id' => ['nullable', 'string'],
         ]);
 
         $header = $request->headers->get('Idempotency-Key');
@@ -154,6 +156,7 @@ class BookingController extends Controller
             $this->customerPhone($validated['customer_phone'] ?? null),
             $addOns,
             $variantId,
+            corporateAccountId: $this->corporateAccountId($validated['corporate_account_id'] ?? null),
         );
 
         try {
@@ -685,6 +688,7 @@ class BookingController extends Controller
         return [
             'id' => $booking->id,
             'customer_id' => $booking->customer_id,
+            'corporate_account_id' => $booking->corporate_account_id,
             'customer' => $this->customerPayload($booking),
             'service_id' => $booking->service_id,
             'variant_id' => $booking->service_variant_id,
@@ -754,6 +758,23 @@ class BookingController extends Controller
         }
 
         return $variant->id;
+    }
+
+    private function corporateAccountId(mixed $id): ?string
+    {
+        if (! is_string($id) || $id === '') {
+            return null;
+        }
+
+        $account = CorporateAccount::query()->where('active', true)->find($id);
+
+        if (! $account instanceof CorporateAccount) {
+            throw ValidationException::withMessages([
+                'corporate_account_id' => 'That corporate account is not available.',
+            ]);
+        }
+
+        return $account->id;
     }
 
     private function customerPhone(mixed $phone): ?string
