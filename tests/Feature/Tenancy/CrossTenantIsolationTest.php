@@ -100,6 +100,8 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/reports/operations'],
             ['GET', '/api/v1/reports/operations/export'],
             ['GET', '/api/v1/integrations/outbox'],
+            ['POST', '/api/v1/integrations/ghl-syncs/'.$beta['membership']->id.'/retry'],
+            ['POST', '/api/v1/integrations/ghl-messages/'.$beta['membership']->id.'/retry'],
             ['GET', '/api/v1/webhook-endpoints'],
             ['POST', '/api/v1/webhook-endpoints'],
             ['GET', '/api/v1/webhook-endpoints/'.$beta['membership']->id],

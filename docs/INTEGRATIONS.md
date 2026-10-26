@@ -85,6 +85,8 @@ Spec Section 10 sends confirmations, receipts, reminders, cancellations, refunds
 
 No link leaves the existing email path alone. A linked confirmation or reminder is not also emailed. Turning the matching transactional message off records a skip and does not send. A GoHighLevel failure stays in the worker. The generic outbox still does not call HighLevel.
 
+A contact sync or a customer message that has failed on its fifth try can be queued once more. The owner or manager uses **Try again** on `/admin/integrations`, or `POST /api/v1/integrations/ghl-syncs/{id}/retry` and `POST /api/v1/integrations/ghl-messages/{id}/retry`. `settings.update` is required. Staff with only `settings.view` can see the row and cannot send it. A try below five, a message that is already queued, a sync that already has a later try, and a workspace that is not linked are refused. The contact-sync retry writes one skipped `ghl_sync_logs` row, `Retry queued.`, so a second request does not dispatch again before the worker runs. The booking, its price, its payments, and its refunds are not changed. The response and the audit row do not include the private integration token.
+
 The send-message schema was read on October 26, 2026 from https://marketplace.gohighlevel.com/docs/ghl/conversations/send-a-new-message/index.html. Required body fields there are `type`, `contactId`, and `status`. `type` is `Email` or `SMS`.
 
 The rest of this section is the research that led to the earlier OAuth proposal. It is not the implementation.

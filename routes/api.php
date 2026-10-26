@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\CustomerController;
 use App\Http\Controllers\Api\V1\CustomerDataDeletionController;
 use App\Http\Controllers\Api\V1\CustomerDataExportController;
 use App\Http\Controllers\Api\V1\DepartureController;
+use App\Http\Controllers\Api\V1\IntegrationRetryController;
 use App\Http\Controllers\Api\V1\LocationController;
 use App\Http\Controllers\Api\V1\MembershipController;
 use App\Http\Controllers\Api\V1\NotificationHookController;
@@ -218,6 +219,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/stripe/account', [PaymentController::class, 'connect']);
             Route::get('/fee-ledger', [PaymentController::class, 'ledger']);
             Route::get('/integrations/outbox', [OutboxController::class, 'index']);
+            Route::post('/integrations/ghl-syncs/{ghl_sync_log}/retry', [IntegrationRetryController::class, 'retrySync'])->whereUlid('ghl_sync_log');
+            Route::post('/integrations/ghl-messages/{ghl_message_log}/retry', [IntegrationRetryController::class, 'retryMessage'])->whereUlid('ghl_message_log');
             Route::get('/webhook-endpoints', [WebhookEndpointController::class, 'index']);
             Route::post('/webhook-endpoints', [WebhookEndpointController::class, 'store']);
             Route::get('/webhook-endpoints/{webhook_endpoint}', [WebhookEndpointController::class, 'show']);
