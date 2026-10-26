@@ -89,14 +89,18 @@ class WidgetController extends Controller
         $this->activeToken($token);
         $service->load(['location', 'durations']);
 
+        $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants']);
+
         return view('widget.form', [
             'token' => $token,
             'service' => $service,
             'error' => null,
-            'old' => [],
+            'old' => $chosen,
             'suggestions' => [],
             'offerWaitlist' => false,
             'departureChoices' => $this->departureChoices($service),
+            'slots' => $this->openTimes($service, $chosen),
+            'today' => $this->localToday($service),
         ]);
     }
 
@@ -798,7 +802,64 @@ class WidgetController extends Controller
             'suggestions' => $this->suggestionLines($service, $offers),
             'offerWaitlist' => $offerWaitlist && $service->waitlist_enabled,
             'departureChoices' => $this->departureChoices($service),
+            'slots' => $this->openTimes($service, $request->all()),
+            'today' => $this->localToday($service),
         ], $status);
+    }
+
+    /**
+     * Start times for the chosen date, length, and party, from the same slot
+     * finder staff use. Null until a date and length are chosen. Every time is
+     * still only a hint; the hold rechecks it under lock (#135).
+     *
+     * @param  array<string, mixed>  $input
+     * @return list<array{value: string, label: string, available: bool, closed: bool}>|null
+     */
+    private function openTimes(Service $service, array $input): ?array
+    {
+        if ($service->kind === ServiceKind::Tour || ! $service->location instanceof Location) {
+            return null;
+        }
+
+        $date = $input['date'] ?? null;
+
+        if (! is_string($date) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
+            return null;
+        }
+
+        $today = $this->localToday($service);
+
+        if ($date < $today || $date > CarbonImmutable::parse($today)->addYear()->toDateString()) {
+            return [];
+        }
+
+        $minutes = $this->minutes($service, $input['duration_id'] ?? null, $input['duration_minutes'] ?? null);
+
+        if (is_string($minutes)) {
+            return null;
+        }
+
+        $participants = is_numeric($input['participants'] ?? null) ? max(1, (int) $input['participants']) : 1;
+        $zone = $service->location->timezone;
+        $times = [];
+
+        foreach ($this->slots->rentalSlots($service, $date, $minutes, $participants, CarbonImmutable::now()) as $slot) {
+            $times[] = [
+                'value' => $slot['starts_at']->timezone($zone)->format('H:i'),
+                'label' => $slot['label'],
+                'available' => $slot['available'],
+                'closed' => $slot['closed'],
+            ];
+        }
+
+        return $times;
+    }
+
+    private function localToday(Service $service): string
+    {
+        $zone = $service->location?->timezone ?: 'UTC';
+
+        return CarbonImmutable::now($zone)->toDateString();
     }
 
     private function slotIsFull(string $message): bool

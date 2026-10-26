@@ -97,6 +97,33 @@ class BookingWidgetTest extends TestCase
             ->assertSee('Jun 16, 3:00 PM');
     }
 
+    public function test_the_public_form_lists_open_times_and_marks_taken_ones(): void
+    {
+        [$workspace, $service] = $this->pricedRental('dock.test');
+        $token = $this->token($workspace);
+        $page = $this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id);
+
+        $this->get($page)
+            ->assertOk()
+            ->assertSee('Show available times')
+            ->assertSee('Choose a date, length, and party size to see the open start times.')
+            ->assertDontSee('name="start"', false);
+
+        $this->post($page, $this->party('widget-taken'))->assertRedirect();
+
+        $times = $this->get($page.'?date=2026-06-15&duration_minutes=60&participants=1')->assertOk();
+        $html = (string) $times->getContent();
+        $times->assertSee('Start time')->assertSee('Review price and hold this time');
+        $this->assertSame(1, preg_match('/<input type="radio" name="start" value="15:00"[^>]*disabled/', $html), 'The taken 3:00 PM time should be disabled.');
+        $this->assertSame(1, preg_match('/<input type="radio" name="start" value="16:00"(?![^>]*disabled)[^>]*>/', $html), 'The free 4:00 PM time should be open.');
+        $this->assertStringNotContainsString('value="11:30"', $html);
+        $times->assertSee('Booked');
+
+        $this->get($page.'?date=2026-06-14&duration_minutes=60&participants=1')
+            ->assertOk()
+            ->assertSee('No open times on this date for that length and party.');
+    }
+
     public function test_card_checkout_redirects_to_stripe_without_confirming_the_hold(): void
     {
         $fake = new FakeStripeGateway;
