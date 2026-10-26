@@ -48,6 +48,14 @@ enum RefundReason: string
         };
     }
 
+    /**
+     * Dispute outcomes are recorded from Stripe's dispute-closed webhook.
+     */
+    public function recordedByStripe(): bool
+    {
+        return $this === self::DisputeLost || $this === self::DisputeWon;
+    }
+
     public function method(): RefundMethod
     {
         return match ($this) {

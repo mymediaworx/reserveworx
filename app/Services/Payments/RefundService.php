@@ -11,6 +11,7 @@ use App\Domain\Fees\Refunds\StripeFeeRefundMethod;
 use App\Domain\Payments\StripeGateway;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
+use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Payment;
 use App\Models\PlatformFee;
@@ -45,6 +46,8 @@ final class RefundService
             $existing = Refund::query()->where('idempotency_key', $idempotencyKey)->first();
 
             if ($existing instanceof Refund) {
+                $this->markLostDispute($booking, $reason);
+
                 return $existing;
             }
         }
@@ -88,21 +91,57 @@ final class RefundService
         $booking->payment_status = $this->paymentStatus($booking, $plan);
         $booking->save();
 
-        $this->audit->log('payment.refund', $refund, $plan->toAuditArray(), actor: $actor);
-        $this->hooks->record(
-            $booking->tenant_id,
-            $booking->id,
-            'booking.refunded',
-            'booking.refunded:'.$refund->id,
-            [
-                'reason' => $reason->value,
-                'customer_refund_cents' => $plan->customerRefundCents,
-                'customer_fee_refund_cents' => $plan->customerFeeRefundCents,
-                'application_fee_refund_cents' => $plan->applicationFeeRefundCents,
-            ],
-        );
+        $properties = $plan->toAuditArray();
+        $properties['actor'] = $actor instanceof User ? 'user' : 'system';
+        $disputeId = $this->disputeIdFromKey($idempotencyKey);
+
+        if ($disputeId !== null) {
+            $properties['dispute_id'] = $disputeId;
+        }
+
+        $this->audit->log('payment.refund', $refund, $properties, actor: $actor);
+
+        if ($reason !== RefundReason::DisputeLost) {
+            $this->hooks->record(
+                $booking->tenant_id,
+                $booking->id,
+                'booking.refunded',
+                'booking.refunded:'.$refund->id,
+                [
+                    'reason' => $reason->value,
+                    'customer_refund_cents' => $plan->customerRefundCents,
+                    'customer_fee_refund_cents' => $plan->customerFeeRefundCents,
+                    'application_fee_refund_cents' => $plan->applicationFeeRefundCents,
+                ],
+            );
+        }
 
         return $refund;
+    }
+
+    /**
+     * A closed dispute that returns no booking fee. A loss still marks the booking disputed.
+     * The same dispute id is recorded once.
+     */
+    public function recordDisputeWithoutFeeRefund(Booking $booking, string $disputeId, RefundReason $reason, ?string $status): void
+    {
+        $this->markLostDispute($booking, $reason);
+
+        if ($this->disputeAlreadyRecorded($booking, $disputeId)) {
+            return;
+        }
+
+        $this->audit->log('payment.dispute_closed', $booking, [
+            'dispute_id' => $disputeId,
+            'status' => $status,
+            'reason_code' => $reason->value,
+            'rule' => $reason->rule()->value,
+            'rule_description' => $reason->rule()->description(),
+            'rules_version' => FeeRefundCalculator::RULES_VERSION,
+            'application_fee_refund_cents' => 0,
+            'customer_refund_cents' => 0,
+            'actor' => 'system',
+        ]);
     }
 
     private function state(Booking $booking): FeeRefundState
@@ -144,6 +183,9 @@ final class RefundService
     }
 
     /**
+     * A fee-only return, including a lost dispute, refunds the application fee from the
+     * platform account. It does not require the connected account to accept new charges.
+     *
      * @return array{payment_id: ?string, refund_id: ?string, fee_refund_id: ?string}
      */
     private function execute(Booking $booking, FeeRefund $plan, ?string $idempotencyKey): array
@@ -159,28 +201,19 @@ final class RefundService
         }
 
         $payment = $this->stripePayment($booking);
-        $account = StripeAccount::query()->first();
         $key = $idempotencyKey !== null && $idempotencyKey !== '' ? $idempotencyKey : (string) Str::ulid();
-
-        if (! $account instanceof StripeAccount || ! $account->canCharge() || ! is_string($payment->stripe_payment_intent_id) || $payment->stripe_payment_intent_id === '') {
-            throw new RefundException('Online payments are not enabled for this workspace.');
-        }
-
-        $feeId = null;
-
-        if ($plan->stripeMethod === StripeFeeRefundMethod::ApplicationFeeRefund && $plan->applicationFeeRefundCents > 0) {
-            $fee = PlatformFee::query()->where('booking_id', $booking->id)->orderBy('created_at')->first();
-            $found = $fee instanceof PlatformFee ? $fee->stripe_fee_id : null;
-            $feeId = is_string($found) && $found !== '' ? $found : null;
-
-            if ($feeId === null) {
-                throw new RefundException('The Stripe fee has not been recorded yet.');
-            }
-        }
-
+        $returnsCharge = $plan->stripeMethod === StripeFeeRefundMethod::RefundApplicationFeeFlag
+            || $plan->customerRefundCents > 0;
+        $feeId = $this->applicationFeeId($booking, $plan);
         $refundId = null;
 
-        if ($plan->stripeMethod === StripeFeeRefundMethod::RefundApplicationFeeFlag || $plan->customerRefundCents > 0) {
+        if ($returnsCharge) {
+            $account = StripeAccount::query()->first();
+
+            if (! $account instanceof StripeAccount || ! $account->canCharge() || ! is_string($payment->stripe_payment_intent_id) || $payment->stripe_payment_intent_id === '') {
+                throw new RefundException('Online payments are not enabled for this workspace.');
+            }
+
             $params = ['payment_intent' => $payment->stripe_payment_intent_id];
 
             if ($plan->customerRefundCents > 0) {
@@ -205,6 +238,60 @@ final class RefundService
             'refund_id' => $refundId,
             'fee_refund_id' => $feeRefundId,
         ];
+    }
+
+    private function applicationFeeId(Booking $booking, FeeRefund $plan): ?string
+    {
+        if ($plan->stripeMethod !== StripeFeeRefundMethod::ApplicationFeeRefund || $plan->applicationFeeRefundCents <= 0) {
+            return null;
+        }
+
+        $fee = PlatformFee::query()->where('booking_id', $booking->id)->orderBy('created_at')->first();
+        $found = $fee instanceof PlatformFee ? $fee->stripe_fee_id : null;
+
+        if (! is_string($found) || $found === '') {
+            throw new RefundException('The Stripe fee has not been recorded yet.');
+        }
+
+        return $found;
+    }
+
+    private function markLostDispute(Booking $booking, RefundReason $reason): void
+    {
+        if ($reason !== RefundReason::DisputeLost || $booking->payment_status === PaymentStatus::Disputed) {
+            return;
+        }
+
+        $booking->payment_status = PaymentStatus::Disputed;
+        $booking->save();
+    }
+
+    private function disputeIdFromKey(?string $idempotencyKey): ?string
+    {
+        if (! is_string($idempotencyKey) || ! str_starts_with($idempotencyKey, 'dispute:')) {
+            return null;
+        }
+
+        $disputeId = substr($idempotencyKey, strlen('dispute:'));
+
+        return $disputeId === '' ? null : $disputeId;
+    }
+
+    private function disputeAlreadyRecorded(Booking $booking, string $disputeId): bool
+    {
+        $logs = AuditLog::query()
+            ->where('action', 'payment.dispute_closed')
+            ->where('subject_type', Booking::class)
+            ->where('subject_id', $booking->id)
+            ->get();
+
+        foreach ($logs as $log) {
+            if (($log->properties['dispute_id'] ?? null) === $disputeId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function manualFeeOnFirstCharge(Booking $booking): int

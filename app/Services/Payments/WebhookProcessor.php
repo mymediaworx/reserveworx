@@ -406,46 +406,84 @@ final class WebhookProcessor
     }
 
     /**
+     * A lost dispute returns the remaining booking fee to the tenant. The customer
+     * is handled by the dispute. A won dispute, or an inquiry that closes, returns nothing.
+     * A payment or Stripe fee id that is not stored yet is left unfinished so Stripe retries.
+     *
      * @param  array<string, mixed>  $dispute
      */
     private function rememberDispute(array $dispute): void
     {
-        $reason = match ($dispute['status'] ?? null) {
+        $status = is_string($dispute['status'] ?? null) ? $dispute['status'] : null;
+        $reason = match ($status) {
             'lost' => RefundReason::DisputeLost,
             'won', 'warning_closed' => RefundReason::DisputeWon,
             default => null,
         };
-        $intent = $dispute['payment_intent'] ?? null;
+        $intent = $this->disputePaymentIntentId($dispute);
         $disputeId = $dispute['id'] ?? null;
 
-        if ($reason === null || ! is_string($intent) || $intent === '' || ! is_string($disputeId) || $disputeId === '') {
+        if ($reason === null || ! is_string($disputeId) || $disputeId === '') {
             return;
+        }
+
+        if ($intent === null) {
+            throw new RefundException('The disputed payment is not recorded yet.');
         }
 
         $payment = Payment::withoutGlobalScope(TenantScope::class)
             ->where('stripe_payment_intent_id', $intent)
             ->first();
-
-        if (! $payment instanceof Payment) {
-            return;
-        }
-
-        $booking = Booking::withoutGlobalScope(TenantScope::class)->find($payment->booking_id);
+        $booking = $payment instanceof Payment
+            ? Booking::withoutGlobalScope(TenantScope::class)->find($payment->booking_id)
+            : null;
         $tenant = $booking instanceof Booking ? Tenant::query()->find($booking->tenant_id) : null;
 
-        if (! $booking instanceof Booking || ! $tenant instanceof Tenant) {
-            return;
+        if (! $payment instanceof Payment || ! $booking instanceof Booking || ! $tenant instanceof Tenant) {
+            throw new RefundException('The disputed payment is not recorded yet.');
         }
 
         $this->tenants->set($tenant);
 
         try {
-            $this->refunds->issue($booking, $reason, 0, 0, 'dispute:'.$disputeId, null);
-        } catch (RefundException|InvalidArgumentException) {
-            return;
+            if ($reason === RefundReason::DisputeWon) {
+                $this->refunds->recordDisputeWithoutFeeRefund($booking, $disputeId, $reason, $status);
+
+                return;
+            }
+
+            try {
+                $this->refunds->issue($booking, $reason, 0, 0, 'dispute:'.$disputeId, null);
+            } catch (InvalidArgumentException $exception) {
+                if ($exception->getMessage() !== 'Nothing left to refund.') {
+                    throw $exception;
+                }
+
+                $this->refunds->recordDisputeWithoutFeeRefund($booking, $disputeId, $reason, $status);
+            }
         } finally {
             $this->tenants->forget();
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispute
+     */
+    private function disputePaymentIntentId(array $dispute): ?string
+    {
+        $intent = $dispute['payment_intent'] ?? null;
+
+        if (is_string($intent) && $intent !== '') {
+            return $intent;
+        }
+
+        if (! is_array($intent)) {
+            return null;
+        }
+
+        $id = $intent['id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
     }
 
     /**
