@@ -61,6 +61,46 @@ final class MaintenancePlanner
     }
 
     /**
+     * Stops a current or upcoming window at now. The planned ends_at stays,
+     * so an incident can still point at the row. A future booking flagged
+     * with this window's reason is cleared only when no window on the same
+     * resource still overlaps its allocation or unexpired hold. Nothing is
+     * cancelled or moved.
+     *
+     * @return array{window: MaintenanceWindow, cleared: int}
+     */
+    public function end(MaintenanceWindow $window): array
+    {
+        return DB::transaction(function () use ($window): array {
+            $resourceId = $window->asset_id ?? $window->pool_id;
+
+            if ($resourceId === null) {
+                throw new MaintenanceWindowAlreadyEndedException('That window has already ended.');
+            }
+
+            $table = $window->asset_id !== null ? 'assets' : 'pools';
+            $lockedResource = DB::select('select id from '.$table.' where id = ? for update', [$resourceId]);
+
+            if ($lockedResource === []) {
+                throw new MaintenanceWindowAlreadyEndedException('That window has already ended.');
+            }
+
+            $locked = MaintenanceWindow::query()->lockForUpdate()->find($window->id);
+
+            if (! $locked instanceof MaintenanceWindow || $locked->blocksUntil()->lessThanOrEqualTo(CarbonImmutable::now()->utc())) {
+                throw new MaintenanceWindowAlreadyEndedException('That window has already ended.');
+            }
+
+            $locked->ended_at = CarbonImmutable::now()->utc();
+            $locked->save();
+            $cleared = $this->clearReleasedFlags($locked);
+            $fresh = $locked->fresh();
+
+            return ['window' => $fresh instanceof MaintenanceWindow ? $fresh : $locked, 'cleared' => $cleared];
+        });
+    }
+
+    /**
      * Held and confirmed bookings whose buffered time on this resource
      * overlaps the window and that have not started yet.
      *
@@ -140,5 +180,83 @@ final class MaintenancePlanner
         }
 
         return $schedule->interval_uses !== null && $this->usesSince($schedule) >= $schedule->interval_uses;
+    }
+
+    /**
+     * Clears this window's flag when the booking no longer overlaps any
+     * blocking interval on the same resource. The comparison is the exact
+     * reason text, so a later flag from something else is left alone.
+     */
+    private function clearReleasedFlags(MaintenanceWindow $window): int
+    {
+        $column = $window->asset_id !== null ? 'asset_id' : 'pool_id';
+        $resourceId = $window->asset_id ?? $window->pool_id;
+
+        if ($resourceId === null) {
+            return 0;
+        }
+
+        $originalStart = CarbonImmutable::instance($window->starts_at)->utc();
+        $originalEnd = CarbonImmutable::instance($window->ends_at)->utc();
+        $overlaps = fn ($query) => $query
+            ->where($column, $resourceId)
+            ->where('starts_at', '<', $originalEnd)
+            ->where('ends_at', '>', $originalStart);
+
+        $bookings = Booking::query()
+            ->where('attention_reason', $window->reason)
+            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value])
+            ->where('starts_at', '>', CarbonImmutable::now()->utc())
+            ->where(function ($query) use ($overlaps): void {
+                $query->whereIn('id', Allocation::query()->where($overlaps)->select('booking_id'))
+                    ->orWhereIn('id', Hold::query()->where($overlaps)->where('expires_at', '>', now())->select('booking_id'));
+            })
+            ->get();
+        $cleared = 0;
+
+        foreach ($bookings as $booking) {
+            if ($this->resourceStillBlocksBooking($column, $resourceId, $booking)) {
+                continue;
+            }
+
+            $booking->attention_reason = null;
+            $booking->save();
+            $cleared++;
+        }
+
+        return $cleared;
+    }
+
+    private function resourceStillBlocksBooking(string $column, string $resourceId, Booking $booking): bool
+    {
+        $intervals = Allocation::query()
+            ->where('booking_id', $booking->id)
+            ->where($column, $resourceId)
+            ->get(['starts_at', 'ends_at']);
+        $holds = Hold::query()
+            ->where('booking_id', $booking->id)
+            ->where($column, $resourceId)
+            ->where('expires_at', '>', now())
+            ->get(['starts_at', 'ends_at']);
+
+        foreach ($intervals->concat($holds) as $row) {
+            if (! $row instanceof Allocation && ! $row instanceof Hold) {
+                continue;
+            }
+
+            $blocked = MaintenanceWindow::query()
+                ->where($column, $resourceId)
+                ->blocking(
+                    CarbonImmutable::instance($row->starts_at)->utc(),
+                    CarbonImmutable::instance($row->ends_at)->utc(),
+                )
+                ->exists();
+
+            if ($blocked) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
