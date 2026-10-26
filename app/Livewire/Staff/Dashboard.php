@@ -90,10 +90,19 @@ class Dashboard extends Component
         $onboarding = $this->tenant()->status === TenantStatus::Onboarding;
         $progress = $onboarding ? app(OnboardingChecklist::class)->assess($this->tenant()) : null;
         $access = app(StaffLocationAccess::class);
-        $overdue = RentalCheckout::query()->whereNull('returned_at')->where('due_at', '<', CarbonImmutable::now('UTC'));
-        $access->constrainToVisibleBookings($overdue);
+        $nowUtc = CarbonImmutable::now('UTC');
+        $open = RentalCheckout::query()->whereNull('returned_at');
+        $access->constrainToVisibleBookings($open);
+        $overdue = (clone $open)->where('due_at', '<', $nowUtc);
         $overdueRentals = (clone $overdue)
             ->with(['booking.customer', 'booking.service', 'asset', 'pool'])
+            ->orderBy('due_at')
+            ->orderBy('id')
+            ->limit(20)
+            ->get();
+        $later = (clone $open)->where('due_at', '>=', $nowUtc);
+        $checkedOutLater = (clone $later)
+            ->with(['booking.customer', 'booking.location', 'asset', 'pool'])
             ->orderBy('due_at')
             ->orderBy('id')
             ->limit(20)
@@ -114,7 +123,10 @@ class Dashboard extends Component
             'todayCount' => $today->count(),
             'overdueCount' => (clone $overdue)->count(),
             'overdueRentals' => $overdueRentals,
-            'overdueAsOf' => CarbonImmutable::now('UTC'),
+            'overdueAsOf' => $nowUtc,
+            'checkedOutCount' => (clone $open)->count(),
+            'checkedOutLaterCount' => (clone $later)->count(),
+            'checkedOutLater' => $checkedOutLater,
             'attentionCount' => BookingListFilters::needsAttention(Booking::query())->count(),
             'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
             'upcomingCount' => Booking::query()
