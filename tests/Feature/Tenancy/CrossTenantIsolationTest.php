@@ -28,6 +28,8 @@ class CrossTenantIsolationTest extends TestCase
             ['GET', '/api/v1/tenant'],
             ['GET', '/api/v1/settings'],
             ['PATCH', '/api/v1/settings'],
+            ['GET', '/api/v1/cancellation-policy'],
+            ['PUT', '/api/v1/cancellation-policy'],
             ['GET', '/api/v1/branding'],
             ['PATCH', '/api/v1/branding'],
             ['GET', '/api/v1/branding/logo'],

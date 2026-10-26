@@ -29,6 +29,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\CancellationPolicies;
 use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
 use App\Services\Catalog\BookingOperatorFeeLines;
@@ -59,6 +60,7 @@ class WidgetController extends Controller
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly CheckInPass $checkInPass,
         private readonly SlotFinder $slots,
+        private readonly CancellationPolicies $policies,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -277,6 +279,7 @@ class WidgetController extends Controller
             'pickupLabel' => $pickup['label'],
             'promoUrl' => $this->promoUrl($token, $booking, $hold),
             'promoValue' => $this->promoValue($snapshot),
+            'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => null,
         ]);
     }
@@ -1006,6 +1009,7 @@ class WidgetController extends Controller
             'pickupLabel' => $pickupLabel,
             'promoUrl' => $this->promoUrl($token, $booking, $hold),
             'promoValue' => $promoValue,
+            'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => $error,
         ], $status);
     }

@@ -18,9 +18,11 @@ use App\Models\Payment;
 use App\Models\Pool;
 use App\Models\PricingSnapshot;
 use App\Models\StripeAccount;
+use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Booking\BookingCancellation;
+use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
@@ -220,9 +222,17 @@ class BookingShow extends Component
         $this->notice('Returned. The gear is free for the next booking.');
     }
 
-    public function markNoShow(Allocator $allocator, WaitlistPromoter $promoter): void
+    public function markNoShow(Allocator $allocator, WaitlistPromoter $promoter, CancellationSettlement $settlement): void
     {
         $booking = $this->editable();
+        $actor = auth()->user();
+        $settlementResult = $settlement->refundNoShow($booking, $actor instanceof User ? $actor : null);
+
+        if ($settlementResult['problem'] !== null) {
+            $this->warn('That booking was not marked as a no-show: '.$settlementResult['problem']);
+
+            return;
+        }
 
         try {
             $saved = $allocator->noShow($booking);

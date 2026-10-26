@@ -163,6 +163,16 @@ Without `STRIPE_SECRET` and `STRIPE_WEBHOOK_SECRET`, the gateway is `Unconfigure
 
 `POST /api/v1/platform/fees/{fee}/refunds` is platform-administrator only. It refunds part of that one application fee back to the connected account. The customer is not refunded, the booking payment status does not change, and no Section 7.7 reason code is accepted. The reason is required free text. The same idempotency key returns the original row. A different request with that key is refused. The row is written only after Stripe accepts the call. A later Section 7.7 refund counts that amount as fee already returned on the booking's first fee, so it does not return the fee twice. The fee report's `manual_refunded_cents` is that amount. It is already included in `refunded_cents`, and net does not subtract it again.
 
+## Cancellation policy
+
+Spec Section 7.1 names cancellation and refund policies. Spec Section 7.7 says a customer cancellation is full, proportional, or none, and a no-show follows the tenant's no-show policy as a customer cancellation.
+
+`PUT /api/v1/cancellation-policy` replaces the workspace's windows. `customer_cancel` is a list of `lead_minutes` and `refund_percent`. `no_show_refund_percent` is null, or 0 through 100. `settings.view` reads it. `settings.update` writes it. `/staff/settings` is the same save. The audit action is `cancellation_policy.updated`.
+
+A guest cancel still requires `guest_cancel_before_minutes`, and it still has to be before that cutoff. The refund is chosen after that gate. The longest saved lead that is less than or equal to the whole minutes until the start wins. A lead of 0 matches any time before the start. After the start, none match. No row, or a percent of 0, issues no Stripe refund. 100% uses `customer_cancelled_full_refund` or `no_show_full_refund`. Any other percent uses the partial reason and `CancellationRefund::share` on the charged subtotal and on `tax_cents`, rounded half-up. The fee calculator then returns the booking fee in that same proportion. A share that rounds to less than one cent of subtotal does not call Stripe.
+
+An offline payment is cancelled, or marked as a no-show, with no refund row. A card refund that Stripe refuses, including a missing platform secret, leaves the booking status unchanged. A partial refund larger than the amount still paid is refused the same way. "Nothing left to refund" still lets the status change. Staff cancel and `POST /api/v1/bookings/{booking}/cancel` stay on `operator_cancelled` and are not read from these windows. The review page and the manage page state the saved windows.
+
 ## Not in this repository
 
 No live Stripe keys and no receipt email. The application-fee refund call exists and is covered by `FakeStripeGateway`. Settings tests cover authorization and persistence only.
