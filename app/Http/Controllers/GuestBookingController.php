@@ -329,13 +329,16 @@ class GuestBookingController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $offers
-     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, offerTimes: list<array{date: string, start: string, label: string}>, lengthMinutes: int, requestedEnd: ?string, departures: list<array{id: string, label: string, available: bool, note: string}>}
+     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, offerTimes: list<array{date: string, start: string, label: string}>, lengthMinutes: int, requestedEnd: ?string, departures: list<array{id: string, label: string, available: bool, note: string}>, whenLabel: string, localDate: string, localTime: string, shorterEndLabel: ?string}
      */
     private function manageData(string $token, Booking $booking, ?string $error, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): array
     {
         $block = $this->cancelBlock($booking);
         $booking->load(['service.location', 'location']);
+        $zone = $this->zoneOf($booking);
+        $localStart = CarbonImmutable::instance($booking->starts_at)->timezone($zone);
         $offerBag = $offers ?? [];
+        $shorterEnd = $offerBag['shorter_ends_at'] ?? null;
         $fromExtend = $requestedEnd instanceof CarbonImmutable || is_string($offerBag['shorter_ends_at'] ?? null);
         $ids = $fromExtend && is_array($offerBag['other_asset_ids'] ?? null) ? $offerBag['other_asset_ids'] : [];
         $names = $ids === [] ? collect() : Asset::query()->whereIn('id', $ids)->pluck('name', 'id');
@@ -375,10 +378,16 @@ class GuestBookingController extends Controller
             'error' => $error,
             'offers' => $offers,
             'offerAssets' => $offerAssets,
-            'offerTimes' => $fromExtend ? [] : $this->offerTimes($offerBag, $this->zoneOf($booking)),
+            'offerTimes' => $fromExtend ? [] : $this->offerTimes($offerBag, $zone),
             'lengthMinutes' => $this->bookedMinutes($booking),
             'requestedEnd' => $requestedEnd?->utc()->format('Y-m-d\TH:i:s\Z'),
             'departures' => $this->departures->forBooking($booking),
+            'whenLabel' => Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
+            'localDate' => $localStart->format('Y-m-d'),
+            'localTime' => $localStart->format('H:i'),
+            'shorterEndLabel' => is_string($shorterEnd) && $shorterEnd !== ''
+                ? Display::dateTimeWithZone(CarbonImmutable::parse($shorterEnd), $zone)
+                : null,
         ];
     }
 

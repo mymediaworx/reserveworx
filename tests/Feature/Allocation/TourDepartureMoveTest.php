@@ -328,7 +328,9 @@ class TourDepartureMoveTest extends TestCase
         preg_match('/action="([^"]*reschedule[^"]*)"/', (string) $page->getContent(), $action);
         $this->post(html_entity_decode($action[1]), [
             'departure_id' => $open,
-        ])->assertOk()->assertSee('2026-06-16T15:00:00');
+        ])->assertOk()
+            ->assertSee('Tue, Jun 16, 3:00 PM – 5:00 PM UTC')
+            ->assertDontSee('2026-06-16T15:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame($open, Booking::query()->findOrFail($bookingId)->departure_id);
