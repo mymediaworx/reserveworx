@@ -199,6 +199,40 @@
         </section>
 
         <section class="panel top-gap">
+            <div class="panel-head"><h2>Tour capacity and attendance</h2></div>
+            <p class="muted">Each scheduled departure in this range. Booked seats are confirmed and no-show parties. Attended seats are the confirmed parties. A held or cancelled booking is not a seat.</p>
+            @if ($report['tours'] === [])
+                <p class="muted">No tour departures in this range.</p>
+            @else
+                <ul class="report-list">
+                    @foreach ($report['tours'] as $row)
+                        <li
+                            data-tour="{{ $row['departure_id'] }}"
+                            data-tour-service="{{ $row['service'] }}"
+                            data-tour-location="{{ $row['location'] }}"
+                            data-tour-starts="{{ $row['starts_at'] }}"
+                            data-tour-capacity="{{ $row['capacity'] }}"
+                            data-tour-booked="{{ $row['seats_booked'] }}"
+                            data-tour-attended="{{ $row['seats_attended'] }}"
+                            data-tour-no-show="{{ $row['no_show_seats'] }}"
+                            data-tour-fill="{{ $row['fill_rate_bps'] ?? '' }}"
+                            data-tour-attendance="{{ $row['attendance_rate_bps'] ?? '' }}"
+                        >
+                            <strong>{{ $row['service'] }}</strong>
+                            <span class="muted">{{ $row['location'] }}</span>
+                            <span>{{ \Carbon\CarbonImmutable::parse($row['starts_at'])->format('D, M j, g:i A') }}</span>
+                            <span>{{ $row['seats_booked'] }} of {{ $row['capacity'] }} booked</span>
+                            <span>{{ $row['seats_attended'] }} attended</span>
+                            <span>{{ $row['no_show_seats'] }} no-show</span>
+                            <span>Fill {{ Display::basisPoints($row['fill_rate_bps']) }}</span>
+                            <span>Attendance {{ Display::basisPoints($row['attendance_rate_bps']) }}</span>
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+        </section>
+
+        <section class="panel top-gap">
             <div class="panel-head"><h2>From the daily summary</h2></div>
             @if (! $report['summary_ready'])
                 <div class="notice">
