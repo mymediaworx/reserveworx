@@ -345,6 +345,7 @@ class WebhookDeliveryTest extends TestCase
             '--sleep' => 0,
             '--tries' => 5,
             '--max-time' => 15,
+            '--memory' => 1024,
         ])->assertSuccessful();
     }
 
