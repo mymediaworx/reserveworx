@@ -3,6 +3,7 @@
 namespace App\Services\Integrations;
 
 use App\Enums\BookingStatus;
+use App\Enums\OperationalStatus;
 use App\Jobs\SyncBookingToGoHighLevel;
 use App\Models\Booking;
 use App\Models\GhlConnection;
@@ -35,31 +36,15 @@ class GhlSync
         });
 
         Booking::updated(function (Booking $booking): void {
-            if ($booking->wasChanged('status') && $booking->status === BookingStatus::Cancelled) {
-                $this->queue($booking->tenant_id, $booking->id, 'booking.cancelled');
-
-                return;
-            }
-
-            foreach (self::WATCHED as $field) {
-                if ($booking->wasChanged($field)) {
-                    $this->queue($booking->tenant_id, $booking->id, 'booking.changed');
-
-                    return;
-                }
-            }
+            $this->queueBookingUpdate($booking);
         });
 
         Payment::created(function (Payment $payment): void {
-            if ($payment->status === 'paid') {
-                $this->queue($payment->tenant_id, $payment->booking_id, 'payment.succeeded', $payment->id);
-            }
+            $this->queuePayment($payment, true);
         });
 
         Payment::updated(function (Payment $payment): void {
-            if ($payment->wasChanged('status') && $payment->status === 'paid') {
-                $this->queue($payment->tenant_id, $payment->booking_id, 'payment.succeeded', $payment->id);
-            }
+            $this->queuePayment($payment, false);
         });
     }
 
@@ -74,5 +59,70 @@ class GhlSync
         }
 
         SyncBookingToGoHighLevel::dispatch($tenantId, $bookingId, $kind, $paymentId);
+    }
+
+    private function queueBookingUpdate(Booking $booking): void
+    {
+        if ($booking->wasChanged('status') && $booking->status === BookingStatus::Cancelled) {
+            $this->queue($booking->tenant_id, $booking->id, 'booking.cancelled');
+
+            return;
+        }
+
+        $covered = [];
+
+        if ($booking->wasChanged('status') && $booking->status === BookingStatus::Confirmed) {
+            $this->queue($booking->tenant_id, $booking->id, 'booking.confirmed');
+            $covered[] = 'status';
+        }
+
+        if ($booking->wasChanged('operational_status')) {
+            $kind = $this->operationalKind($booking->operational_status);
+
+            if ($kind !== null) {
+                $this->queue($booking->tenant_id, $booking->id, $kind);
+                $covered[] = 'operational_status';
+            }
+        }
+
+        foreach (self::WATCHED as $field) {
+            if (in_array($field, $covered, true)) {
+                continue;
+            }
+
+            if ($booking->wasChanged($field)) {
+                $this->queue($booking->tenant_id, $booking->id, 'booking.changed');
+
+                return;
+            }
+        }
+    }
+
+    private function operationalKind(OperationalStatus $status): ?string
+    {
+        return match ($status) {
+            OperationalStatus::CheckedIn => 'booking.checked_in',
+            OperationalStatus::Returned => 'booking.returned',
+            OperationalStatus::Overdue => 'booking.overdue',
+            OperationalStatus::Completed => 'booking.completed',
+            OperationalStatus::NotArrived, OperationalStatus::InProgress => null,
+        };
+    }
+
+    private function queuePayment(Payment $payment, bool $created): void
+    {
+        if (! $created && ! $payment->wasChanged('status')) {
+            return;
+        }
+
+        if ($payment->status === 'paid') {
+            $this->queue($payment->tenant_id, $payment->booking_id, 'payment.succeeded', $payment->id);
+
+            return;
+        }
+
+        if ($payment->status === 'failed') {
+            $this->queue($payment->tenant_id, $payment->booking_id, 'payment.failed', $payment->id);
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Integrations;
 
+use App\Domain\Payments\StripeGateway;
 use App\Enums\BookingStatus;
 use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
@@ -19,16 +20,21 @@ use App\Models\Role;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Integrations\GhlRequestFailed;
+use App\Services\Notifications\BookingEvents;
+use App\Services\Payments\FakeStripeGateway;
+use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
@@ -270,7 +276,7 @@ class GoHighLevelSyncTest extends TestCase
         $booking = $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100');
         $booking->attention_reason = 'maintenance';
         $booking->save();
-        $booking->operational_status = OperationalStatus::CheckedIn;
+        $booking->starts_at = '2026-06-16 17:00:00';
         $booking->save();
         $booking->forceFill([
             'participants' => 4,
@@ -444,6 +450,286 @@ class GoHighLevelSyncTest extends TestCase
         }
     }
 
+    public function test_each_new_lifecycle_transition_queues_one_sync_job(): void
+    {
+        Queue::fake();
+        $workspace = $this->workspace('alpha.test');
+        $tenantId = $workspace['tenant']->id;
+        $this->link($tenantId, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+
+        $booking = $this->booking($tenantId, 'Ada Lovelace', 'ada@example.com', '312-555-0100', status: BookingStatus::Held);
+        $this->assertSame(['booking.created'], $this->kinds($booking->id));
+
+        $booking->status = BookingStatus::Confirmed;
+        $booking->save();
+        $this->assertKindOnce('booking.confirmed', $tenantId, $booking->id);
+        $this->assertSame(0, $this->kindCount('booking.changed', $booking->id));
+
+        $booking->forceFill([
+            'operational_status' => OperationalStatus::CheckedIn,
+            'checked_in_at' => '2026-06-16 15:05:00',
+        ])->save();
+        $this->assertKindOnce('booking.checked_in', $tenantId, $booking->id);
+        $this->assertSame(0, $this->kindCount('booking.changed', $booking->id));
+
+        $booking->operational_status = OperationalStatus::Returned;
+        $booking->save();
+        $this->assertKindOnce('booking.returned', $tenantId, $booking->id);
+
+        $booking->operational_status = OperationalStatus::Overdue;
+        $booking->save();
+        $this->assertKindOnce('booking.overdue', $tenantId, $booking->id);
+
+        $booking->operational_status = OperationalStatus::Completed;
+        $booking->save();
+        $this->assertKindOnce('booking.completed', $tenantId, $booking->id);
+        $this->assertSame(0, $this->kindCount('booking.changed', $booking->id));
+
+        $booking->operational_status = OperationalStatus::Completed;
+        $booking->save();
+        $this->assertKindOnce('booking.completed', $tenantId, $booking->id);
+
+        $booking->operational_status = OperationalStatus::InProgress;
+        $booking->save();
+        $this->assertKindOnce('booking.changed', $tenantId, $booking->id);
+
+        $combined = $this->booking($tenantId, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Combined rental', status: BookingStatus::Held);
+        $combined->forceFill([
+            'status' => BookingStatus::Confirmed,
+            'operational_status' => OperationalStatus::CheckedIn,
+            'participants' => 4,
+        ])->save();
+        $this->assertKindOnce('booking.confirmed', $tenantId, $combined->id);
+        $this->assertKindOnce('booking.checked_in', $tenantId, $combined->id);
+        $this->assertKindOnce('booking.changed', $tenantId, $combined->id);
+
+        $cancelled = $this->booking($tenantId, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Cancel rental');
+        $cancelled->forceFill([
+            'status' => BookingStatus::Cancelled,
+            'operational_status' => OperationalStatus::Returned,
+            'participants' => 3,
+        ])->save();
+        $this->assertKindOnce('booking.cancelled', $tenantId, $cancelled->id);
+        $this->assertSame(0, $this->kindCount('booking.returned', $cancelled->id));
+        $this->assertSame(0, $this->kindCount('booking.changed', $cancelled->id));
+
+        $pending = Payment::query()->create([
+            'tenant_id' => $tenantId,
+            'booking_id' => $booking->id,
+            'method' => 'offline',
+            'kind' => 'offline',
+            'status' => 'pending',
+            'amount_cents' => 5000,
+            'fee_cents' => 0,
+        ]);
+        $this->assertSame(0, $this->kindCount('payment.failed', $booking->id));
+        $pending->status = 'failed';
+        $pending->save();
+        $failed = $this->jobs($booking->id)->filter(fn (SyncBookingToGoHighLevel $job): bool => $job->kind === 'payment.failed');
+        $this->assertCount(1, $failed);
+        $this->assertSame($pending->id, $failed->first()->paymentId);
+        $this->assertSame($tenantId, $failed->first()->tenantId);
+        $pending->amount_cents = 5100;
+        $pending->save();
+        $this->assertSame(1, $this->kindCount('payment.failed', $booking->id));
+        $this->assertSame(0, $this->kindCount('payment.succeeded', $booking->id));
+    }
+
+    public function test_a_failed_checkout_queues_one_payment_failed_sync(): void
+    {
+        Queue::fake();
+        $this->app->instance(StripeGateway::class, new FakeStripeGateway);
+        $workspace = $this->workspace('alpha.test');
+        $tenantId = $workspace['tenant']->id;
+        $this->link($tenantId, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+        $booking = $this->booking($tenantId, 'Ada Lovelace', 'ada@example.com', '312-555-0100');
+        $payment = Payment::query()->create([
+            'tenant_id' => $tenantId,
+            'booking_id' => $booking->id,
+            'method' => 'stripe',
+            'kind' => 'first_stripe_payment',
+            'status' => 'pending',
+            'amount_cents' => 5000,
+            'fee_cents' => 150,
+            'stripe_checkout_session_id' => 'cs_fail_1',
+        ]);
+        $session = [
+            'id' => 'cs_fail_1',
+            'payment_status' => 'unpaid',
+            'metadata' => [
+                'booking_id' => $booking->id,
+                'tenant_id' => $tenantId,
+            ],
+        ];
+
+        $this->postWebhook('evt_fail', $session)->assertOk();
+        $this->postWebhook('evt_fail', $session)->assertOk();
+        $this->postWebhook('evt_fail_again', $session)->assertOk();
+
+        $failed = $this->jobs($booking->id)->filter(fn (SyncBookingToGoHighLevel $job): bool => $job->kind === 'payment.failed');
+        $this->assertCount(1, $failed);
+        $this->assertSame($payment->id, $failed->first()->paymentId);
+        $this->assertSame($tenantId, $failed->first()->tenantId);
+        $this->assertSame('pending', $payment->fresh()->status);
+        $this->assertSame(0, $this->kindCount('payment.succeeded', $booking->id));
+        $this->assertSame(0, $this->kindCount('booking.changed', $booking->id));
+    }
+
+    public function test_lifecycle_events_are_not_queued_without_a_link(): void
+    {
+        Queue::fake();
+        $workspace = $this->workspace('alpha.test');
+        $tenantId = $workspace['tenant']->id;
+        $booking = $this->booking($tenantId, 'Ada Lovelace', 'ada@example.com', '312-555-0100', status: BookingStatus::Held);
+        $booking->status = BookingStatus::Confirmed;
+        $booking->save();
+
+        foreach ([OperationalStatus::CheckedIn, OperationalStatus::Returned, OperationalStatus::Overdue, OperationalStatus::Completed, OperationalStatus::InProgress] as $status) {
+            $booking->operational_status = $status;
+            $booking->save();
+        }
+
+        $booking->participants = 4;
+        $booking->save();
+        $booking->status = BookingStatus::Cancelled;
+        $booking->save();
+        Payment::query()->create([
+            'tenant_id' => $tenantId,
+            'booking_id' => $booking->id,
+            'method' => 'offline',
+            'kind' => 'offline',
+            'status' => 'failed',
+            'amount_cents' => 5000,
+            'fee_cents' => 0,
+        ]);
+        app(TenantManager::class)->set($workspace['tenant']);
+
+        try {
+            app(BookingEvents::class)->paymentFailed($tenantId, $booking->id, 'payment.failed:cs_unlinked');
+        } finally {
+            app(TenantManager::class)->forget();
+        }
+
+        Queue::assertNothingPushed();
+        $this->assertSame(0, GhlSyncLog::withoutGlobalScope(TenantScope::class)->count());
+    }
+
+    public function test_lifecycle_tags_stay_on_that_workspaces_location(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        $beta = $this->workspace('beta.test');
+        $alphaToken = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
+        $betaToken = 'pit-beta-DO-NOT-LEAK-1188aa44cc00';
+        $this->link($alpha['tenant']->id, 'loc_alpha', $alphaToken);
+        $this->link($beta['tenant']->id, 'loc_beta', $betaToken);
+        $this->fakeContactApi('loc_alpha');
+
+        $betaBooking = $this->booking($beta['tenant']->id, 'Bea Other', 'bea@example.com', '312-555-0199', 'Other rental');
+        $booking = $this->booking($alpha['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100', 'Sunset rental', status: BookingStatus::Held);
+        $booking->status = BookingStatus::Confirmed;
+        $booking->save();
+        $booking->operational_status = OperationalStatus::CheckedIn;
+        $booking->save();
+        $booking->operational_status = OperationalStatus::Returned;
+        $booking->save();
+        $booking->operational_status = OperationalStatus::Overdue;
+        $booking->save();
+        $booking->operational_status = OperationalStatus::Completed;
+        $booking->save();
+        $payment = Payment::query()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'booking_id' => $booking->id,
+            'method' => 'offline',
+            'kind' => 'offline',
+            'status' => 'pending',
+            'amount_cents' => 5000,
+            'fee_cents' => 0,
+        ]);
+        $payment->status = 'failed';
+        $payment->save();
+
+        $alphaTags = [];
+        $notes = [];
+
+        foreach (Http::recorded() as $pair) {
+            /** @var Request $request */
+            $request = $pair[0];
+            $authorization = implode(' ', (array) $request->header('Authorization'));
+            $raw = $request->url().' '.$authorization.' '.$request->body();
+            $alphaRequest = str_contains($authorization, $alphaToken);
+            $betaRequest = str_contains($authorization, $betaToken);
+
+            $this->assertTrue($alphaRequest || $betaRequest);
+
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                if ($alphaRequest) {
+                    $this->assertSame('loc_alpha', $request->data()['locationId']);
+                    $this->assertSame('ada@example.com', $request->data()['email']);
+                }
+
+                if ($betaRequest) {
+                    $this->assertSame('loc_beta', $request->data()['locationId']);
+                    $this->assertSame('bea@example.com', $request->data()['email']);
+                }
+            }
+
+            if ($alphaRequest) {
+                $this->assertStringNotContainsString($betaToken, $raw);
+                $this->assertStringNotContainsString('loc_beta', $raw);
+                $this->assertStringNotContainsString('bea@example.com', $raw);
+            }
+
+            if ($betaRequest) {
+                $this->assertStringNotContainsString($alphaToken, $raw);
+                $this->assertStringNotContainsString('loc_alpha', $raw);
+                $this->assertStringNotContainsString('ada@example.com', $raw);
+            }
+
+            if ($alphaRequest && str_contains($request->url(), '/tags')) {
+                $alphaTags[] = $request->data()['tags'];
+            }
+
+            if ($alphaRequest && str_contains($request->url(), '/notes')) {
+                $notes[] = (string) $request->data()['body'];
+            }
+        }
+
+        $expected = [
+            ['reserveworx', 'reserveworx-booking-created'],
+            ['reserveworx', 'reserveworx-booking-confirmed'],
+            ['reserveworx', 'reserveworx-booking-checked_in'],
+            ['reserveworx', 'reserveworx-booking-returned'],
+            ['reserveworx', 'reserveworx-booking-overdue'],
+            ['reserveworx', 'reserveworx-booking-completed'],
+            ['reserveworx', 'reserveworx-payment-failed'],
+        ];
+
+        foreach ($expected as $tags) {
+            $this->assertSame(1, count(array_filter($alphaTags, fn (array $sent): bool => $sent === $tags)), implode(',', $tags));
+        }
+
+        $this->assertSame(count($expected), count($alphaTags));
+        $this->assertNotContains(['reserveworx', 'reserveworx-booking-changed'], $alphaTags);
+        $joined = implode("\n", $notes);
+        $this->assertStringContainsString('reserveworx:booking.completed:'.$booking->id.':', $joined);
+        $this->assertStringContainsString('reserveworx:payment.failed:'.$booking->id.':'.$payment->id, $joined);
+        $this->assertStringContainsString('reserveworx:booking.confirmed:'.$booking->id.':', $joined);
+
+        Http::fake();
+        Http::preventStrayRequests();
+        GhlSyncLog::withoutGlobalScope(TenantScope::class)->delete();
+        app()->call([new SyncBookingToGoHighLevel($alpha['tenant']->id, $betaBooking->id, 'booking.completed'), 'handle']);
+
+        Http::assertNothingSent();
+        $log = GhlSyncLog::withoutGlobalScope(TenantScope::class)->firstOrFail();
+        $this->assertSame($alpha['tenant']->id, $log->tenant_id);
+        $this->assertSame('booking.completed', $log->kind);
+        $this->assertSame('failed', $log->status);
+        $this->assertNull($log->booking_id);
+        $this->assertStringNotContainsString('bea@example.com', (string) $log->error);
+        $this->assertStringNotContainsString($betaToken, (string) DB::table('ghl_sync_logs')->get()->toJson());
+    }
+
     private function platformAdmin(): User
     {
         $admin = User::factory()->create();
@@ -470,14 +756,74 @@ class GoHighLevelSyncTest extends TestCase
     private function fakeContactApi(string $locationId): void
     {
         Http::preventStrayRequests();
-        Http::fake([
-            'https://services.leadconnectorhq.com/contacts/upsert' => Http::response([
-                'new' => true,
-                'contact' => ['id' => 'contact-1', 'locationId' => $locationId],
-            ], 200),
-            'https://services.leadconnectorhq.com/contacts/contact-1/tags' => Http::response(['tags' => []], 201),
-            'https://services.leadconnectorhq.com/contacts/contact-1/notes' => Http::response(['id' => 'note-1'], 201),
-        ]);
+        Http::fake(function (Request $request) use ($locationId) {
+            if (str_ends_with($request->url(), '/contacts/upsert')) {
+                $sent = $request->data()['locationId'] ?? $locationId;
+
+                return Http::response([
+                    'new' => true,
+                    'contact' => ['id' => 'contact-1', 'locationId' => is_string($sent) && $sent !== '' ? $sent : $locationId],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), '/tags')) {
+                return Http::response(['tags' => []], 201);
+            }
+
+            return Http::response(['id' => 'note-1'], 201);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $session
+     */
+    private function postWebhook(string $id, array $session): TestResponse
+    {
+        return $this->postJson('http://localhost/api/v1/stripe/webhook', [
+            'id' => $id,
+            'type' => 'checkout.session.async_payment_failed',
+            'account' => 'acct_test_123',
+            'data' => ['object' => $session],
+        ], ['Stripe-Signature' => 'test-signature']);
+    }
+
+    /**
+     * @return Collection<int, SyncBookingToGoHighLevel>
+     */
+    private function jobs(?string $bookingId = null): Collection
+    {
+        return Queue::pushed(SyncBookingToGoHighLevel::class)
+            ->filter(function (SyncBookingToGoHighLevel $job) use ($bookingId): bool {
+                return $bookingId === null || $job->bookingId === $bookingId;
+            })
+            ->values();
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function kinds(?string $bookingId = null): array
+    {
+        return $this->jobs($bookingId)
+            ->map(fn (SyncBookingToGoHighLevel $job): string => $job->kind)
+            ->values()
+            ->all();
+    }
+
+    private function kindCount(string $kind, ?string $bookingId = null): int
+    {
+        return $this->jobs($bookingId)
+            ->filter(fn (SyncBookingToGoHighLevel $job): bool => $job->kind === $kind)
+            ->count();
+    }
+
+    private function assertKindOnce(string $kind, string $tenantId, ?string $bookingId = null): void
+    {
+        $matches = $this->jobs($bookingId)->filter(function (SyncBookingToGoHighLevel $job) use ($kind, $tenantId): bool {
+            return $job->kind === $kind && $job->tenantId === $tenantId;
+        });
+
+        $this->assertCount(1, $matches, $kind);
     }
 
     private function booking(
@@ -487,6 +833,7 @@ class GoHighLevelSyncTest extends TestCase
         ?string $phone,
         string $serviceName = 'Kayak rental',
         ?Customer $customer = null,
+        BookingStatus $status = BookingStatus::Confirmed,
     ): Booking {
         $location = Location::factory()->create([
             'tenant_id' => $tenantId,
@@ -513,7 +860,7 @@ class GoHighLevelSyncTest extends TestCase
             'location_id' => $location->id,
             'service_id' => $service->id,
             'customer_id' => $customer->id,
-            'status' => BookingStatus::Confirmed,
+            'status' => $status,
             'payment_status' => PaymentStatus::Unpaid,
             'operational_status' => OperationalStatus::NotArrived,
             'starts_at' => '2026-06-16 15:00:00',

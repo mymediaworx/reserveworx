@@ -5,10 +5,13 @@ namespace App\Services\Notifications;
 use App\Enums\BookingStatus;
 use App\Enums\GhlMessageKind;
 use App\Models\Booking;
+use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\RentalCheckout;
 use App\Services\Feedback\FeedbackRequests;
 use App\Services\Integrations\GhlMessages;
+use App\Services\Integrations\GhlSync;
+use App\Tenancy\TenantScope;
 
 /**
  * Queues the notification hooks staff and guest flows already perform.
@@ -22,6 +25,7 @@ final class BookingEvents
         private readonly FeedbackRequests $feedback,
         private readonly BookingConfirmationMail $confirmationMail,
         private readonly GhlMessages $ghlMessages,
+        private readonly GhlSync $ghlSync,
     ) {}
 
     public function confirmed(Booking $booking): void
@@ -101,8 +105,13 @@ final class BookingEvents
         $this->ghlMessages->queueReceipt($payment);
     }
 
-    public function paymentFailed(string $tenantId, string $bookingId, string $dedupeKey): void
+    public function paymentFailed(string $tenantId, string $bookingId, string $dedupeKey, ?string $paymentId = null): void
     {
+        $alreadyRecorded = NotificationHook::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $tenantId)
+            ->where('dedupe_key', $dedupeKey)
+            ->exists();
+
         $this->hooks->record(
             $tenantId,
             $bookingId,
@@ -110,6 +119,12 @@ final class BookingEvents
             $dedupeKey,
             ['booking_id' => $bookingId],
         );
+
+        if ($alreadyRecorded) {
+            return;
+        }
+
+        $this->ghlSync->queue($tenantId, $bookingId, 'payment.failed', $paymentId);
     }
 
     public function overdue(RentalCheckout $checkout): void
