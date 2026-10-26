@@ -22,6 +22,7 @@
     </div>
     <p>Choose a service. Prices shown here are the total, including the booking fee when the operator charges one.</p>
     <p><a href="{{ url('/book/'.$token.'/lookup') }}">Look up a booking</a></p>
+    <p><a href="{{ url('/account') }}" target="_blank" rel="noopener">Open an account</a> <span class="optional">Booking does not require one.</span></p>
     @forelse ($services as $row)
         <article class="card">
             <h2>{{ $row['service']->name }}</h2>

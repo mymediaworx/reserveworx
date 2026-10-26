@@ -55,7 +55,7 @@ class CustomerAccountTest extends TestCase
         $foreign = $this->booking($other['tenant']->id, 'Ada Other', 'ada@example.com', '2026-12-03 15:00:00', '2026-12-03 16:00:00');
 
         $url = $this->captureLink($workspace['tenant']->id, 'http://dock.test', 'ada@example.com');
-        $this->assertStringStartsWith('http://dock.test/api/v1/customer/sign-in/', $url);
+        $this->assertStringStartsWith('http://dock.test/account/sign-in/', $url);
         $this->assertStringNotContainsString('app.reserveworx.com', $url);
 
         $account = $this->account('ada@example.com');
@@ -441,7 +441,7 @@ class CustomerAccountTest extends TestCase
         Notification::assertSentTo($account, CustomerSignInLink::class, function (CustomerSignInLink $notification) use (&$url, $origin): bool {
             $url = $notification->url;
 
-            return str_starts_with($notification->url, $origin.'/api/v1/customer/sign-in/')
+            return str_starts_with($notification->url, $origin.'/account/sign-in/')
                 && str_contains($notification->toMail($notification)->subject ?? '', 'Sign in');
         });
 
