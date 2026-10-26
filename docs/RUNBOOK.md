@@ -34,9 +34,15 @@ Typical causes:
 
 ## A migration ran and the app is broken
 
-Rollback of code does not undo the migration. When migrations were enabled, the deploy wrote `$HOME/www/app.reserveworx.com/laravel/shared/backups/<timestamp>.sql.gz` before `artisan migrate`. The job log shows `backup_path`, `backup_bytes`, and `gunzip_test=ok`. Restore that file only inside this site's database, then roll the code back to the previous release if the dump matches that release. Do not copy the gzip into `public_html` or into another site. The previous release directory stays on disk for that code rollback.
+Rollback of code does not undo the migration. When migrations were enabled, the deploy wrote `$HOME/www/app.reserveworx.com/laravel/shared/backups/<timestamp>.sql.gz` before `artisan migrate`. The job log shows `backup_path`, `backup_bytes`, and `gunzip_test=ok`. Restore that file only inside this site's database:
 
-A restore from that gzip has not been drilled (open question 23).
+```bash
+php artisan reserveworx:restore-backup "$HOME/www/app.reserveworx.com/laravel/shared/backups/<timestamp>.sql.gz" --force
+```
+
+The command refuses the file unless it is mode 600, the gzip is a MySQL or MariaDB dump, and the dump names the database in this site's `.env` and no other database. Without `--force` it changes nothing. It does not print the password or the SQL. A path under `public_html` or `www/reserveworx.com` is refused. Then roll the code back to the previous release if the dump matches that release. Do not copy the gzip into `public_html` or into another site. The previous release directory stays on disk for that code rollback.
+
+The replay is covered by the test suite. A restore has not been run on the live SiteGround database (open question 23).
 
 ## Tenant is unavailable or a user cannot sign in
 
