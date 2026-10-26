@@ -137,9 +137,18 @@
                 @error('ghlToken')<p class="error">{{ $message }}</p>@enderror
                 <div class="actions">
                     <button type="submit" class="button primary">Save GoHighLevel</button>
+                    <button type="button" class="button" wire:click="testGhl" wire:loading.attr="disabled" wire:target="testGhl">
+                        <span wire:loading.remove wire:target="testGhl">Test connection</span>
+                        <span wire:loading wire:target="testGhl"><span class="spinner" aria-hidden="true"></span> Testing…</span>
+                    </button>
                     @if ($ghlConnection)
-                        <button type="button" class="button" wire:click="testGhl">Test connection</button>
                         <button type="button" class="button danger" wire:click="removeGhl" wire:confirm="Remove the GoHighLevel link for this workspace?">Remove link</button>
+                    @endif
+                </div>
+                <div aria-live="polite">
+                    <p class="muted small" wire:loading wire:target="testGhl">Checking the connection with GoHighLevel…</p>
+                    @if ($ghlTestResult)
+                        <p @class(['flash', 'ok' => $ghlTestOk, 'bad' => ! $ghlTestOk]) @if (! $ghlTestOk) role="alert" @endif wire:loading.remove wire:target="testGhl">{{ $ghlTestResult }}</p>
                     @endif
                 </div>
             </form>

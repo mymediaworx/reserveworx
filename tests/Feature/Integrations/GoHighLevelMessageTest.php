@@ -39,6 +39,7 @@ use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
@@ -113,7 +114,7 @@ class GoHighLevelMessageTest extends TestCase
 
         Livewire::test(TenantDetail::class, ['tenant' => $workspace['tenant']->id])
             ->call('testGhl')
-            ->assertSee('GoHighLevel refused the connection.')
+            ->assertSee('GoHighLevel rejected the Private Integration Token (HTTP 401).')
             ->assertDontSee($token);
 
         $this->assertStringNotContainsString($token, (string) DB::table('ghl_sync_logs')->get()->toJson());
@@ -495,6 +496,48 @@ class GoHighLevelMessageTest extends TestCase
         Http::assertSent(fn (Request $request): bool => ($request->data()['contactId'] ?? null) === 'contact-stored');
         $this->assertSame('contact-stored', GhlMapping::withoutGlobalScope(TenantScope::class)->value('contact_id'));
         $this->assertSame('succeeded', GhlMessageLog::withoutGlobalScope(TenantScope::class)->value('status'));
+    }
+
+    public function test_the_test_connection_button_always_gives_visible_feedback(): void
+    {
+        $admin = User::factory()->create();
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        $workspace = $this->workspace('alpha.test');
+        $token = 'pit-button-DO-NOT-LEAK-9f3c2a7b1e04';
+        $this->actingAs($admin);
+
+        $page = $this->get('http://app.reserveworx.com/platform/tenants/'.$workspace['tenant']->id);
+        $page->assertOk()->assertSee('Test connection')->assertSee('wire:click="testGhl"', false)->assertSee('Testing');
+
+        Livewire::test(TenantDetail::class, ['tenant' => $workspace['tenant']->id])
+            ->call('testGhl')
+            ->assertSet('ghlTestOk', false)
+            ->assertSee('No GoHighLevel Location ID and Private Integration Token are saved yet.');
+
+        $this->link($workspace['tenant']->id, 'loc_alpha', $token);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://services.leadconnectorhq.com/locations/loc_alpha' => Http::sequence()
+                ->push(['location' => ['id' => 'loc_alpha', 'name' => 'Yak Shack HQ']], 200)
+                ->push(['message' => 'not found'], 404)
+                ->whenEmpty(fn () => throw new ConnectionException('down')),
+        ]);
+
+        Livewire::test(TenantDetail::class, ['tenant' => $workspace['tenant']->id])
+            ->call('testGhl')
+            ->assertSet('ghlTestOk', true)
+            ->assertSee('Connected to GoHighLevel location &quot;Yak Shack HQ&quot; (loc_alpha).', false)
+            ->assertDontSee($token);
+
+        Livewire::test(TenantDetail::class, ['tenant' => $workspace['tenant']->id])
+            ->call('testGhl')
+            ->assertSee('could not find location loc_alpha')
+            ->assertDontSee($token);
+
+        Livewire::test(TenantDetail::class, ['tenant' => $workspace['tenant']->id])
+            ->call('testGhl')
+            ->assertSee('Could not reach GoHighLevel.')
+            ->assertDontSee($token);
     }
 
     private function link(string $tenantId, string $locationId, string $token): void
