@@ -148,7 +148,9 @@ class RentalExtensionTest extends TestCase
 
         $this->post(html_entity_decode($action[1]), [
             'extra_minutes' => 60,
-        ])->assertOk()->assertSee('Ends 2026-06-15T17:00:00');
+        ])->assertOk()
+            ->assertSee('Mon, Jun 15, 3:00 PM – 5:00 PM UTC')
+            ->assertDontSee('2026-06-15T17:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame(1, NotificationHook::query()->where('kind', 'booking.guest_extended')->count());
@@ -166,7 +168,7 @@ class RentalExtensionTest extends TestCase
             'extra_minutes' => 60,
         ])->assertStatus(409)
             ->assertSee('That time is no longer available.')
-            ->assertSee('Extend until 2026-06-15T17:30:00Z')
+            ->assertSee('Extend until Mon, Jun 15, 5:30 PM UTC')
             ->assertSee('Use '.$other->name.' instead');
 
         app(TenantManager::class)->set($workspace['tenant']);

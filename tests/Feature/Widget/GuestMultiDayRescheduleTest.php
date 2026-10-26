@@ -47,7 +47,12 @@ class GuestMultiDayRescheduleTest extends TestCase
             ->assertOk()
             ->assertSee('Length: 2 days')
             ->assertSee('The price stays the same.')
-            ->assertDontSee('Duration in minutes');
+            ->assertSee('Tue, Jun 16, 10:00 AM – Thu, Jun 18, 10:00 AM EDT')
+            ->assertSee('value="2026-06-16"', false)
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('Duration in minutes')
+            ->assertDontSee('2026-06-16T14:00:00')
+            ->assertDontSee('value="14:00"', false);
 
         app(TenantManager::class)->set($workspace['tenant']);
         $before = PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail();
@@ -57,7 +62,12 @@ class GuestMultiDayRescheduleTest extends TestCase
         $this->post($this->rescheduleUrl($manage), [
             'date' => '2026-06-20',
             'start' => '10:00',
-        ])->assertOk()->assertSee('Length: 2 days')->assertSee('2026-06-20T14:00:00');
+        ])->assertOk()
+            ->assertSee('Length: 2 days')
+            ->assertSee('Sat, Jun 20, 10:00 AM – Mon, Jun 22, 10:00 AM EDT')
+            ->assertSee('value="2026-06-20"', false)
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('2026-06-20T14:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $moved = Booking::query()->findOrFail($bookingId);
@@ -83,7 +93,11 @@ class GuestMultiDayRescheduleTest extends TestCase
         $this->post($this->rescheduleUrl($this->manageUrl($workspace['tenant'], $bookingId)), [
             'date' => '2026-03-07',
             'start' => '10:00',
-        ])->assertOk();
+        ])->assertOk()
+            ->assertSee('Sat, Mar 7, 10:00 AM EST – Mon, Mar 9, 11:00 AM EDT')
+            ->assertSee('value="2026-03-07"', false)
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('2026-03-07T15:00:00');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $moved = Booking::query()->findOrFail($bookingId);
@@ -91,6 +105,30 @@ class GuestMultiDayRescheduleTest extends TestCase
         $this->assertSame('2026-03-09 15:00:00', $moved->ends_at->utc()->format('Y-m-d H:i:s'));
         $this->assertSame(self::TWO_DAYS * 60, $moved->ends_at->utc()->getTimestamp() - $moved->starts_at->utc()->getTimestamp());
         app(TenantManager::class)->forget();
+    }
+
+    public function test_the_manage_page_shows_november_in_eastern_standard_time(): void
+    {
+        [$workspace, $duration] = $this->shop('2026-11-01 15:00:00');
+        $bookingId = $this->confirmed($workspace, $duration, '2026-11-03', '10:00', 'november');
+        $manage = $this->manageUrl($workspace['tenant'], $bookingId);
+
+        $this->get($manage)
+            ->assertOk()
+            ->assertSee('Tue, Nov 3, 10:00 AM – Thu, Nov 5, 10:00 AM EST')
+            ->assertSee('value="2026-11-03"', false)
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('2026-11-03T15:00:00')
+            ->assertDontSee('value="15:00"', false);
+
+        $this->post($this->rescheduleUrl($manage), [
+            'date' => '2026-11-10',
+            'start' => '10:00',
+        ])->assertOk()
+            ->assertSee('Tue, Nov 10, 10:00 AM – Thu, Nov 12, 10:00 AM EST')
+            ->assertSee('value="2026-11-10"', false)
+            ->assertSee('value="10:00"', false)
+            ->assertDontSee('2026-11-10T15:00:00');
     }
 
     public function test_a_different_length_a_taken_time_or_a_closed_day_leaves_the_rental(): void
