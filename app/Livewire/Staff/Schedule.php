@@ -4,6 +4,7 @@ namespace App\Livewire\Staff;
 
 use App\Enums\BookingStatus;
 use App\Enums\ResourceStatus;
+use App\Livewire\Concerns\PollsCalendar;
 use App\Livewire\Concerns\WithinTenant;
 use App\Livewire\Staff\Concerns\BooksFromSchedule;
 use App\Models\Allocation;
@@ -33,6 +34,7 @@ use Livewire\Component;
 class Schedule extends Component
 {
     use BooksFromSchedule;
+    use PollsCalendar;
     use WithinTenant;
 
     #[Url]

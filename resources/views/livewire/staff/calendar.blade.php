@@ -1,5 +1,5 @@
 @php use App\Support\Display; @endphp
-<div class="page calendar-page">
+<div class="page calendar-page" wire:poll.60s="refreshCalendar">
     <style>
         @media (max-width: 390px) {
             .calendar-page { min-width: 0; max-width: 100%; }
