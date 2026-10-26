@@ -22,6 +22,7 @@ use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
 use App\Support\BookingReference;
+use App\Support\Display;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -152,7 +153,7 @@ class GuestBookingController extends Controller
         $validator = Validator::make($request->all(), [
             'date' => ['required', 'date_format:Y-m-d'],
             'start' => ['required', 'date_format:H:i'],
-            'duration_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'duration_minutes' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
         if ($validator->fails()) {
@@ -160,6 +161,18 @@ class GuestBookingController extends Controller
         }
 
         $data = $validator->validated();
+        $minutes = $this->bookedMinutes($booking);
+
+        if ($minutes < 1) {
+            return $this->manageResponse($token, $booking, 'Choose a valid date and time.', 422);
+        }
+
+        $postedLength = $data['duration_minutes'] ?? null;
+
+        if ($postedLength !== null && (int) $postedLength !== $minutes) {
+            return $this->manageResponse($token, $booking, 'This rental keeps its current length.', 422);
+        }
+
         $service = $booking->service;
         $location = $service instanceof Service ? $service->location : null;
         $zone = $location instanceof Location ? $location->timezone : 'UTC';
@@ -170,13 +183,21 @@ class GuestBookingController extends Controller
         }
 
         try {
-            $updated = $this->allocator->reschedule(
+            $updated = $this->allocator->move(
                 $booking,
                 $starts->utc(),
-                $starts->utc()->addMinutes((int) $data['duration_minutes']),
+                $starts->utc()->addMinutes($minutes),
             );
         } catch (AllocationUnavailableException $exception) {
-            return $this->manageResponse($token, $booking, $exception->getMessage(), 409);
+            $current = $booking->fresh();
+
+            return $this->manageResponse(
+                $token,
+                $current instanceof Booking ? $current : $booking,
+                $exception->getMessage(),
+                409,
+                $exception->offers,
+            );
         }
 
         $this->hooks->record(
@@ -308,13 +329,15 @@ class GuestBookingController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $offers
-     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, requestedEnd: ?string, departures: list<array{id: string, label: string, available: bool, note: string}>}
+     * @return array{token: string, booking: Booking, cancelUrl: string, rescheduleUrl: string, extendUrl: string, canCancel: bool, canExtend: bool, cancelMessage: ?string, cancelNote: string, cancellationLines: list<string>, error: ?string, offers: array<string, mixed>|null, offerAssets: list<array{id: string, name: string}>, offerTimes: list<array{date: string, start: string, label: string}>, lengthMinutes: int, requestedEnd: ?string, departures: list<array{id: string, label: string, available: bool, note: string}>}
      */
     private function manageData(string $token, Booking $booking, ?string $error, ?array $offers = null, ?CarbonImmutable $requestedEnd = null): array
     {
         $block = $this->cancelBlock($booking);
-        $booking->load('service');
-        $ids = is_array($offers['other_asset_ids'] ?? null) ? $offers['other_asset_ids'] : [];
+        $booking->load(['service.location', 'location']);
+        $offerBag = $offers ?? [];
+        $fromExtend = $requestedEnd instanceof CarbonImmutable || is_string($offerBag['shorter_ends_at'] ?? null);
+        $ids = $fromExtend && is_array($offerBag['other_asset_ids'] ?? null) ? $offerBag['other_asset_ids'] : [];
         $names = $ids === [] ? collect() : Asset::query()->whereIn('id', $ids)->pluck('name', 'id');
         $offerAssets = [];
 
@@ -352,9 +375,57 @@ class GuestBookingController extends Controller
             'error' => $error,
             'offers' => $offers,
             'offerAssets' => $offerAssets,
+            'offerTimes' => $fromExtend ? [] : $this->offerTimes($offerBag, $this->zoneOf($booking)),
+            'lengthMinutes' => $this->bookedMinutes($booking),
             'requestedEnd' => $requestedEnd?->utc()->format('Y-m-d\TH:i:s\Z'),
             'departures' => $this->departures->forBooking($booking),
         ];
+    }
+
+    private function bookedMinutes(Booking $booking): int
+    {
+        $seconds = CarbonImmutable::instance($booking->ends_at)->utc()->getTimestamp()
+            - CarbonImmutable::instance($booking->starts_at)->utc()->getTimestamp();
+
+        if ($seconds < 60 || $seconds % 60 !== 0) {
+            return 0;
+        }
+
+        return intdiv($seconds, 60);
+    }
+
+    private function zoneOf(Booking $booking): string
+    {
+        $location = $booking->location instanceof Location
+            ? $booking->location
+            : $booking->service?->location;
+
+        return $location instanceof Location ? $location->timezone : 'UTC';
+    }
+
+    /**
+     * @param  array<string, mixed>  $offers
+     * @return list<array{date: string, start: string, label: string}>
+     */
+    private function offerTimes(array $offers, string $zone): array
+    {
+        $times = is_array($offers['times'] ?? null) ? $offers['times'] : [];
+        $listed = [];
+
+        foreach ($times as $time) {
+            if (! is_array($time) || ! is_string($time['starts_at'] ?? null) || $time['starts_at'] === '') {
+                continue;
+            }
+
+            $start = CarbonImmutable::parse($time['starts_at'])->timezone($zone);
+            $listed[] = [
+                'date' => $start->format('Y-m-d'),
+                'start' => $start->format('H:i'),
+                'label' => Display::dateTime($start, $zone),
+            ];
+        }
+
+        return $listed;
     }
 
     private function canExtend(Booking $booking): bool

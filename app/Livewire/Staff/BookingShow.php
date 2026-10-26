@@ -31,7 +31,9 @@ use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Staff\StaffUndo;
+use App\Services\Widget\GuestManageLink;
 use App\Support\Display;
+use App\Tenancy\Access;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
@@ -521,6 +523,7 @@ class BookingShow extends Component
             'guideName' => $guideName,
             'canAssignGuide' => $this->allows('bookings.manage')
                 && ($booking->status === BookingStatus::Confirmed || $heldOpen),
+            'guestManageUrl' => $this->guestManageUrl($booking),
         ])->title(($booking->service->name ?? 'Booking').' – '.$booking->starts_at->timezone($zone)->format('M j'));
     }
 
@@ -559,6 +562,15 @@ class BookingShow extends Component
         $this->extensionShorterEnd = null;
         $this->extensionShorterLabel = null;
         $this->extensionAssets = [];
+    }
+
+    private function guestManageUrl(Booking $booking): ?string
+    {
+        if (! app(Access::class)->hasRole($this->currentUser(), $this->tenant()->id, 'owner', 'manager')) {
+            return null;
+        }
+
+        return app(GuestManageLink::class)->url($booking);
     }
 
     private function locationHasTax(Booking $booking): bool
