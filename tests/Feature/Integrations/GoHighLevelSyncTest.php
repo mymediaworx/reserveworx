@@ -29,6 +29,7 @@ use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Database\Seeders\RoleAndPermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Collection;
@@ -403,6 +404,102 @@ class GoHighLevelSyncTest extends TestCase
         ]);
         $this->assertStringNotContainsString($token, (string) DB::table('ghl_sync_logs')->get()->toJson());
         $this->assertFalse($leaks());
+    }
+
+    public function test_a_rate_limit_waits_for_retry_after_and_does_not_use_a_failure_try(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        $beta = $this->workspace('beta.test');
+        $alphaToken = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
+        $betaToken = 'pit-beta-DO-NOT-LEAK-1188aa44cc00';
+        $leaks = $this->listenFor($alphaToken);
+        $this->link($beta['tenant']->id, 'loc_beta', $betaToken);
+        $this->fakeContactApi('loc_beta');
+        $betaBooking = $this->booking($beta['tenant']->id, 'Bea Other', 'bea@example.com', '312-555-0199');
+        $this->assertSame('confirmed', $betaBooking->status->value);
+        Http::swap(new Factory);
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://services.leadconnectorhq.com/*' => Http::response(['message' => $alphaToken], 429, [
+                'Retry-After' => '120',
+            ]),
+        ]);
+        $this->link($alpha['tenant']->id, 'loc_alpha', $alphaToken);
+
+        $booking = $this->booking($alpha['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100');
+
+        $log = GhlSyncLog::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $alpha['tenant']->id)
+            ->firstOrFail();
+        $this->assertSame('failed', $log->status);
+        $this->assertSame(429, $log->http_status);
+        $this->assertSame(1, $log->attempt);
+        $this->assertStringContainsString('Waiting 120 seconds', (string) $log->error);
+        $this->assertStringNotContainsString($alphaToken, (string) $log->error);
+        $this->assertSame(1, DB::table('jobs')->count());
+        $payload = (string) DB::table('jobs')->value('payload');
+        $this->assertStringContainsString('SyncBookingToGoHighLevel', $payload);
+        $this->assertStringContainsString($alpha['tenant']->id, $payload);
+        $this->assertStringContainsString($booking->id, $payload);
+        $this->assertStringNotContainsString($betaToken, $payload);
+        $this->assertStringNotContainsString($alphaToken, $payload);
+        $this->assertStringNotContainsString('loc_beta', $payload);
+        $this->assertEqualsWithDelta(now()->addSeconds(120)->getTimestamp(), (int) DB::table('jobs')->value('available_at'), 5);
+        $this->assertSame(0, DB::table('payments')->count());
+        $this->assertSame(0, DB::table('refunds')->count());
+        $this->assertSame(0, DB::table('platform_fees')->count());
+        $this->assertFalse($leaks());
+    }
+
+    public function test_a_rate_limit_without_retry_after_uses_the_backoff_schedule(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        $this->link($workspace['tenant']->id, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://services.leadconnectorhq.com/*' => Http::response([], 429, [
+                'X-RateLimit-Remaining' => '0',
+                'X-RateLimit-Interval-Milliseconds' => '10000',
+            ]),
+        ]);
+
+        $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100');
+
+        $this->assertSame(1, DB::table('jobs')->count());
+        $this->assertEqualsWithDelta(now()->addSeconds(10)->getTimestamp(), (int) DB::table('jobs')->value('available_at'), 5);
+        $log = GhlSyncLog::withoutGlobalScope(TenantScope::class)->firstOrFail();
+        $this->assertSame(1, $log->attempt);
+        $this->assertStringContainsString('Waiting 10 seconds', (string) $log->error);
+    }
+
+    public function test_a_rate_limit_that_outlasts_the_automatic_waits_is_ready_to_send_again(): void
+    {
+        $workspace = $this->workspace('alpha.test');
+        $booking = $this->booking($workspace['tenant']->id, 'Ada Lovelace', 'ada@example.com', '312-555-0100');
+        $this->link($workspace['tenant']->id, 'loc_alpha', 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04');
+        Http::preventStrayRequests();
+        Http::fake([
+            'https://services.leadconnectorhq.com/*' => Http::response([], 429, [
+                'Retry-After' => '30',
+            ]),
+        ]);
+        $job = new SyncBookingToGoHighLevel($workspace['tenant']->id, $booking->id, 'booking.created');
+        $job->rateLimitWaits = 8;
+
+        app()->call([$job, 'handle']);
+
+        $this->assertSame(0, DB::table('jobs')->count());
+        $this->assertDatabaseHas('ghl_sync_logs', [
+            'tenant_id' => $workspace['tenant']->id,
+            'booking_id' => $booking->id,
+            'attempt' => 5,
+            'status' => 'failed',
+            'http_status' => 429,
+            'error' => 'GoHighLevel rate limit lasted through the automatic waits.',
+        ]);
+        $this->assertSame(0, DB::table('payments')->count());
+        $this->assertSame(0, DB::table('refunds')->count());
+        $this->assertSame(0, DB::table('platform_fees')->count());
     }
 
     public function test_a_customer_without_email_or_phone_is_skipped(): void
