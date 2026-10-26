@@ -100,6 +100,7 @@ class DemoShopSeederTest extends TestCase
         putenv('DEMO_LOGIN_FILE='.$path);
         $_ENV['DEMO_LOGIN_FILE'] = $path;
         $_SERVER['DEMO_LOGIN_FILE'] = $path;
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-26 17:30:00', 'America/New_York'));
 
         $this->seed(DatabaseSeeder::class);
         $this->seed(DemoShopSeeder::class);
@@ -114,6 +115,9 @@ class DemoShopSeederTest extends TestCase
         $this->assertSame(3, CancellationPolicy::query()->count());
         $this->assertSame(600, LocationTaxRule::query()->sole()->percent_bps);
         $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
+        $close = CarbonImmutable::parse('2026-10-26 20:00:00', 'America/New_York')->utc();
+        $this->assertTrue($checkout->checked_out_at->equalTo($close->subMinutes(240)));
+        $this->assertTrue($checkout->due_at->equalTo($close));
         $this->assertTrue($checkout->due_at->isFuture());
 
         $checkout->forceFill(['due_at' => now()->subHour()])->save();
@@ -172,14 +176,19 @@ class DemoShopSeederTest extends TestCase
 
     public function test_the_demo_rental_booking_covers_the_same_hours_as_its_checkout(): void
     {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-26 10:00:00', 'America/New_York'));
         $this->seedDemo();
         $harbor = Tenant::query()->where('slug', 'harbor-demo')->firstOrFail();
         app(TenantManager::class)->set($harbor);
         $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
         $booking = Booking::query()->findOrFail($checkout->booking_id);
+        $start = CarbonImmutable::parse('2026-10-26 09:00:00', 'America/New_York')->utc();
+        $due = $start->addMinutes(240);
         $this->assertSame('demo-harbor-demo-checkout', $booking->idempotency_key);
         $this->assertTrue($booking->starts_at->equalTo($checkout->checked_out_at));
         $this->assertTrue($booking->ends_at->equalTo($checkout->due_at));
+        $this->assertTrue($booking->starts_at->equalTo($start));
+        $this->assertTrue($booking->ends_at->equalTo($due));
         $this->assertTrue($booking->starts_at->isPast());
         $this->assertTrue($checkout->due_at->isFuture());
 
@@ -195,6 +204,8 @@ class DemoShopSeederTest extends TestCase
         $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
         $booking = Booking::query()->findOrFail($checkout->booking_id);
         $this->assertTrue($booking->ends_at->equalTo($checkout->due_at), 'A rerun lines the booking up with the checkout.');
+        $this->assertTrue($booking->starts_at->equalTo($start));
+        $this->assertTrue($booking->ends_at->equalTo($due));
         $this->assertTrue($booking->starts_at->isPast());
         $this->assertSame(1, Booking::query()->where('idempotency_key', 'demo-harbor-demo-checkout')->count());
     }
