@@ -138,7 +138,7 @@ For this application the domain is `app.reserveworx.com`. Deploy writes only the
 
 ## Queue budget
 
-Same report: GoGeek allows 4,000 CPU-seconds and 4,000 PHP executions each hour, and cron can run every minute. The default worker is 20 seconds, so 60 runs use 1,200 CPU-seconds and 120 executions (cron plus worker). The rest of the hour stays available for web requests. Details are in [`DEPLOY.md`](DEPLOY.md).
+Same report: GoGeek allows 4,000 CPU-seconds and 4,000 PHP executions each hour, and cron can run every minute. The default worker is 20 seconds, so 60 runs use 1,200 CPU-seconds and 120 executions (cron plus worker). Workspace sweeps share one more 20-second window and continue on the next run. A minute can use about 40 CPU-seconds. The rest of the hour stays available for web requests. Details are in [`DEPLOY.md`](DEPLOY.md).
 
 Hold expiry, when the booking engine exists, must ignore expired holds at read time.
 

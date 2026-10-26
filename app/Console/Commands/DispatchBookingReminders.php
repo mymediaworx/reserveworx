@@ -13,7 +13,9 @@ class DispatchBookingReminders extends Command
 
     public function handle(BookingReminders $reminders): int
     {
-        $reminders->dispatchDue();
+        $result = $reminders->dispatchDue();
+        $this->line('sweep_visited='.$result->visited);
+        $this->line('sweep_deferred='.($result->deferred ? 'yes' : 'no'));
 
         return self::SUCCESS;
     }

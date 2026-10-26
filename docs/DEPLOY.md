@@ -85,10 +85,11 @@ Every minute the schedule also writes a heartbeat (`reserveworx:schedule:last-ru
 |---|---|---|
 | `schedule:run` | 60 executions | One cron per minute. Do not add a second cron for the worker |
 | `queue:work` | up to 60 executions | `withoutOverlapping`, stops after 20 seconds |
-| Worker CPU | up to 1,200 CPU-seconds | 60 × 20. About 30% of the 4,000 CPU-second cap |
-| Left for HTTP | about 2,800 CPU-seconds and about 3,880 executions | Web requests count against both caps |
+| Workspace sweeps | up to 60 executions | Holds, undo, integrations, and overdue rentals share one 20-second window after the worker. Reminders, feedback, and summaries use that same window when they are due, then continue next run |
+| Worker plus sweeps | up to about 2,400 CPU-seconds | 60 × (20 + 20). About 60% of the reported 4,000 CPU-second cap. That cap was reported for another site and is not measured here |
+| Left for HTTP | about 1,600 CPU-seconds | Web requests count against both caps |
 
-Do not raise `QUEUE_WORK_MAX_TIME` without recounting that table. Hold expiry, when the booking engine exists, must still ignore expired holds at read time.
+Do not raise `QUEUE_WORK_MAX_TIME`. A value outside 10–20 is clamped, and `reserveworx:limits` fails. Hold expiry still ignores expired holds at read time.
 
 ## Secrets
 

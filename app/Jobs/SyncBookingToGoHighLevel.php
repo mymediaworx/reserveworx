@@ -31,6 +31,8 @@ class SyncBookingToGoHighLevel implements ShouldQueue
 
     public int $tries = 5;
 
+    public int $timeout = 20;
+
     public function __construct(
         public string $tenantId,
         public string $bookingId,

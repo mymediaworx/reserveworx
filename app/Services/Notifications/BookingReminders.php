@@ -3,13 +3,12 @@
 namespace App\Services\Notifications;
 
 use App\Enums\BookingStatus;
-use App\Enums\TenantStatus;
 use App\Events\BookingReminderDue;
 use App\Models\Booking;
 use App\Models\BookingReminder;
-use App\Models\Tenant;
 use App\Models\TenantSetting;
-use App\Tenancy\TenantManager;
+use App\Support\SweepResult;
+use App\Support\TenantSweep;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -22,27 +21,13 @@ use Illuminate\Support\Facades\DB;
  */
 final class BookingReminders
 {
-    public function __construct(private readonly TenantManager $tenants) {}
+    public function __construct(private readonly TenantSweep $sweep) {}
 
-    public function dispatchDue(): void
+    public function dispatchDue(): SweepResult
     {
-        Tenant::query()
-            ->whereIn('status', [TenantStatus::Active->value, TenantStatus::Onboarding->value])
-            ->orderBy('id')
-            ->each(function (Tenant $tenant): void {
-                $previous = $this->tenants->get();
-                $this->tenants->set($tenant);
-
-                try {
-                    $this->dispatchForCurrentTenant();
-                } finally {
-                    if ($previous instanceof Tenant) {
-                        $this->tenants->set($previous);
-                    } else {
-                        $this->tenants->forget();
-                    }
-                }
-            });
+        return $this->sweep->each('booking-reminders', function (): void {
+            $this->dispatchForCurrentTenant();
+        });
     }
 
     private function dispatchForCurrentTenant(): void

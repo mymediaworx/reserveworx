@@ -16,6 +16,8 @@ abstract class TenantAwareJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $timeout = 20;
+
     public function __construct(public string $tenantId) {}
 
     public function handle(TenantManager $tenants): void
