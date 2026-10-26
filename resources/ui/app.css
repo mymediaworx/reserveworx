@@ -700,7 +700,8 @@ fieldset.days { grid-template-columns: repeat(auto-fill, minmax(4.25rem, 1fr)); 
 .history { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; font-size: 0.9rem; }
 .history li { display: flex; justify-content: space-between; gap: 1rem; }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: 1rem; }
-.payment-link { display: grid; gap: 0.5rem; margin-top: 1rem; }
+.payment-link { display: grid; gap: 0.5rem; margin-top: 1rem; min-width: 0; }
+.payment-link input { width: 100%; min-width: 0; max-width: 100%; }
 
 /* ---------- Time slots ---------- */
 

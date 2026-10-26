@@ -2,8 +2,10 @@
 
 namespace Database\Seeders;
 
+use App\Domain\Fees\FeeChannel;
 use App\Enums\AddOnKind;
 use App\Enums\AddOnPricing;
+use App\Enums\BookingStatus;
 use App\Enums\CancellationPolicyKind;
 use App\Enums\DepartureStatus;
 use App\Enums\LocationStatus;
@@ -19,6 +21,7 @@ use App\Models\Location;
 use App\Models\LocationTaxRule;
 use App\Models\Pool;
 use App\Models\PriceRule;
+use App\Models\PricingSnapshot;
 use App\Models\PromoCode;
 use App\Models\RentalCheckout;
 use App\Models\ResourceRequirement;
@@ -30,11 +33,14 @@ use App\Models\WaiverVersion;
 use App\Services\Allocation\AllocationIntent;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\Pricing\BookingPricer;
 use App\Services\Tenancy\DemoWorkspaceIdentity;
 use App\Services\Waivers\WaiverSigner;
 use App\Tenancy\TenantManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use InvalidArgumentException;
 
 /**
  * Sample shops for the two demo workspaces only. A second run fills anything
@@ -163,12 +169,21 @@ class DemoShopSeeder extends Seeder
 
     private const DEMO_CHECKOUT_KEY = 'demo-harbor-demo-checkout';
 
+    private const DEMO_MULTIDAY_KEY = 'demo-harbor-demo-multiday';
+
+    private const DEMO_MULTIDAY_MINUTES = 2880;
+
+    private const DEMO_GUEST_NAME = 'Avery Cole';
+
+    private const DEMO_GUEST_EMAIL = 'avery.cole@harbor-demo.test';
+
     /**
      * Harbor demo only (approved sample values): a waiver, add-ons, a one-day
-     * length, a cancellation and no-show policy, a sample tax rate and one
-     * rental that is out and due back a few hours from now. Every step checks
-     * for its own row first, so reruns change nothing except rolling the
-     * demo checkout's due time forward.
+     * length, a cancellation and no-show policy, a sample tax rate, one
+     * rental that is out and due back a few hours from now, and one confirmed
+     * two-day rental that stays at least seven days ahead. Every step checks
+     * for its own row first, so reruns change nothing except rolling those
+     * two demo rentals forward.
      */
     private function harborSamples(Tenant $tenant): void
     {
@@ -243,6 +258,7 @@ class DemoShopSeeder extends Seeder
         $this->sampleTax($tenant);
 
         $this->rollingCheckout($tenant);
+        $this->rollingMultiDayRental($tenant);
     }
 
     /**
@@ -348,6 +364,142 @@ class DemoShopSeeder extends Seeder
         }
 
         $checkout->forceFill(['checked_out_at' => $start, 'due_at' => $due])->save();
+    }
+
+    /**
+     * One confirmed two-day kayak for the Harbor demo guest. The length uses
+     * the one-day price already stored, and the quote does not take a payment.
+     * A rerun keeps that same booking and moves it when the start is inside
+     * the next seven days, or when the length is no longer two days.
+     */
+    private function rollingMultiDayRental(Tenant $tenant): void
+    {
+        if ($tenant->slug !== 'harbor-demo') {
+            return;
+        }
+
+        $service = Service::query()->with('location')->where('name', 'Single kayak rental')->first();
+
+        if (! $service instanceof Service) {
+            return;
+        }
+
+        $this->ensureTwoDayLength($tenant, $service);
+        $zone = $service->location?->timezone;
+        $zone = is_string($zone) && $zone !== '' ? $zone : 'America/New_York';
+        $start = $this->multiDayStart($zone);
+        $end = $start->addMinutes(self::DEMO_MULTIDAY_MINUTES);
+        $allocator = app(Allocator::class);
+        $booking = Booking::query()->where('idempotency_key', self::DEMO_MULTIDAY_KEY)->first();
+
+        try {
+            if ($booking instanceof Booking && ! in_array($booking->status, [BookingStatus::Confirmed, BookingStatus::Held], true)) {
+                $booking->forceFill(['idempotency_key' => null])->save();
+                $booking = null;
+            }
+
+            if (! $booking instanceof Booking) {
+                $booking = $allocator->hold(new AllocationIntent(
+                    $tenant->id,
+                    $service->id,
+                    $start->utc(),
+                    $end->utc(),
+                    1,
+                    self::DEMO_MULTIDAY_KEY,
+                    self::DEMO_GUEST_NAME,
+                    self::DEMO_GUEST_EMAIL,
+                ));
+                $booking = $allocator->confirm($booking);
+            } elseif ($booking->status === BookingStatus::Held) {
+                $booking = $allocator->confirm($booking);
+            }
+
+            if ($booking->status === BookingStatus::Confirmed && $this->multiDayNeedsRoll($booking)) {
+                $booking = $allocator->reschedule($booking, $start->utc(), $end->utc());
+            }
+        } catch (AllocationUnavailableException|IdempotencyConflictException) {
+            return;
+        }
+
+        if ($booking->status !== BookingStatus::Confirmed) {
+            return;
+        }
+
+        if (! PricingSnapshot::query()->where('booking_id', $booking->id)->exists()) {
+            try {
+                app(BookingPricer::class)->quote(
+                    $booking->load('location'),
+                    $tenant,
+                    FeeChannel::Direct,
+                    0,
+                    null,
+                    100,
+                );
+            } catch (InvalidArgumentException) {
+                return;
+            }
+        }
+
+        $this->command?->line('demo_multiday=harbor-demo booking='.$booking->id.' starts='.$booking->starts_at->utc()->toIso8601String());
+    }
+
+    /**
+     * The two-day length is required so the allocator will hold it. Its price
+     * is the one-day amount already on this service, not a new rate.
+     */
+    private function ensureTwoDayLength(Tenant $tenant, Service $service): void
+    {
+        if (! ServiceDuration::query()->where('service_id', $service->id)->where('duration_minutes', self::DEMO_MULTIDAY_MINUTES)->exists()) {
+            ServiceDuration::query()->create([
+                'tenant_id' => $tenant->id,
+                'service_id' => $service->id,
+                'name' => '2 days',
+                'quantity' => 48,
+                'unit' => 'hours',
+                'duration_minutes' => self::DEMO_MULTIDAY_MINUTES,
+            ]);
+        }
+
+        if (PriceRule::query()->where('service_id', $service->id)->where('duration_minutes', self::DEMO_MULTIDAY_MINUTES)->exists()) {
+            return;
+        }
+
+        $day = PriceRule::query()->where('service_id', $service->id)->where('duration_minutes', 1440)->first();
+
+        if (! $day instanceof PriceRule) {
+            return;
+        }
+
+        PriceRule::query()->create([
+            'tenant_id' => $tenant->id,
+            'service_id' => $service->id,
+            'name' => '2 days',
+            'kind' => 'duration',
+            'amount_cents' => $day->amount_cents,
+            'window' => 'always',
+            'duration_minutes' => self::DEMO_MULTIDAY_MINUTES,
+        ]);
+    }
+
+    private function multiDayStart(string $zone): CarbonImmutable
+    {
+        $earliest = CarbonImmutable::now($zone)->addDays(7);
+        $start = $earliest->setTime(10, 0);
+
+        if ($start->lessThan($earliest)) {
+            $start = $start->addDay();
+        }
+
+        return $start;
+    }
+
+    private function multiDayNeedsRoll(Booking $booking): bool
+    {
+        $start = CarbonImmutable::instance($booking->starts_at)->utc();
+        $end = CarbonImmutable::instance($booking->ends_at)->utc();
+
+        return $start->lessThan(CarbonImmutable::now()->utc()->addDays(7))
+            || ($end->getTimestamp() - $start->getTimestamp()) !== self::DEMO_MULTIDAY_MINUTES * 60;
     }
 
     private function ensureTourWindow(Tenant $tenant): int

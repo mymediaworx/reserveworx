@@ -87,6 +87,15 @@
                         <dd data-guide="{{ $booking->guide_user_id ?? 'none' }}">{{ $guideName !== '' ? $guideName : 'No guide' }}</dd>
                     </div>
                 </dl>
+                @if ($guestManageUrl)
+                    <div class="payment-link" x-data="{ copied: false, copy(text) { const done = () => { this.copied = true; setTimeout(() => { this.copied = false }, 2000) }; const fallback = () => { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); done() }; try { navigator.clipboard ? navigator.clipboard.writeText(text).then(done, fallback) : fallback() } catch (e) { fallback() } } }">
+                        <p><strong>Guest manage link</strong></p>
+                        <p class="muted small">Send this to the guest, or open it. A confirmed rental can be moved from that page. The price stays the same.</p>
+                        <a class="button" href="{{ $guestManageUrl }}" target="_blank" rel="noopener">Open guest page</a>
+                        <input type="text" readonly data-guest-manage-link="1" value="{{ $guestManageUrl }}" aria-label="Guest manage link" onclick="this.select()">
+                        <button type="button" class="button" x-on:click="copy(@js($guestManageUrl))"><span x-text="copied ? 'Copied' : 'Copy link'">Copy link</span></button>
+                    </div>
+                @endif
                 @if ($canAssignGuide)
                     <form wire:submit="assignGuide" class="stack top-gap">
                         <label class="field">
