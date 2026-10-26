@@ -34,6 +34,14 @@
     @else
         <p>A card payment is confirmed only after Stripe notifies ReserveWorx. This page does not complete the payment.</p>
     @endif
+    @if (is_string($waiverUrl ?? null))
+        <div class="card" data-waiver-link>
+            <h2>Sign your waiver</h2>
+            <p class="price"><span>Sign before you arrive so check-in is quick.</span></p>
+            <p><a href="{{ $waiverUrl }}">Sign now</a></p>
+        </div>
+    @endif
+
     @if (is_string($checkInQr ?? null) && $checkInQr !== '')
         <h2>Check-in code</h2>
         <p>Show this code when you arrive.</p>

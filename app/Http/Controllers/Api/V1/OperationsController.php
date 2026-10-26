@@ -16,8 +16,8 @@ use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Services\Operations\MaintenancePlanner;
 use App\Services\Operations\WaiverPdf;
+use App\Services\Waivers\WaiverSigner;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -26,7 +26,10 @@ use Illuminate\Validation\ValidationException;
 
 class OperationsController extends Controller
 {
-    public function __construct(private readonly MaintenancePlanner $maintenance) {}
+    public function __construct(
+        private readonly MaintenancePlanner $maintenance,
+        private readonly WaiverSigner $waivers,
+    ) {}
 
     public function indexMaintenance(): JsonResponse
     {
@@ -160,16 +163,7 @@ class OperationsController extends Controller
             'name' => ['required', 'string', 'max:80'],
             'body' => ['required', 'string', 'max:20000'],
         ]);
-        $hash = hash('sha256', $validated['body']);
-        $latest = WaiverVersion::query()->where('name', $validated['name'])->orderByDesc('version')->first();
-        $version = $latest instanceof WaiverVersion ? $latest->version + 1 : 1;
-        $row = WaiverVersion::query()->create([
-            'tenant_id' => $tenant->id,
-            'name' => $validated['name'],
-            'version' => $version,
-            'body' => $validated['body'],
-            'content_hash' => $hash,
-        ]);
+        $row = $this->waivers->publish($tenant->id, $validated['name'], $validated['body']);
 
         return response()->json(['data' => [
             'id' => $row->id,
@@ -198,7 +192,7 @@ class OperationsController extends Controller
         $participant = $this->participantOnBooking($booking, $validated['participant_id'] ?? null);
 
         if ($participant instanceof Participant) {
-            $existing = $this->existingSignature($booking, $waiver, $participant);
+            $existing = $this->waivers->existing($booking, $waiver, $participant);
 
             if ($existing instanceof WaiverSignature) {
                 return response()->json(['data' => $this->signaturePayload($existing)]);
@@ -229,32 +223,19 @@ class OperationsController extends Controller
             }
         }
 
-        try {
-            $signature = WaiverSignature::query()->create([
-                'tenant_id' => $tenant->id,
-                'booking_id' => $booking->id,
-                'participant_id' => $participant?->id,
-                'waiver_version_id' => $waiver->id,
-                'participant_name' => $name,
-                'is_minor' => $minor,
-                'guardian_name' => $guardian,
-                'ip_address' => $request->ip(),
-                'user_agent' => mb_substr((string) $request->userAgent(), 0, 255),
-                'content_hash' => $waiver->content_hash,
-                'signed_at' => now(),
-            ]);
-        } catch (QueryException $exception) {
-            if (! $participant instanceof Participant || (int) ($exception->errorInfo[1] ?? 0) !== 1062) {
-                throw $exception;
-            }
+        $signature = $this->waivers->sign(
+            $booking,
+            $waiver,
+            $participant,
+            $name,
+            $minor,
+            $guardian,
+            $request->ip(),
+            $request->userAgent(),
+        );
 
-            $existing = $this->existingSignature($booking, $waiver, $participant);
-
-            if (! $existing instanceof WaiverSignature) {
-                throw $exception;
-            }
-
-            return response()->json(['data' => $this->signaturePayload($existing)]);
+        if (! $signature->wasRecentlyCreated) {
+            return response()->json(['data' => $this->signaturePayload($signature)]);
         }
 
         return response()->json(['data' => $this->signaturePayload($signature)], 201);
@@ -294,17 +275,6 @@ class OperationsController extends Controller
         }
 
         return $participant;
-    }
-
-    private function existingSignature(Booking $booking, WaiverVersion $waiver, Participant $participant): ?WaiverSignature
-    {
-        $existing = WaiverSignature::query()
-            ->where('booking_id', $booking->id)
-            ->where('waiver_version_id', $waiver->id)
-            ->where('participant_id', $participant->id)
-            ->first();
-
-        return $existing instanceof WaiverSignature ? $existing : null;
     }
 
     /**

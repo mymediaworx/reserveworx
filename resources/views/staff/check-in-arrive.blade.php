@@ -57,6 +57,9 @@
                     <li>{{ $missing['who'] }} still needs {{ $missing['waiver'] }}</li>
                 @endforeach
             </ul>
+            @if ($waiverUrl ?? null)
+                <p><a class="button" href="{{ $waiverUrl }}" target="_blank" rel="noopener">Open the signing page</a> <span class="muted small">Hand the guest this screen, or share the link, then reload this page.</span></p>
+            @endif
         @endif
         @if (is_string($arrival->booking->check_in_waiver_override_reason) && $arrival->booking->check_in_waiver_override_reason !== '')
             <p class="wrap">Override: {{ $arrival->booking->check_in_waiver_override_reason }}</p>

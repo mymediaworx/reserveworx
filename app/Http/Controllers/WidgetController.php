@@ -37,6 +37,7 @@ use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\WaitlistJoinedMail;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
+use App\Services\Waivers\WaiverLinks;
 use App\Services\Widget\WidgetTokens;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -448,6 +449,7 @@ class WidgetController extends Controller
             'booking' => $fresh,
             'checkInQr' => $this->checkInPass->svg($fresh),
             'checkInUrl' => $this->checkInPass->url($fresh),
+            'waiverUrl' => in_array($fresh->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($fresh) : null,
             'taxLines' => $taxLines,
             'currency' => $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
         ]);
