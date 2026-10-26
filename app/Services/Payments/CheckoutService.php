@@ -348,6 +348,7 @@ final class CheckoutService
             'priced_on' => $this->pricedOn($booking),
             'priced_local_start' => $this->pricedLocalStart($booking),
             'time_windows' => $increase->timeWindows,
+            'party_bands' => $increase->partyBands,
             'operator_fees_delta_cents' => $increase->operatorFeesDeltaCents,
             'operator_fees' => $increase->operatorFeeLines,
         ];
@@ -599,6 +600,8 @@ final class CheckoutService
                 $quotedOperatorFees,
                 $operatorDefinitions,
                 $this->locationTaxRules($payload),
+                $this->taxesBookingFee($payload),
+                $this->cents($payload, 'customer_fee_line_cents'),
             );
         } catch (FeeExceedsChargeException|InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -651,6 +654,8 @@ final class CheckoutService
                 $quotedOperatorFees,
                 $operatorDefinitions,
                 $this->locationTaxRules($payload),
+                $this->taxesBookingFee($payload),
+                $this->cents($payload, 'customer_fee_line_cents'),
             );
         } catch (InvalidArgumentException $exception) {
             throw new AllocationUnavailableException($exception->getMessage());
@@ -710,6 +715,7 @@ final class CheckoutService
         $payload['priced_on'] = $this->pricedOn($booking);
         $payload['priced_local_start'] = $this->pricedLocalStart($booking);
         $payload['time_windows'] = $decrease->timeWindows;
+        $payload['party_bands'] = $decrease->partyBands;
         $payload['mandatory_operator_fees_cents'] = $decrease->operatorFeesCents;
         $payload['operator_fees'] = $this->operatorFees->replace($booking, $decrease->operatorFeeLines);
         $snapshot->payload = $payload;
@@ -822,6 +828,14 @@ final class CheckoutService
         }
 
         return $clean;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function taxesBookingFee(array $payload): bool
+    {
+        return ($payload['tax_includes_booking_fee'] ?? false) === true;
     }
 
     private function cents(array $payload, string $key): int

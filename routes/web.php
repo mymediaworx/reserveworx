@@ -233,6 +233,8 @@ Route::middleware(['tenant.resolve', 'throttle:widget'])
         Route::post('/services/{service}/waitlist', [WidgetController::class, 'joinWaitlist'])->name('widget.waitlist');
         Route::get('/checkout/{booking}', [WidgetController::class, 'checkout'])->name('widget.checkout')->middleware('signed');
         Route::post('/checkout/{booking}/promo', [WidgetController::class, 'applyPromo'])->name('widget.promo')->middleware('signed');
+        Route::post('/checkout/{booking}/participants', [WidgetController::class, 'storeParticipant'])->name('widget.party.store')->middleware('signed');
+        Route::post('/checkout/{booking}/participants/{participant}', [WidgetController::class, 'removeParticipant'])->name('widget.party.remove')->middleware('signed');
         Route::post('/checkout/{booking}', [WidgetController::class, 'pay'])->name('widget.pay')->middleware('signed');
         Route::post('/pickup/{booking}', [WidgetController::class, 'pickup'])->name('widget.pickup')->middleware('signed');
         Route::get('/confirmation/{booking}', [WidgetController::class, 'confirmation'])->name('widget.confirmation')->middleware('signed');

@@ -33,6 +33,7 @@ final class GhlMessages
     public function __construct(
         private readonly TransactionalEmailPreferences $preferences,
         private readonly GoHighLevelClient $client,
+        private readonly GhlContacts $contacts,
         private readonly GhlSyncLogger $logger,
         private readonly GhlBookingNotice $notices,
         private readonly TenantManager $tenants,
@@ -293,7 +294,13 @@ final class GhlMessages
         );
 
         try {
-            $contactId = $this->client->upsertContact($token, $connection->location_id, $this->contact($customer->name, $notice['email'], $notice['phone']));
+            $contactId = $this->contacts->resolve(
+                $token,
+                $log->tenant_id,
+                $connection->location_id,
+                $customer->id,
+                $this->contact($customer->name, $notice['email'], $notice['phone']),
+            );
             $messageId = $this->client->sendMessage($token, $this->payload($notice, $contactId));
         } catch (GhlRequestFailed $exception) {
             $this->finish($log, 'failed', $attempt, $exception->httpStatus, $exception->getMessage(), $token, $notice['channel'], null, $connection->location_id);

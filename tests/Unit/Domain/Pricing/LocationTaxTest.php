@@ -73,6 +73,20 @@ class LocationTaxTest extends TestCase
         LocationTax::assess([], -1, 0, 0);
     }
 
+    public function test_a_booking_fee_is_added_only_to_rental_rates(): void
+    {
+        $assessed = LocationTax::assess([
+            $this->rule(1_000, true, true, false),
+            $this->rule(1_000, false, false, true),
+        ], 10_000, 2_000, 500, 300);
+
+        $this->assertSame(1_280, $assessed['cents']);
+        $this->assertSame(12_300, $assessed['lines'][0]['basis_cents']);
+        $this->assertSame(1_230, $assessed['lines'][0]['cents']);
+        $this->assertSame(500, $assessed['lines'][1]['basis_cents']);
+        $this->assertSame(50, $assessed['lines'][1]['cents']);
+    }
+
     /**
      * @return array{id: string, name: string, percent_bps: int, applies_to_rentals: bool, applies_to_add_ons: bool, applies_to_fees: bool}
      */

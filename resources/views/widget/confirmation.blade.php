@@ -10,6 +10,12 @@
     <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
     <p>{{ $booking->service?->name }}</p>
     <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
+    @include('widget.partials.priced-lines', [
+        'serviceName' => $booking->service?->name,
+        'serviceCents' => $serviceCents ?? 0,
+        'addOnLines' => $addOnLines ?? [],
+        'currency' => $currency ?? 'USD',
+    ])
     @if ($copy['pickupFeeNote'] !== '')
         <p>{{ $copy['pickupFeeNote'] }}</p>
     @endif
@@ -35,6 +41,7 @@
     @else
         <p>A card payment is confirmed only after Stripe notifies ReserveWorx. This page does not complete the payment.</p>
     @endif
+    @include('widget.partials.party')
     @if (is_string($waiverUrl ?? null))
         <div class="card" data-waiver-link>
             <h2>Sign your waiver</h2>

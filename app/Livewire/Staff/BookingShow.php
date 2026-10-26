@@ -409,7 +409,7 @@ class BookingShow extends Component
 
     public function render(): View
     {
-        $booking = $this->booking($this->bookingId)->load(['service', 'location', 'departure', 'allocations', 'holds']);
+        $booking = $this->booking($this->bookingId)->load(['service', 'location', 'departure', 'allocations', 'holds', 'namedParticipants']);
         $zone = $this->zoneFor($booking);
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
         $disclosure = $snapshot?->disclosure_version_id

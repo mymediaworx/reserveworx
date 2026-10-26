@@ -40,7 +40,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Platform | `/platform/login`, `/platform` | Master admin, platform admins only: counts, filters, list, and add workspaces |
 | Platform | `/platform/forgot-password`, `/platform/reset-password/{token}` | Request a reset link and choose a new password. The link expires in 60 minutes. |
 | Platform | `/platform/tenants/{id}` | Industry, domains (add, mark verified), owners (add, with a one-time temporary password), booking fee rates, the GoHighLevel Location ID and Private Integration Token, a private data export, status |
-| Tenant domain | `/` | Public booking page for that workspace. A rental service asks for a date, length, and party size (a GET form), then lists the open start times, with booked and closed times marked, before the name, email, and hold (a POST form) |
+| Tenant domain | `/` | Public booking page for that workspace. A rental service asks for a date, length, and party size (a GET form), then lists the open start times, with booked and closed times marked, before the name, email, and hold (a POST form). The review page names each person in that party |
 | Tenant domain | `/staff/login` | Team sign in (session, host-only cookie) |
 | Tenant domain | `/staff/forgot-password`, `/staff/reset-password/{token}` | Request a reset link and choose a new password, for a team member of that workspace. The link expires in 60 minutes. |
 | Tenant domain | `/staff` | Today: schedule, overdue rentals, bookings that need attention, holds waiting on payment, booking fees. The overdue count links to `/staff/returns`, and the page lists each rental still out past its due time. While the workspace is onboarding, the owner also sees the setup checklist and Go live |
@@ -61,7 +61,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/closures` | Full-day or time-range closures for one location, optionally one category or one boat or pool, with a reason. A closure can repeat every year. Confirmed bookings that overlap are listed and stay booked. `settings.view` opens the page. `settings.update` adds, edits, and removes |
 | Tenant domain | `/staff/waivers` | The waivers in use, with version and signature counts, and earlier versions. `settings.view` opens it. `settings.update` publishes a waiver or a new version of one |
 | Tenant domain | `/waivers/{booking}` | Signed page, linked from the confirmation page, the confirmation email, and check-in, where guests read the current waivers and sign: one per named person (a minor needs a guardian's name) or one for the booking. Shows when everything is signed |
-| Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures` |
+| Tenant domain | `/staff/setup/*` | Locations with hours and closed dates, boats and gear, services with lengths, gear, prices, and departures. Location setup links to `/staff/closures`. A location's tax page can tax the customer booking fee. That switch stays off until an owner or manager turns it on |
 | Tenant domain | `/staff/promo-codes` | List, add, edit, and turn off promo codes. A code is a percent or a fixed amount. Dates and a use limit are optional |
 | Tenant domain | `/staff/import` | Owners and managers upload a CSV of customers or inventory, map columns, preview the first 20 rows, then import. The work runs in queued chunks. Templates are `/staff/import/templates/customers` and `/staff/import/templates/inventory` |
 | Tenant domain | `/staff/settings` | Who pays the booking fee, hold length, Stripe connection, cancellation windows, and the no-show refund percent |
@@ -73,7 +73,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 | Tenant domain | `/staff/businesses/new` | Add a business. Fee rates stay at the standard defaults. An optional address is saved unverified |
 | Tenant domain | `/staff/switch/{tenant}`, `/staff/enter/{token}` | Move to another business this login belongs to. The entry token lasts two minutes and works once, on that business's verified address |
 | Tenant domain | `/staff/menu` | Phone menu: every tool as round buttons |
-| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. The review page takes an optional promo code and shows the discount. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page shows a check-in code once the booking is confirmed |
+| Tenant domain | `/book/{token}` | Customer booking widget, styled to match. After the open times or the tour departure, the form lists active equipment and add-ons. A flat or per-person row is a checkbox. A row sold each takes a quantity. The review page itemizes the chosen lines, takes an optional promo code, shows the discount, and names each person in the party. The booking fee is calculated on the subtotal after that discount, including those lines. When `pay_at_pickup` is on, the review page also offers Pay at pickup. The signed confirmation page lists the same lines, shows the named people, and shows a check-in code once the booking is confirmed |
 
 ## Tenant isolation
 
@@ -101,7 +101,7 @@ Platform pages exist only on platform hosts (`platform.host`) and require `auth`
 
 ## Booking links
 
-The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The review page takes an optional promo code, shows the discount, and recalculates the booking fee on the subtotal after that discount. The widget does not use a cookie session. Its stylesheet matches the staff palette.
+The customer widget at `/book/{token}` takes a widget token. Tokens are stored as SHA-256 hashes, so a new link is shown once, right after it is made. Making and turning off links uses the same rule as the widget-token API (`bookings.manage`). The review page takes an optional promo code, shows the discount, and recalculates the booking fee on the subtotal after that discount. Equipment and add-ons chosen on the booking form are part of that subtotal and are listed on the review page and the confirmation. It also names each person in the party, including a child and that child's parent or guardian, up to the party size. The confirmation page keeps that list. The widget does not use a cookie session. Its stylesheet matches the staff palette.
 
 ## Demo data
 

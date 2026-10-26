@@ -26,10 +26,12 @@ class Location extends Model
         'name',
         'timezone',
         'status',
+        'booking_fee_taxable',
     ];
 
     protected $casts = [
         'status' => LocationStatus::class,
+        'booking_fee_taxable' => 'boolean',
     ];
 
     /**
