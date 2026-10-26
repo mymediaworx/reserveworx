@@ -1,4 +1,9 @@
-<div class="page schedule-page">
+<div
+    class="page schedule-page"
+    @if ($selected === '' && $bookResource === '')
+        wire:poll.60s="refreshCalendar"
+    @endif
+>
     <header class="page-head">
         <div>
             <h1>Schedule</h1>

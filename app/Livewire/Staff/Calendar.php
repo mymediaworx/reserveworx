@@ -7,6 +7,7 @@ use App\Enums\MembershipStatus;
 use App\Enums\OperationalStatus;
 use App\Enums\PaymentStatus;
 use App\Enums\ResourceType;
+use App\Livewire\Concerns\PollsCalendar;
 use App\Livewire\Concerns\WithinTenant;
 use App\Livewire\Staff\Concerns\LoadsBookingRows;
 use App\Models\Asset;
@@ -32,7 +33,7 @@ use Livewire\Component;
 #[Title('Calendar')]
 class Calendar extends Component
 {
-    use LoadsBookingRows, WithinTenant;
+    use LoadsBookingRows, PollsCalendar, WithinTenant;
 
     private const VIEWS = ['day', 'week', 'month', 'agenda'];
 
