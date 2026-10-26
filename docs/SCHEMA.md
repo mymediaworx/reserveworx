@@ -185,6 +185,10 @@ The client calls `https://services.leadconnectorhq.com` with `Authorization: Bea
 
 `booking_mutations` stores one successful change to a booking when the request sends `Idempotency-Key` or `idempotency_key`. The action is `confirm`, `extend`, `cancel`, `no_show`, `rental_checkout`, `return`, `operational_status`, `reschedule`, `reassign`, `party_size`, or `remove_participant`. The same key and the same request return the first response and do not run the change again. A different request for that key is refused. A refused change deletes the row, so the same key can be sent again after the time is free. Creating a hold still uses `bookings.idempotency_key`. Payments, refunds, and adding a participant keep their own keys. The customer download includes the stored response. Anonymizing that customer scrubs their name, email, and phone out of it.
 
+## Integration logs
+
+`integration_logs` is one row per outbound attempt, migrated in `database/migrations/2026_10_26_183000_create_integration_logs_table.php`. It is tenant-owned and uses `BelongsToTenant`. `channel` is `outbox`, `webhook`, `ghl_sync`, or `ghl_message`. `kind` is the event name. `attempt` starts at 1. `status` is `deferred`, `held`, `succeeded`, `failed`, or `skipped`. `http_status` and `error` are empty when they do not apply. `available_at` is the next outbox try, in UTC, and is empty for the other channels. The row does not store a payload, a response body, a secret, or a token. Rows are not updated or deleted. The index is `(tenant_id, created_at)`. `GET /api/v1/integrations/outbox` and `/admin/integrations` return the latest 20. The workspace export includes the table. The customer export does not.
+
 ## Planned, not migrated
 
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
@@ -192,7 +196,6 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
 - a mail transport. Outbound webhook endpoints are migrated
-- a general integration_logs table. This sync records attempts on `ghl_sync_logs`
 - inbound HighLevel webhooks. Check-in, return, and payment failed are still not sent as messages. Reminders, confirmations, receipts, cancellations, refunds, and overdue rentals are `ghl_message_logs`
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
