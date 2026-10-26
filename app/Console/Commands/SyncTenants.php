@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Platform\HostnameTaken;
 use App\Services\Platform\TenantOnboarding;
 use Illuminate\Console\Command;
 use InvalidArgumentException;
@@ -27,6 +28,11 @@ class SyncTenants extends Command
                     isset($entry['owner_email']) ? (string) $entry['owner_email'] : null,
                     (string) ($entry['timezone'] ?? 'America/New_York'),
                 );
+            } catch (HostnameTaken $e) {
+                // Read-only report; nothing is changed and the deploy is not failed.
+                $this->warn('tenant='.$slug.' skipped='.$e->getMessage());
+
+                continue;
             } catch (InvalidArgumentException $e) {
                 $this->error('tenant='.$slug.' error='.$e->getMessage());
                 $failed = true;

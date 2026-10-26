@@ -61,7 +61,11 @@ final class TenantOnboarding
         $existingDomain = Domain::withoutGlobalScope(TenantScope::class)->where('hostname', $hostname)->first();
         $tenant = Tenant::query()->where('slug', $slug)->first();
         if ($existingDomain instanceof Domain && (! $tenant instanceof Tenant || $existingDomain->tenant_id !== $tenant->id)) {
-            throw new InvalidArgumentException('hostname belongs to another workspace.');
+            $owner = Tenant::query()->whereKey($existingDomain->tenant_id)->first();
+            $detail = $owner instanceof Tenant
+                ? sprintf('slug=%s name="%s" status=%s created=%s', $owner->slug, $owner->name, $owner->status->value, (string) $owner->created_at)
+                : 'slug=missing';
+            throw new HostnameTaken('hostname belongs to another workspace: '.$detail);
         }
 
         $newOwner = null;

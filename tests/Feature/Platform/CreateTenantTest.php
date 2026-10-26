@@ -78,4 +78,16 @@ class CreateTenantTest extends TestCase
         $manifest = require base_path('config/tenants.php');
         $this->assertContains('yakshack', array_column($manifest, 'slug'));
     }
+
+    public function test_sync_reports_a_hostname_held_by_another_workspace_without_failing(): void
+    {
+        $other = Tenant::factory()->create(['slug' => 'yak-shack', 'name' => 'Yak Shack']);
+        Domain::factory()->create(['tenant_id' => $other->id, 'hostname' => 'yakshack.reserveworx.com', 'verified_at' => now()]);
+        config(['tenants' => [['slug' => 'yakshack', 'name' => 'Yak Shack', 'owner_email' => 'a@example.com', 'timezone' => 'America/New_York']]]);
+
+        $this->artisan('reserveworx:tenant:sync')
+            ->expectsOutputToContain('skipped=hostname belongs to another workspace: slug=yak-shack')
+            ->assertSuccessful();
+        $this->assertSame(1, Tenant::query()->count());
+    }
 }
