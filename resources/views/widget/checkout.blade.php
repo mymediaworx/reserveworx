@@ -49,6 +49,11 @@
             <button type="submit">Apply code</button>
         </form>
     @endif
+    @if ($waiverRequired && ! $waiverComplete)
+        @include('widget.partials.waivers')
+    @elseif ($waiverRequired)
+        <p role="status" data-waivers="complete">Waiver signed.</p>
+    @endif
     @if ($payUrl)
         {{-- target=_top: Stripe's payment page cannot load inside an embedded frame. --}}
         <form method="post" action="{{ $payUrl }}" target="_top">

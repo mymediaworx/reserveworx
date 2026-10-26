@@ -43,6 +43,7 @@ use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\WaitlistJoinedMail;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
+use App\Services\Waivers\WaiverForm;
 use App\Services\Waivers\WaiverLinks;
 use App\Services\Widget\WidgetTokens;
 use Carbon\CarbonImmutable;
@@ -70,6 +71,7 @@ class WidgetController extends Controller
         private readonly SlotFinder $slots,
         private readonly CancellationPolicies $policies,
         private readonly NamedParty $party,
+        private readonly WaiverForm $waivers,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -307,6 +309,51 @@ class WidgetController extends Controller
         return $this->saveParticipant($request, $token, $booking);
     }
 
+    public function signWaivers(Request $request, string $token, Booking $booking): Response|RedirectResponse
+    {
+        $this->activeToken($token);
+        $this->assertBookingService($booking);
+        abort_unless(in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true), 404);
+
+        if ($this->alreadyBooked($booking)) {
+            return redirect()->to($this->confirmationUrl($token, $booking));
+        }
+
+        try {
+            $this->waivers->sign($request, $booking);
+        } catch (ValidationException $exception) {
+            $fresh = $booking->fresh() ?? $booking;
+            $snapshot = $this->snapshot($fresh);
+            $hold = $this->openHold($fresh);
+
+            return $this->checkoutResponse(
+                $token,
+                $fresh,
+                $snapshot,
+                $hold,
+                null,
+                null,
+                null,
+                null,
+                422,
+                $this->promoValue($snapshot),
+                waiverError: $this->firstError($exception),
+                waiverOld: $this->waiverOld($request),
+            );
+        }
+
+        $fresh = $booking->fresh() ?? $booking;
+        $hold = $this->openHold($fresh);
+        $expires = $hold instanceof Hold
+            ? CarbonImmutable::instance($hold->expires_at)
+            : CarbonImmutable::now()->addMinutes(15);
+
+        return redirect()->to(URL::temporarySignedRoute('widget.checkout', $expires, [
+            'token' => $token,
+            'booking' => $fresh->id,
+        ]));
+    }
+
     public function removeParticipant(Request $request, string $token, Booking $booking, Participant $participant): Response|RedirectResponse
     {
         $this->activeToken($token);
@@ -401,6 +448,10 @@ class WidgetController extends Controller
             return $this->checkoutResponse($token, $fresh, $snapshot, null, null, null, null, 'This hold has expired.', 409);
         }
 
+        if ($this->waivers->blocking($fresh)) {
+            return $this->refusedUntilSigned($token, $fresh, $snapshot, $hold);
+        }
+
         try {
             $fresh = $this->allocator->confirm($fresh);
             $fresh = $fresh->fresh() ?? $fresh;
@@ -441,6 +492,10 @@ class WidgetController extends Controller
 
         if (! $hold instanceof Hold) {
             return $this->checkoutResponse($token, $booking, $snapshot, null, null, null, null, 'This hold has expired.', 409);
+        }
+
+        if ($this->waivers->blocking($booking)) {
+            return $this->refusedUntilSigned($token, $booking, $snapshot, $hold);
         }
 
         $expires = CarbonImmutable::instance($hold->expires_at);
@@ -1042,6 +1097,8 @@ class WidgetController extends Controller
         string $promoValue = '',
         ?string $partyError = null,
         array $partyOld = [],
+        ?string $waiverError = null,
+        array $waiverOld = [],
     ): Response {
         return response($this->checkoutView(
             $token,
@@ -1055,11 +1112,14 @@ class WidgetController extends Controller
             $promoValue,
             $partyError,
             $partyOld,
+            $waiverError,
+            $waiverOld,
         ), $status);
     }
 
     /**
      * @param  array{name?: string, is_minor?: bool, guardian_name?: string}  $partyOld
+     * @param  array{signer_name?: string, signer_minor?: bool, guardian?: array<string, string>, agree?: array<string, string>}  $waiverOld
      */
     private function checkoutView(
         string $token,
@@ -1073,8 +1133,22 @@ class WidgetController extends Controller
         string $promoValue = '',
         ?string $partyError = null,
         array $partyOld = [],
+        ?string $waiverError = null,
+        array $waiverOld = [],
     ): View {
         $booking->load(['service', 'namedParticipants']);
+        $presented = $this->waivers->present($booking);
+        $unsigned = $hold instanceof Hold && $presented['required'] && ! $presented['complete'];
+
+        if ($unsigned) {
+            $payUrl = null;
+            $pickupUrl = null;
+            $pickupLabel = null;
+        }
+
+        $expires = $hold instanceof Hold
+            ? CarbonImmutable::instance($hold->expires_at)
+            : CarbonImmutable::now()->addMinutes(15);
 
         return view('widget.checkout', [
             'token' => $token,
@@ -1089,8 +1163,82 @@ class WidgetController extends Controller
             'promoValue' => $promoValue,
             'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
             'error' => $error,
+            'waiverRequired' => $presented['required'],
+            'waiverComplete' => $presented['complete'],
+            'waiverVersions' => $presented['waivers'],
+            'waiverPeople' => $presented['people'],
+            'waiverSignUrl' => URL::temporarySignedRoute('widget.waivers', $expires, [
+                'token' => $token,
+                'booking' => $booking->id,
+            ]),
+            'waiverError' => $waiverError,
+            'waiverOld' => $this->waiverFields($waiverOld),
             ...$this->partyState($token, $booking, 'checkout', $partyError, $partyOld),
         ]);
+    }
+
+    /**
+     * @param  array{signer_name?: string, signer_minor?: bool, guardian?: array<string, string>, agree?: array<string, string>}  $old
+     * @return array{signer_name: string, signer_minor: bool, guardian: array<string, string>, agree: array<string, string>}
+     */
+    private function waiverFields(array $old): array
+    {
+        return [
+            'signer_name' => is_string($old['signer_name'] ?? null) ? $old['signer_name'] : '',
+            'signer_minor' => (bool) ($old['signer_minor'] ?? false),
+            'guardian' => $old['guardian'] ?? [],
+            'agree' => $old['agree'] ?? [],
+        ];
+    }
+
+    /**
+     * @return array{signer_name: string, signer_minor: bool, guardian: array<string, string>, agree: array<string, string>}
+     */
+    private function waiverOld(Request $request): array
+    {
+        $guardian = [];
+        $agree = [];
+        $incomingGuardian = $request->input('guardian');
+        $incomingAgree = $request->input('agree');
+
+        if (is_array($incomingGuardian)) {
+            foreach ($incomingGuardian as $key => $value) {
+                if (is_string($value)) {
+                    $guardian[(string) $key] = $value;
+                }
+            }
+        }
+
+        if (is_array($incomingAgree)) {
+            foreach ($incomingAgree as $key => $value) {
+                if (is_string($value) || is_numeric($value)) {
+                    $agree[(string) $key] = (string) $value;
+                }
+            }
+        }
+
+        return [
+            'signer_name' => is_string($request->input('signer_name')) ? $request->input('signer_name') : '',
+            'signer_minor' => $request->boolean('signer_minor'),
+            'guardian' => $guardian,
+            'agree' => $agree,
+        ];
+    }
+
+    private function refusedUntilSigned(string $token, Booking $booking, PricingSnapshot $snapshot, Hold $hold): Response
+    {
+        return $this->checkoutResponse(
+            $token,
+            $booking,
+            $snapshot,
+            $hold,
+            null,
+            null,
+            null,
+            'Sign the waiver before you pay.',
+            409,
+            $this->promoValue($snapshot),
+        );
     }
 
     /**
