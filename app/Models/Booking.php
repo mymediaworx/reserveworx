@@ -191,8 +191,12 @@ class Booking extends Model
     }
 
     /**
-     * Seats that still count toward a departure: an active hold or an allocation,
-     * on a booking that has not been cancelled or marked a no-show.
+     * Seats that still count toward a departure.
+     *
+     * An active hold or an allocation counts. A confirmed or pending departure
+     * booking also counts after its hold is released: extra guests share the
+     * departure's resources and do not keep an allocation of their own.
+     * Cancelled and no-show bookings do not count, and an expired hold does not.
      *
      * @param  Builder<Booking>  $query
      * @return Builder<Booking>
@@ -207,7 +211,12 @@ class Booking extends Model
             ])
             ->where(function (Builder $query): void {
                 $query->whereHas('allocations')
-                    ->orWhereHas('holds', fn (Builder $holds): Builder => $holds->where('expires_at', '>', now()));
+                    ->orWhereHas('holds', fn (Builder $holds): Builder => $holds->where('expires_at', '>', now()))
+                    ->orWhere(function (Builder $shared): void {
+                        $shared->where('status', '!=', BookingStatus::Held->value)
+                            ->whereNotNull('departure_id')
+                            ->where('departure_id', '!=', '');
+                    });
             });
     }
 }

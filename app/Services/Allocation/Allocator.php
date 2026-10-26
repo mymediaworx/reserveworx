@@ -1809,15 +1809,7 @@ class Allocator
 
         $others = (int) $departure->bookings()
             ->where('id', '!=', $booking->id)
-            ->whereIn('status', [
-                BookingStatus::Held->value,
-                BookingStatus::Confirmed->value,
-                BookingStatus::PendingPayment->value,
-            ])
-            ->where(function ($query): void {
-                $query->whereHas('allocations')
-                    ->orWhereHas('holds', fn ($holds) => $holds->where('expires_at', '>', now()));
-            })
+            ->occupyingSeats()
             ->sum('participants');
 
         if ($departure->private && $others > 0) {

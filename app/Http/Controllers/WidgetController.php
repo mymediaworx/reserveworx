@@ -9,8 +9,10 @@ use App\Domain\Pricing\PricingEngine;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
 use App\Enums\PaymentStatus;
+use App\Enums\ServiceKind;
 use App\Models\Asset;
 use App\Models\Booking;
+use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Hold;
 use App\Models\Location;
@@ -26,6 +28,7 @@ use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
+use App\Services\Booking\SlotFinder;
 use App\Services\Booking\Waitlist;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\CheckIn\CheckInPass;
@@ -53,6 +56,7 @@ class WidgetController extends Controller
         private readonly CheckoutService $checkout,
         private readonly BookingOperatorFeeLines $operatorFees,
         private readonly CheckInPass $checkInPass,
+        private readonly SlotFinder $slots,
     ) {}
 
     public function services(Request $request, string $token): View
@@ -91,6 +95,7 @@ class WidgetController extends Controller
             'old' => [],
             'suggestions' => [],
             'offerWaitlist' => false,
+            'departureChoices' => $this->departureChoices($service),
         ]);
     }
 
@@ -99,33 +104,32 @@ class WidgetController extends Controller
         $tenant = $this->tenant($request);
         $this->activeToken($token);
         $service->load(['location', 'durations']);
-        $validated = $this->validateBooking($request, $service);
+        $validated = $service->kind === ServiceKind::Tour
+            ? $this->validateTour($request, $service)
+            : $this->validateBooking($request, $service);
 
         if (is_string($validated)) {
             return $this->formResponse($token, $service, $validated, $request, 422);
         }
 
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
-        $starts = CarbonImmutable::createFromFormat('Y-m-d H:i', $validated['date'].' '.$validated['start'], $zone);
+        $interval = $this->bookedInterval($service, $validated);
 
-        if (! $starts instanceof CarbonImmutable) {
-            return $this->formResponse($token, $service, 'Choose a valid date and time.', $request, 422);
+        if (is_string($interval)) {
+            return $this->formResponse($token, $service, $interval, $request, 422);
         }
 
-        $startsAt = $starts->utc();
-        $endsAt = $startsAt->addMinutes($validated['minutes']);
-
         try {
-            $this->previewAt($service, $this->setting($tenant), $validated['participants'], $validated['minutes'], $starts);
+            $this->previewAt($service, $this->setting($tenant), $validated['participants'], $interval['minutes'], $interval['local']);
             $booking = $this->allocator->hold(new AllocationIntent(
                 $tenant->id,
                 $service->id,
-                $startsAt,
-                $endsAt,
+                $interval['starts_at'],
+                $interval['ends_at'],
                 $validated['participants'],
                 $validated['idempotency_key'],
                 $validated['customer_name'],
                 $validated['customer_email'],
+                $interval['departure_id'],
             ));
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
         } catch (InvalidArgumentException|IdempotencyConflictException|AllocationUnavailableException $exception) {
@@ -160,7 +164,9 @@ class WidgetController extends Controller
         $service->load(['location', 'durations']);
         abort_unless($service->waitlist_enabled, 404);
 
-        $validated = $this->validateBooking($request, $service);
+        $validated = $service->kind === ServiceKind::Tour
+            ? $this->validateTour($request, $service)
+            : $this->validateBooking($request, $service);
 
         if (is_string($validated)) {
             return $this->formResponse($token, $service, $validated, $request, 422, [], true);
@@ -174,16 +180,13 @@ class WidgetController extends Controller
             return $this->formResponse($token, $service, $phoneError, $request, 422, [], true);
         }
 
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
-        $starts = CarbonImmutable::createFromFormat('Y-m-d H:i', $validated['date'].' '.$validated['start'], $zone);
+        $interval = $this->bookedInterval($service, $validated);
 
-        if (! $starts instanceof CarbonImmutable) {
-            return $this->formResponse($token, $service, 'Choose a valid date and time.', $request, 422, [], true);
+        if (is_string($interval)) {
+            return $this->formResponse($token, $service, $interval, $request, 422, [], true);
         }
 
-        $startsAt = $starts->utc();
-        $endsAt = $startsAt->addMinutes($validated['minutes']);
-        $closed = $this->closedMessage($hours, $service->location, $startsAt, $endsAt);
+        $closed = $this->closedMessage($hours, $service->location, $interval['starts_at'], $interval['ends_at']);
 
         if ($closed !== null) {
             return $this->formResponse($token, $service, $closed, $request, 409);
@@ -192,12 +195,13 @@ class WidgetController extends Controller
         $hint = $allocator->hint(new AllocationIntent(
             $tenant->id,
             $service->id,
-            $startsAt,
-            $endsAt,
+            $interval['starts_at'],
+            $interval['ends_at'],
             $validated['participants'],
             null,
             $validated['customer_name'],
             $validated['customer_email'],
+            $interval['departure_id'],
         ));
 
         if ($hint['available']) {
@@ -208,10 +212,10 @@ class WidgetController extends Controller
         $entry = $waitlist->join(
             $tenant->id,
             $service->id,
-            null,
+            $interval['departure_id'],
             $service->location_id,
-            $startsAt,
-            $endsAt,
+            $interval['starts_at'],
+            $interval['ends_at'],
             $validated['participants'],
             $validated['customer_name'],
             $validated['customer_email'],
@@ -232,7 +236,7 @@ class WidgetController extends Controller
         return response()->view('widget.waitlist-joined', [
             'token' => $token,
             'serviceName' => $service->name,
-            'when' => $starts->format('D, M j, g:i A'),
+            'when' => $interval['local']->format('D, M j, g:i A'),
             'participants' => $entry->participants,
             'email' => (string) ($entry->customer_email ?? $validated['customer_email']),
             'emailed' => $emailed,
@@ -519,6 +523,159 @@ class WidgetController extends Controller
     }
 
     /**
+     * A tour joins the scheduled departure at the chosen start. The departure's
+     * own length is the booking length; a free duration does not apply.
+     *
+     * @return array{participants: int, customer_name: string, customer_email: string, idempotency_key: string, minutes: int, starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string}|string
+     */
+    private function validateTour(Request $request, Service $service): array|string
+    {
+        $validator = Validator::make($request->all(), [
+            'departure_id' => ['nullable', 'string'],
+            'date' => ['nullable', 'date_format:Y-m-d'],
+            'start' => ['nullable', 'date_format:H:i'],
+            'participants' => ['required', 'integer', 'min:1'],
+            'customer_name' => ['required', 'string', 'max:120'],
+            'customer_email' => ['required', 'email', 'max:255'],
+            'idempotency_key' => ['required', 'string', 'max:80'],
+        ]);
+
+        if ($validator->fails()) {
+            return (string) $validator->errors()->first();
+        }
+
+        /** @var array{departure_id?: string|null, date?: string|null, start?: string|null, participants: int|string, customer_name: string, customer_email: string, idempotency_key: string} $data */
+        $data = $validator->validated();
+        $participants = (int) $data['participants'];
+        $max = $service->max_participants;
+
+        if ($max !== null && $participants > $max) {
+            return 'That party is larger than this service allows.';
+        }
+
+        $postedId = $data['departure_id'] ?? null;
+        $startsAt = $this->postedStart($service, $data['date'] ?? null, $data['start'] ?? null);
+        $departure = $this->slots->matchingDeparture(
+            $service,
+            is_string($postedId) && $postedId !== '' ? $postedId : null,
+            $startsAt,
+        );
+
+        if (! $departure instanceof Departure) {
+            return 'Choose a departure.';
+        }
+
+        $starts = CarbonImmutable::instance($departure->starts_at)->utc();
+        $ends = CarbonImmutable::instance($departure->ends_at)->utc();
+        $minutes = (int) round($starts->diffInMinutes($ends));
+
+        if ($minutes < 1) {
+            return 'Choose a departure.';
+        }
+
+        return [
+            'participants' => $participants,
+            'customer_name' => $data['customer_name'],
+            'customer_email' => $data['customer_email'],
+            'idempotency_key' => $data['idempotency_key'],
+            'minutes' => $minutes,
+            'starts_at' => $starts,
+            'ends_at' => $ends,
+            'departure_id' => $departure->id,
+        ];
+    }
+
+    private function postedStart(Service $service, mixed $date, mixed $start): ?CarbonImmutable
+    {
+        if (! is_string($date) || $date === '' || ! is_string($start) || $start === '') {
+            return null;
+        }
+
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $local = CarbonImmutable::createFromFormat('Y-m-d H:i', $date.' '.$start, $zone);
+
+        return $local instanceof CarbonImmutable ? $local->utc() : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string|null, minutes: int, local: CarbonImmutable}|string
+     */
+    private function bookedInterval(Service $service, array $validated): array|string
+    {
+        $startsAt = $validated['starts_at'] ?? null;
+        $endsAt = $validated['ends_at'] ?? null;
+        $minutes = $validated['minutes'] ?? null;
+        $departureId = $validated['departure_id'] ?? null;
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+
+        if ($startsAt instanceof CarbonImmutable && $endsAt instanceof CarbonImmutable && is_int($minutes)) {
+            return [
+                'starts_at' => $startsAt->utc(),
+                'ends_at' => $endsAt->utc(),
+                'departure_id' => is_string($departureId) && $departureId !== '' ? $departureId : null,
+                'minutes' => $minutes,
+                'local' => $startsAt->timezone($zone),
+            ];
+        }
+
+        $date = $validated['date'] ?? null;
+        $start = $validated['start'] ?? null;
+
+        if (! is_string($date) || ! is_string($start) || ! is_int($minutes)) {
+            return 'Choose a valid date and time.';
+        }
+
+        $local = CarbonImmutable::createFromFormat('Y-m-d H:i', $date.' '.$start, $zone);
+
+        if (! $local instanceof CarbonImmutable) {
+            return 'Choose a valid date and time.';
+        }
+
+        return [
+            'starts_at' => $local->utc(),
+            'ends_at' => $local->utc()->addMinutes($minutes),
+            'departure_id' => null,
+            'minutes' => $minutes,
+            'local' => $local,
+        ];
+    }
+
+    /**
+     * @return list<array{id: string, label: string}>
+     */
+    private function departureChoices(Service $service): array
+    {
+        if ($service->kind !== ServiceKind::Tour) {
+            return [];
+        }
+
+        $departures = $this->slots->upcoming($service);
+        $counts = Departure::headcountsFor($departures);
+        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $choices = [];
+
+        foreach ($departures as $departure) {
+            $when = CarbonImmutable::instance($departure->starts_at)->timezone($zone);
+            $label = $when->format('D, M j, g:i A');
+
+            if ($departure->private) {
+                $label .= ' · Private';
+            } elseif (is_int($departure->seats)) {
+                $left = max(0, $departure->seats - ($counts[$departure->id] ?? 0));
+                $label .= ' · '.$left.' seats left';
+            }
+
+            $choices[] = [
+                'id' => $departure->id,
+                'label' => $label,
+            ];
+        }
+
+        return $choices;
+    }
+
+    /**
      * @return array{date: string, start: string, participants: int, customer_name: string, customer_email: string, idempotency_key: string, minutes: int}|string
      */
     private function validateBooking(Request $request, Service $service): array|string
@@ -636,6 +793,7 @@ class WidgetController extends Controller
             'old' => $request->all(),
             'suggestions' => $this->suggestionLines($service, $offers),
             'offerWaitlist' => $offerWaitlist && $service->waitlist_enabled,
+            'departureChoices' => $this->departureChoices($service),
         ], $status);
     }
 

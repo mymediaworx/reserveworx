@@ -127,6 +127,59 @@ final class SlotFinder
             ]);
     }
 
+    /**
+     * Scheduled departures a guest can still join, soonest first.
+     *
+     * @return Collection<int, Departure>
+     */
+    public function upcoming(Service $service, int $limit = 90): Collection
+    {
+        return Departure::query()
+            ->where('service_id', $service->id)
+            ->where('status', DepartureStatus::Scheduled->value)
+            ->where('starts_at', '>', CarbonImmutable::now())
+            ->orderBy('starts_at')
+            ->orderBy('id')
+            ->limit(max(1, $limit))
+            ->get();
+    }
+
+    /**
+     * The scheduled departure a public tour booking joins.
+     * An explicit id wins. Otherwise exactly one departure must start at that instant.
+     */
+    public function matchingDeparture(Service $service, ?string $departureId, ?CarbonImmutable $startsAt): ?Departure
+    {
+        if (is_string($departureId) && $departureId !== '') {
+            $departure = Departure::query()
+                ->where('service_id', $service->id)
+                ->where('status', DepartureStatus::Scheduled->value)
+                ->find($departureId);
+
+            return $departure instanceof Departure ? $departure : null;
+        }
+
+        if (! $startsAt instanceof CarbonImmutable) {
+            return null;
+        }
+
+        $matches = Departure::query()
+            ->where('service_id', $service->id)
+            ->where('status', DepartureStatus::Scheduled->value)
+            ->where('starts_at', $startsAt->utc())
+            ->orderBy('id')
+            ->limit(2)
+            ->get();
+
+        if ($matches->count() !== 1) {
+            return null;
+        }
+
+        $departure = $matches->first();
+
+        return $departure instanceof Departure ? $departure : null;
+    }
+
     private function intervalClosed(Service $service, CarbonImmutable $start, CarbonImmutable $end): bool
     {
         $location = $service->location;

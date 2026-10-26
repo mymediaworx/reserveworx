@@ -38,6 +38,9 @@
                 <label>Party size
                     <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? 1 }}">
                 </label>
+                @if (($old['departure_id'] ?? '') !== '')
+                    <input type="hidden" name="departure_id" value="{{ $old['departure_id'] }}">
+                @endif
                 <input type="hidden" name="date" value="{{ $old['date'] ?? '' }}">
                 <input type="hidden" name="start" value="{{ $old['start'] ?? '' }}">
                 @if (($old['duration_id'] ?? '') !== '')
@@ -51,26 +54,41 @@
         </div>
     @endif
     <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id) }}">
-        <label>Date
-            <input name="date" type="date" required value="{{ $old['date'] ?? '' }}">
-        </label>
-        <label>Start time
-            <input name="start" type="time" required value="{{ $old['start'] ?? '' }}">
-        </label>
-        @if ($service->durations->isNotEmpty())
-            <fieldset>
-                <legend>Length</legend>
-                @foreach ($service->durations as $duration)
-                    <label>
-                        <input type="radio" name="duration_id" value="{{ $duration->id }}" @checked(($old['duration_id'] ?? '') === $duration->id) required>
-                        {{ $duration->name }} ({{ $duration->duration_minutes }} minutes)
-                    </label>
-                @endforeach
-            </fieldset>
+        @if ($service->kind->value === 'tour')
+            @if ($departureChoices === [])
+                <p>No upcoming departures. Check back when a departure is scheduled.</p>
+            @else
+                <label>Departure
+                    <select name="departure_id" required>
+                        <option value="">Choose a departure</option>
+                        @foreach ($departureChoices as $choice)
+                            <option value="{{ $choice['id'] }}" @selected(($old['departure_id'] ?? '') === $choice['id'])>{{ $choice['label'] }}</option>
+                        @endforeach
+                    </select>
+                </label>
+            @endif
         @else
-            <label>Duration in minutes
-                <input name="duration_minutes" type="number" min="1" max="1440" required value="{{ $old['duration_minutes'] ?? 60 }}">
+            <label>Date
+                <input name="date" type="date" required value="{{ $old['date'] ?? '' }}">
             </label>
+            <label>Start time
+                <input name="start" type="time" required value="{{ $old['start'] ?? '' }}">
+            </label>
+            @if ($service->durations->isNotEmpty())
+                <fieldset>
+                    <legend>Length</legend>
+                    @foreach ($service->durations as $duration)
+                        <label>
+                            <input type="radio" name="duration_id" value="{{ $duration->id }}" @checked(($old['duration_id'] ?? '') === $duration->id) required>
+                            {{ $duration->name }} ({{ $duration->duration_minutes }} minutes)
+                        </label>
+                    @endforeach
+                </fieldset>
+            @else
+                <label>Duration in minutes
+                    <input name="duration_minutes" type="number" min="1" max="1440" required value="{{ $old['duration_minutes'] ?? 60 }}">
+                </label>
+            @endif
         @endif
         <label>Party size
             <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? 1 }}">
