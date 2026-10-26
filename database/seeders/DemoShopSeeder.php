@@ -240,24 +240,49 @@ class DemoShopSeeder extends Seeder
             ]);
         }
 
-        $location = Location::query()->where('name', 'Harbor Point Marina')->first();
-
-        if ($location instanceof Location && ! LocationTaxRule::query()->where('location_id', $location->id)->exists()) {
-            LocationTaxRule::query()->create([
-                'tenant_id' => $tenant->id,
-                'location_id' => $location->id,
-                'name' => 'Sample KY sales tax',
-                'percent_bps' => 600,
-                'applies_to_rentals' => true,
-                'applies_to_add_ons' => true,
-                'applies_to_fees' => true,
-            ]);
-            $location->forceFill(['booking_fee_taxable' => true])->save();
-        }
+        $this->sampleTax($tenant);
 
         $this->rollingCheckout($tenant);
     }
 
+    /**
+     * The approved 6% sample tax goes on every Harbor location a demo service
+     * books at, not only the location the seeder first named. A booking takes
+     * its location from its service, so a rate on any other location is never
+     * read at checkout. Locations that already have a rate are left alone.
+     */
+    private function sampleTax(Tenant $tenant): void
+    {
+        $locationIds = Service::query()->whereNotNull('location_id')->distinct()->pluck('location_id');
+        $added = 0;
+
+        foreach (Location::query()->whereIn('id', $locationIds)->orderBy('id')->get() as $location) {
+            if (! LocationTaxRule::query()->where('location_id', $location->id)->exists()) {
+                LocationTaxRule::query()->create([
+                    'tenant_id' => $tenant->id,
+                    'location_id' => $location->id,
+                    'name' => 'Sample KY sales tax',
+                    'percent_bps' => 600,
+                    'applies_to_rentals' => true,
+                    'applies_to_add_ons' => true,
+                    'applies_to_fees' => true,
+                ]);
+                $location->forceFill(['booking_fee_taxable' => true])->save();
+                $added++;
+            }
+        }
+
+        $taxed = LocationTaxRule::query()->whereIn('location_id', $locationIds)->distinct()->count('location_id');
+        $untaxedServices = Service::query()->whereNull('location_id')->count();
+        $this->command?->line("demo_tax=harbor-demo service_locations={$locationIds->count()} taxed_locations={$taxed} added={$added} services_without_location={$untaxedServices}");
+    }
+
+    /**
+     * One demo rental that is out right now. The booking covers the same four
+     * hours as the checkout: it started an hour ago and is due back in three.
+     * A rerun moves both forward together once the return is under an hour away
+     * or when the booking and the checkout disagree.
+     */
     private function rollingCheckout(Tenant $tenant): void
     {
         $service = Service::query()->where('name', 'Tandem kayak rental')->first();
@@ -267,18 +292,19 @@ class DemoShopSeeder extends Seeder
             return;
         }
 
+        $now = CarbonImmutable::now()->utc()->startOfMinute();
+        $start = $now->subHour();
+        $due = $start->addMinutes(240);
+        $allocator = app(Allocator::class);
         $booking = Booking::query()->where('idempotency_key', self::DEMO_CHECKOUT_KEY)->first();
 
         if (! $booking instanceof Booking) {
-            $allocator = app(Allocator::class);
-            $start = CarbonImmutable::now('America/New_York')->startOfDay()->addDays(1)->setTime(9, 0)->utc();
-
             try {
                 $booking = $allocator->hold(new AllocationIntent(
                     $tenant->id,
                     $service->id,
                     $start,
-                    $start->addMinutes(240),
+                    $due,
                     2,
                     self::DEMO_CHECKOUT_KEY,
                     'Casey Rivera',
@@ -290,8 +316,23 @@ class DemoShopSeeder extends Seeder
             }
         }
 
-        $now = CarbonImmutable::now()->utc();
         $checkout = RentalCheckout::query()->where('booking_id', $booking->id)->whereNull('returned_at')->first();
+        $bookingEnd = CarbonImmutable::instance($booking->ends_at)->utc();
+        $stale = ! $checkout instanceof RentalCheckout
+            || $checkout->due_at->lt($now->addHour())
+            || ! $checkout->due_at->equalTo($bookingEnd);
+
+        if (! $stale) {
+            return;
+        }
+
+        if (! CarbonImmutable::instance($booking->starts_at)->utc()->equalTo($start) || ! $bookingEnd->equalTo($due)) {
+            try {
+                $booking = $allocator->reschedule($booking, $start, $due);
+            } catch (AllocationUnavailableException) {
+                return;
+            }
+        }
 
         if (! $checkout instanceof RentalCheckout) {
             RentalCheckout::query()->create([
@@ -299,16 +340,14 @@ class DemoShopSeeder extends Seeder
                 'booking_id' => $booking->id,
                 'pool_id' => $pool->id,
                 'quantity' => 1,
-                'checked_out_at' => $now->subHour(),
-                'due_at' => $now->addHours(4),
+                'checked_out_at' => $start,
+                'due_at' => $due,
             ]);
 
             return;
         }
 
-        if ($checkout->due_at->lt($now->addHour())) {
-            $checkout->forceFill(['checked_out_at' => $now->subHour(), 'due_at' => $now->addHours(4)])->save();
-        }
+        $checkout->forceFill(['checked_out_at' => $start, 'due_at' => $due])->save();
     }
 
     private function ensureTourWindow(Tenant $tenant): int

@@ -124,4 +124,84 @@ class DemoShopSeederTest extends TestCase
         $this->assertSame(0, AddOn::query()->count());
         $this->assertSame(0, RentalCheckout::query()->count());
     }
+
+    public function test_harbor_checkout_charges_the_sample_tax_on_every_service_location(): void
+    {
+        $this->seedDemo();
+        $harbor = Tenant::query()->where('slug', 'harbor-demo')->firstOrFail();
+        app(TenantManager::class)->set($harbor);
+        $other = Location::query()->create([
+            'tenant_id' => $harbor->id,
+            'name' => 'Harbor Point Marina',
+            'timezone' => 'America/New_York',
+            'status' => 'active',
+        ]);
+        // The earlier seeder put the rate on a location found by name, which need not be where the services book.
+        LocationTaxRule::query()->update(['location_id' => $other->id]);
+        app(TenantManager::class)->forget();
+
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($harbor);
+        $this->assertSame(2, LocationTaxRule::query()->count(), 'Each location a service books at gets the sample rate once.');
+        $kayak = Service::query()->where('name', 'Single kayak rental')->firstOrFail();
+        $this->assertSame(1, LocationTaxRule::query()->where('location_id', $kayak->location_id)->count());
+        $this->assertTrue(Location::query()->findOrFail($kayak->location_id)->booking_fee_taxable);
+        $dayId = ServiceDuration::query()->where('service_id', $kayak->id)->where('duration_minutes', 1440)->value('id');
+        app(TenantManager::class)->forget();
+
+        $home = (string) $this->get('http://harbor-demo.reserveworx.test/')->assertOk()->getContent();
+        $this->assertSame(1, preg_match('#href="([^"]+/services/'.$kayak->id.')"#i', $home, $link));
+        $held = $this->post(html_entity_decode($link[1]), [
+            'date' => CarbonImmutable::now('America/New_York')->addDays(2)->toDateString(),
+            'start' => '10:00',
+            'duration_id' => $dayId,
+            'participants' => 1,
+            'customer_name' => 'Tax Check',
+            'customer_email' => 'tax@example.com',
+            'idempotency_key' => 'demo-tax-check',
+        ])->assertRedirect();
+
+        $this->get((string) $held->headers->get('Location'))->assertOk()
+            ->assertSeeInOrder(['Subtotal', '$95.00', 'Booking fee', '$2.85', 'Sample KY sales tax', '$5.87', 'Total', '$103.72']);
+    }
+
+    public function test_the_demo_rental_booking_covers_the_same_hours_as_its_checkout(): void
+    {
+        $this->seedDemo();
+        $harbor = Tenant::query()->where('slug', 'harbor-demo')->firstOrFail();
+        app(TenantManager::class)->set($harbor);
+        $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
+        $booking = Booking::query()->findOrFail($checkout->booking_id);
+        $this->assertSame('demo-harbor-demo-checkout', $booking->idempotency_key);
+        $this->assertTrue($booking->starts_at->equalTo($checkout->checked_out_at));
+        $this->assertTrue($booking->ends_at->equalTo($checkout->due_at));
+        $this->assertTrue($booking->starts_at->isPast());
+        $this->assertTrue($checkout->due_at->isFuture());
+
+        // An older run booked tomorrow 9am and left the checkout due today.
+        $booking->forceFill([
+            'starts_at' => CarbonImmutable::now('America/New_York')->startOfDay()->addDay()->setTime(9, 0)->utc(),
+            'ends_at' => CarbonImmutable::now('America/New_York')->startOfDay()->addDay()->setTime(13, 0)->utc(),
+        ])->save();
+        app(TenantManager::class)->forget();
+
+        $this->seed(DemoShopSeeder::class);
+        app(TenantManager::class)->set($harbor);
+        $checkout = RentalCheckout::query()->whereNull('returned_at')->sole();
+        $booking = Booking::query()->findOrFail($checkout->booking_id);
+        $this->assertTrue($booking->ends_at->equalTo($checkout->due_at), 'A rerun lines the booking up with the checkout.');
+        $this->assertTrue($booking->starts_at->isPast());
+        $this->assertSame(1, Booking::query()->where('idempotency_key', 'demo-harbor-demo-checkout')->count());
+    }
+
+    private function seedDemo(): void
+    {
+        $path = sys_get_temp_dir().'/reserveworx-demo-logins-'.bin2hex(random_bytes(4)).'.txt';
+        putenv('DEMO_LOGIN_FILE='.$path);
+        $_ENV['DEMO_LOGIN_FILE'] = $path;
+        $_SERVER['DEMO_LOGIN_FILE'] = $path;
+
+        $this->seed(DatabaseSeeder::class);
+        $this->seed(DemoShopSeeder::class);
+    }
 }
