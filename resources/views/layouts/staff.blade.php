@@ -5,6 +5,7 @@
     use App\Models\Location;
     use App\Models\User;
     use App\Tenancy\Access;
+    use App\Tenancy\StaffLocationAccess;
 
     $tenantModel = app(\App\Tenancy\TenantManager::class)->get();
     $staffUser = auth()->user();
@@ -12,6 +13,10 @@
         && $tenantModel !== null
         && app(Access::class)->allows($staffUser, $tenantModel->id, 'members.manage');
     $canImport = $staffUser instanceof User && $staffUser->can('viewAny', CsvImport::class);
+    $canPrivacy = $staffUser instanceof User
+        && $tenantModel !== null
+        && app(Access::class)->allows($staffUser, $tenantModel->id, 'customers.privacy')
+        && ! app(StaffLocationAccess::class)->isRestricted($staffUser);
     $canCreateBooking = $staffUser instanceof User
         && $tenantModel !== null
         && app(Access::class)->allows($staffUser, $tenantModel->id, 'bookings.manage');
@@ -32,7 +37,7 @@
         ['href' => '/staff/calendar', 'label' => 'Calendar', 'icon' => 'calendar', 'active' => request()->is('staff/calendar')],
         ['href' => '/staff/schedule', 'label' => 'Schedule', 'icon' => 'schedule', 'active' => request()->is('staff/schedule'), 'mobile' => false],
         ['href' => '/staff/share', 'label' => 'Share', 'icon' => 'share', 'active' => request()->is('staff/share')],
-        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/waivers', 'staff/promo-codes', 'staff/import', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/incidents', 'staff/incidents/*', 'staff/maintenance', 'staff/manifest', 'staff/reports', 'staff/waitlist')],
+        ['href' => '/staff/menu', 'label' => 'Menu', 'icon' => 'apps', 'active' => request()->is('staff/menu', 'staff/setup/*', 'staff/locations/*', 'staff/closures', 'staff/waivers', 'staff/promo-codes', 'staff/import', 'staff/customers', 'staff/settings', 'staff/team', 'staff/branding', 'staff/feedback', 'staff/check-in', 'staff/check-in/*', 'staff/returns', 'staff/incidents', 'staff/incidents/*', 'staff/maintenance', 'staff/manifest', 'staff/reports', 'staff/waitlist')],
     ];
     $setup = [
         ['href' => '/staff/setup/locations', 'label' => 'Locations', 'icon' => 'pin', 'active' => request()->is('staff/setup/locations*', 'staff/locations/*/tax')],
@@ -46,6 +51,9 @@
     ];
     if ($canImport) {
         $setup[] = ['href' => '/staff/import', 'label' => 'Import', 'icon' => 'upload', 'active' => request()->is('staff/import')];
+    }
+    if ($canPrivacy) {
+        $setup[] = ['href' => '/staff/customers', 'label' => 'Customer records', 'icon' => 'users', 'active' => request()->is('staff/customers')];
     }
     if ($canManageTeam) {
         $setup[] = ['href' => '/staff/team', 'label' => 'Team', 'icon' => 'users', 'active' => request()->is('staff/team')];
