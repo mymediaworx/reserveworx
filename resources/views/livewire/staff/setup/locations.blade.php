@@ -18,7 +18,7 @@
             @else
                 <ul class="rows">
                     @foreach ($locations as $location)
-                        <li class="row">
+                        <li class="row" wire:key="location-{{ $location->id }}">
                             @if ($editingId === $location->id)
                                 <form wire:submit="save" class="stack grow">
                                     <label class="field"><span>Name</span><input type="text" wire:model="editName" required maxlength="120"></label>
@@ -34,19 +34,20 @@
                                         </select>
                                     </label>
                                     <label class="check"><input type="checkbox" wire:model.live="editDelivered"><span>Delivered from fleet. Gear for this location comes from the shared fleet, not from equipment kept here.</span></label>
-                                    @if ($editDelivered)
-                                        <label class="check"><input type="checkbox" wire:model.live="editWalkIns"><span>Hold units for walk-ins. Off closes booking once the day is fully committed. On keeps units here for the counter to sell.</span></label>
-                                        @if ($editWalkIns)
+                                    {{-- Always in the edit form. wire:show reveals it when Delivered from fleet is ticked, including before the next server render. --}}
+                                    <div class="stack" wire:show="editDelivered" data-location-walk-ins @unless ($editDelivered) style="display: none" @endunless>
+                                        <label class="check"><input type="checkbox" wire:model.live="editWalkIns"><span>Allow walk-ins (hold back units at this location for counter sales)</span></label>
+                                        <div class="stack" wire:show="editWalkIns" @unless ($editWalkIns) style="display: none" @endunless>
                                             @forelse ($fleetItems as $item)
-                                                <label class="field"><span>Walk-in hold for {{ $item->name }}</span>
+                                                <label class="field" wire:key="walk-in-hold-{{ $location->id }}-{{ $item->id }}"><span>Walk-in hold for {{ $item->name }}</span>
                                                     <input type="number" min="0" max="100000" wire:model="editReserves.{{ $item->id }}">
                                                 </label>
                                                 @error('editReserves.'.$item->id)<p class="error">{{ $message }}</p>@enderror
                                             @empty
                                                 <p class="muted">Add a fleet item under Equipment before holding walk-in units.</p>
                                             @endforelse
-                                        @endif
-                                    @endif
+                                        </div>
+                                    </div>
                                     <div class="form-row">
                                         <button type="submit" class="button primary">Save</button>
                                         <button type="button" class="button" wire:click="$set('editingId', '')">Cancel</button>
