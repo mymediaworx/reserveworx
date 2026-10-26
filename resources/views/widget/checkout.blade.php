@@ -61,6 +61,22 @@
         </form>
         <p>The booking stays on hold until Stripe confirms the payment. Returning to this site is not proof of payment.</p>
     @endif
+    @if (($payLocked ?? false) || ($pickupLocked ?? false))
+        {{-- Shown, but not usable, until every waiver is signed. The server refuses payment too. --}}
+        <div class="pay-locked" data-pay="locked">
+            @if ($payLocked ?? false)
+                <button type="button" disabled aria-disabled="true" aria-describedby="pay-locked-note">Pay with card</button>
+            @endif
+            @if ($pickupLocked ?? false)
+                <button type="button" disabled aria-disabled="true" aria-describedby="pay-locked-note">Pay at pickup</button>
+            @endif
+            <p id="pay-locked-note">Sign the waiver above to continue to payment.</p>
+        </div>
+        <style>
+            .pay-locked { display: grid; gap: .6rem; margin: 0 0 1rem; }
+            .pay-locked button[disabled] { opacity: .5; cursor: not-allowed; max-width: 100%; }
+        </style>
+    @endif
     @if ($pickupUrl)
         <form method="post" action="{{ $pickupUrl }}">
             <button type="submit">Pay at pickup</button>

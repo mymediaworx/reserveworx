@@ -78,8 +78,8 @@ class PublicWaiverCheckoutTest extends TestCase
             ->assertSee('Liability waiver')
             ->assertSee('Photo release')
             ->assertSee(self::PHOTO)
-            ->assertDontSee('Pay with card')
-            ->assertDontSee('Pay at pickup')
+            ->assertSee('<button type="button" disabled aria-disabled="true" aria-describedby="pay-locked-note">Pay with card</button>', false)
+            ->assertSee('Sign the waiver above to continue to payment.')
             ->assertDontSee('<script>alert(1)</script>', false);
         $checkout->assertSee('<script>alert(1)</script>');
 
@@ -112,7 +112,7 @@ class PublicWaiverCheckoutTest extends TestCase
             'signer_name' => 'Ada Lovelace',
         ], ['User-Agent' => 'PhoneBrowser/1.0'])->assertRedirect();
         $review = $this->get((string) $signed->headers->get('Location'))->assertOk();
-        $review->assertSee('Waiver signed', false)->assertSee('Pay with card')->assertSee('Pay at pickup');
+        $review->assertSee('Waiver signed', false)->assertSee('Pay with card')->assertSee('Pay at pickup')->assertDontSee('data-pay="locked"', false)->assertDontSee('Sign the waiver above to continue to payment.');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $rows = WaiverSignature::query()->orderBy('participant_name')->get();
@@ -165,7 +165,7 @@ class PublicWaiverCheckoutTest extends TestCase
             'idempotency_key' => 'kid',
         ])->assertRedirect();
         $review = $this->get((string) $named->headers->get('Location'))->assertOk();
-        $review->assertSee('Kid Quinn')->assertSee('Signed by Ada Quinn as parent or guardian.')->assertDontSee('Pay with card');
+        $review->assertSee('Kid Quinn')->assertSee('Signed by Ada Quinn as parent or guardian.')->assertSee('data-pay="locked"', false);
 
         $sign = $this->signAction((string) $review->getContent());
         app(TenantManager::class)->set($workspace['tenant']);
