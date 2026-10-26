@@ -29,11 +29,18 @@ class RefundController extends Controller
         ]);
         $user = $request->user();
         $key = $validated['idempotency_key'] ?? null;
+        $reason = RefundReason::from($validated['reason']);
+
+        if ($reason->recordedByStripe()) {
+            return response()->json([
+                'message' => 'A dispute outcome comes from Stripe. It cannot be entered as a refund.',
+            ], 422);
+        }
 
         try {
             $refund = $this->refunds->issue(
                 $booking,
-                RefundReason::from($validated['reason']),
+                $reason,
                 (int) ($validated['refund_subtotal_cents'] ?? 0),
                 (int) ($validated['refund_tax_cents'] ?? 0),
                 is_string($key) ? $key : null,
