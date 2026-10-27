@@ -85,7 +85,7 @@ class WidgetController extends Controller
         $this->activeToken($token);
         $setting = $this->setting($tenant);
 
-        $services = Service::query()->with(['location', 'durations'])->orderBy('name')->get()->map(function (Service $service) use ($setting): array {
+        $services = Service::query()->with(['location', 'durations'])->atListedLocation()->orderBy('name')->get()->map(function (Service $service) use ($setting): array {
             $preview = $this->preview($service, $setting);
 
             return [
@@ -106,6 +106,7 @@ class WidgetController extends Controller
     public function create(Request $request, string $token, Service $service): View
     {
         $this->activeToken($token);
+        $this->requireListedLocation($service);
         $service->load(['location', 'durations', 'variants']);
 
         $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants', 'start', 'variant_id']);
@@ -135,6 +136,7 @@ class WidgetController extends Controller
     {
         $tenant = $this->tenant($request);
         $this->activeToken($token);
+        $this->requireListedLocation($service);
         $this->trimPostedPhone($request);
         $service->load(['location', 'durations']);
         $validated = $service->kind === ServiceKind::Tour
@@ -203,6 +205,7 @@ class WidgetController extends Controller
     ): Response {
         $tenant = $this->tenant($request);
         $this->activeToken($token);
+        $this->requireListedLocation($service);
         $service->load(['location', 'durations']);
         abort_unless($service->waitlist_enabled, 404);
 
@@ -580,6 +583,11 @@ class WidgetController extends Controller
         abort_unless($token instanceof WidgetToken, 404);
 
         return $token;
+    }
+
+    private function requireListedLocation(Service $service): void
+    {
+        abort_unless(Service::query()->atListedLocation()->whereKey($service->getKey())->exists(), 404);
     }
 
     private function setting(Tenant $tenant): ?TenantSetting
