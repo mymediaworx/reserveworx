@@ -9,6 +9,13 @@
     <h1>Booking {{ \App\Support\BookingReference::short($booking->id) }}</h1>
     <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
     <p>{{ $booking->service?->name }}</p>
+    <p data-when>{{ $whenLabel }}</p>
+    <style>
+        p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            p[data-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+        }
+    </style>
     @if (is_string($booking->customer?->phone) && $booking->customer->phone !== '')
         <p data-customer-phone="1">Phone <a href="tel:{{ $booking->customer->phone }}">{{ $booking->customer->phone }}</a></p>
     @endif
