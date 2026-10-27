@@ -67,6 +67,7 @@ use App\Models\TenantNotificationSetting;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Models\WaitlistEntry;
+use App\Models\WaitlistMutation;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Models\WidgetToken;
@@ -304,6 +305,7 @@ class TenantExporter
             CapacityLedger::class,
             Departure::class,
             WaitlistEntry::class,
+            WaitlistMutation::class,
             CorporateAccount::class,
             PriceRule::class,
             CancellationPolicy::class,
