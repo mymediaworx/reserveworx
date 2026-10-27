@@ -2,17 +2,22 @@
 
 namespace App\Livewire\Staff\Setup;
 
+use App\Enums\BookingStatus;
 use App\Enums\LocationStatus;
 use App\Enums\ScheduleOwnerType;
 use App\Livewire\Concerns\WithinTenant;
+use App\Models\Asset;
 use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
+use App\Models\Booking;
 use App\Models\FleetItem;
 use App\Models\Location;
 use App\Models\LocationFleetReserve;
+use App\Models\Pool;
 use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use App\Tenancy\StaffLocationScope;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -58,6 +63,10 @@ class Locations extends Component
     public string $closedUntil = '';
 
     public string $closedReason = '';
+
+    public string $deletingId = '';
+
+    public string $confirmName = '';
 
     public ?string $flash = null;
 
@@ -276,6 +285,83 @@ class Locations extends Component
         $this->audit('blackout.deleted', $row);
     }
 
+    public function askDelete(string $id): void
+    {
+        $location = $this->location($id);
+        $this->authorize('delete', $location);
+        $this->resetErrorBag('confirmName');
+        $this->editingId = '';
+        $this->deletingId = $location->id;
+        $this->confirmName = '';
+    }
+
+    public function cancelDelete(): void
+    {
+        $this->deletingId = '';
+        $this->confirmName = '';
+        $this->resetErrorBag('confirmName');
+    }
+
+    public function archive(): void
+    {
+        $location = $this->location($this->deletingId);
+        $this->authorize('delete', $location);
+        $this->resetErrorBag('confirmName');
+
+        if (trim($this->confirmName) !== $location->name) {
+            $this->addError('confirmName', 'Type '.$location->name.' to delete this location.');
+
+            return;
+        }
+
+        $archived = false;
+
+        DB::transaction(function () use ($location, &$archived): void {
+            $locked = Location::query()
+                ->withoutGlobalScope(StaffLocationScope::class)
+                ->lockForUpdate()
+                ->orderBy('id')
+                ->get();
+            $current = $locked->firstWhere('id', $location->id);
+
+            if (! $current instanceof Location) {
+                abort(404);
+            }
+
+            $reasons = $this->blockReasons($current, $locked->count());
+
+            if ($reasons !== []) {
+                $this->addError('confirmName', $reasons[0]);
+
+                return;
+            }
+
+            $upcoming = $this->upcomingBookings($current);
+            $equipment = $this->equipmentCount($current);
+            $current->delete();
+            $this->audit('location.archived', $current, [
+                'name' => $current->name,
+                'upcoming_bookings' => $upcoming,
+                'equipment' => $equipment,
+            ]);
+            $archived = true;
+        });
+
+        if (! $archived) {
+            return;
+        }
+
+        $name = $location->name;
+        $this->deletingId = '';
+        $this->confirmName = '';
+
+        if ($this->editingId === $location->id) {
+            $this->editingId = '';
+        }
+
+        $this->flash = $name.' was deleted. Past bookings stay on it.';
+    }
+
     public function render(): View
     {
         $locations = Location::query()->orderBy('name')->get();
@@ -290,6 +376,7 @@ class Locations extends Component
 
         return view('livewire.staff.setup.locations', [
             'locations' => $locations,
+            'deletePreview' => $this->deletePreview(),
             'hours' => AvailabilitySchedule::query()
                 ->where('owner_type', ScheduleOwnerType::Location->value)
                 ->where('owner_id', $this->hoursLocationId)
@@ -302,6 +389,7 @@ class Locations extends Component
                 ->get(),
             'fleetItems' => FleetItem::query()->orderBy('name')->get(),
             'canManage' => $this->allows('inventory.manage'),
+            'canDelete' => $this->allows('settings.update'),
             'canSetTax' => app(Access::class)->hasRole($this->currentUser(), $this->tenant()->id, 'owner', 'manager'),
             'zones' => timezone_identifiers_list(),
             'weekdays' => [1 => 'Mon', 2 => 'Tue', 3 => 'Wed', 4 => 'Thu', 5 => 'Fri', 6 => 'Sat', 0 => 'Sun'],
@@ -314,5 +402,81 @@ class Locations extends Component
         abort_unless($location instanceof Location, 404);
 
         return $location;
+    }
+
+    /**
+     * @return array{id: string, name: string, summary: string, reasons: list<string>}|null
+     */
+    private function deletePreview(): ?array
+    {
+        if ($this->deletingId === '' || ! $this->allows('settings.update')) {
+            return null;
+        }
+
+        $location = Location::query()->find($this->deletingId);
+
+        if (! $location instanceof Location) {
+            $this->deletingId = '';
+
+            return null;
+        }
+
+        $upcoming = $this->upcomingBookings($location);
+        $equipment = $this->equipmentCount($location);
+
+        return [
+            'id' => $location->id,
+            'name' => $location->name,
+            'summary' => $location->name.' has '.$this->phrase($upcoming, 'upcoming booking', 'upcoming bookings').' and '.$this->phrase($equipment, 'piece of equipment', 'pieces of equipment').'.',
+            'reasons' => $this->blockReasons($location, upcoming: $upcoming),
+        ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function blockReasons(Location $location, ?int $remaining = null, ?int $upcoming = null): array
+    {
+        $reasons = [];
+        $upcoming ??= $this->upcomingBookings($location);
+
+        if ($upcoming > 0) {
+            $reasons[] = 'This location has '.$this->phrase($upcoming, 'upcoming booking', 'upcoming bookings').', so it cannot be deleted while those bookings are held or confirmed.';
+        }
+
+        $remaining ??= $this->remainingLocations();
+
+        if ($remaining <= 1) {
+            $reasons[] = 'This is the only location left, so it cannot be deleted.';
+        }
+
+        return $reasons;
+    }
+
+    private function upcomingBookings(Location $location): int
+    {
+        return Booking::query()
+            ->where('location_id', $location->id)
+            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value])
+            ->where('ends_at', '>=', now())
+            ->count();
+    }
+
+    private function equipmentCount(Location $location): int
+    {
+        return Asset::query()->where('location_id', $location->id)->count()
+            + Pool::query()->where('location_id', $location->id)->count();
+    }
+
+    private function remainingLocations(): int
+    {
+        return Location::query()
+            ->withoutGlobalScope(StaffLocationScope::class)
+            ->count();
+    }
+
+    private function phrase(int $count, string $singular, string $plural): string
+    {
+        return $count.' '.($count === 1 ? $singular : $plural);
     }
 }

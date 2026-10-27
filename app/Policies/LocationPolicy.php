@@ -35,4 +35,11 @@ class LocationPolicy
             && $this->tenantAllows($user, 'inventory.manage')
             && $this->locationAllowed($user, $location->id);
     }
+
+    public function delete(User $user, Location $location): bool
+    {
+        return $this->sameTenant($location->tenant_id)
+            && $this->tenantAllows($user, 'settings.update')
+            && $this->locationAllowed($user, $location->id);
+    }
 }
