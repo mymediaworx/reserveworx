@@ -12,10 +12,15 @@
         .agree { display: flex; gap: .6rem; align-items: flex-start; font-weight: 500; color: var(--ink); }
         .agree input { width: 1.2rem; height: 1.2rem; min-height: 0; margin-top: .15rem; flex: none; accent-color: var(--brand); }
         .ok { background: var(--ok-surface); color: var(--ok); border-radius: 10px; padding: .75rem 1rem; }
+        p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            p[data-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+        }
     </style>
 
     <h1>Sign your waiver</h1>
-    <p>{{ $businessName }} · {{ $booking->service?->name }} · {{ Display::dateTime($booking->starts_at, \App\Support\DisplayZone::forLocation($booking->location)) }}</p>
+    <p>{{ $businessName }} · {{ $booking->service?->name }}</p>
+    <p data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, \App\Support\DisplayZone::forLocation($booking->location)) }}</p>
 
     @if (session('status'))
         <p class="ok" role="status">{{ session('status') }}</p>
