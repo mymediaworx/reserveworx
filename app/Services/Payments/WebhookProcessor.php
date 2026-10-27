@@ -406,11 +406,6 @@ final class WebhookProcessor
 
         foreach (WebhookEvent::query()->where('type', 'application_fee.refunded')->orderBy('id')->get() as $event) {
             $payload = $event->payload;
-
-            if (! is_array($payload)) {
-                continue;
-            }
-
             $id = $payload['id'] ?? null;
             $refunded = $payload['amount_refunded'] ?? null;
 
