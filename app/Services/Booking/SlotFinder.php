@@ -43,11 +43,13 @@ final class SlotFinder
      * start while the shop is open for pickup. Opening hours then accept a
      * start only when the return instant is open and no blackout covers a
      * local date in between. The return is that many elapsed minutes later,
-     * including across a daylight-saving change.
+     * including across a daylight-saving change. A variant id, when the guest
+     * chose an option, is passed to the hint so that option's boat or pool
+     * is what the slot marks open or booked.
      *
      * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
      */
-    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null, bool $counterSale = false): array
+    public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null, bool $counterSale = false, ?string $variantId = null): array
     {
         $location = $service->location;
 
@@ -90,6 +92,7 @@ final class SlotFinder
                     null,
                     null,
                     counterSale: $counterSale,
+                    variantId: $variantId,
                 ))['available'];
 
             $slots[] = [
