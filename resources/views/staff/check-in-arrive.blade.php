@@ -32,7 +32,7 @@
     <section class="panel">
         <h2 class="wrap">{{ $customerName }}</h2>
         <dl class="facts">
-            <div><dt>When</dt><dd>{{ Display::range($arrival->booking->starts_at, $arrival->booking->ends_at, $zone) }}</dd></div>
+            <div><dt>When</dt><dd class="wrap" data-when>{{ Display::rangeWithZone($arrival->booking->starts_at, $arrival->booking->ends_at, $zone) }}</dd></div>
             <div><dt>Party</dt><dd>{{ $arrival->booking->participants }} {{ $arrival->booking->participants === 1 ? 'person' : 'people' }}</dd></div>
             @if ($resources->isNotEmpty())
                 <div><dt>Assigned</dt><dd>{{ $resources->implode(', ') }}</dd></div>
