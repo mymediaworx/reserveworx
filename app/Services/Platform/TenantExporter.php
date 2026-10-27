@@ -11,6 +11,7 @@ use App\Models\Blackout;
 use App\Models\Booking;
 use App\Models\BookingAddOn;
 use App\Models\BookingLineItem;
+use App\Models\BookingListView;
 use App\Models\BookingMutation;
 use App\Models\BookingOperatorFee;
 use App\Models\BookingReminder;
@@ -20,9 +21,13 @@ use App\Models\CorporateAccount;
 use App\Models\CsvImport;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
+use App\Models\CustomerDataDeletion;
+use App\Models\CustomerDataExport;
 use App\Models\Departure;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
+use App\Models\FeedbackRequest;
+use App\Models\FleetItem;
 use App\Models\GhlConnection;
 use App\Models\GhlMapping;
 use App\Models\GhlMessageLog;
@@ -34,6 +39,8 @@ use App\Models\InspectionSchedule;
 use App\Models\IntegrationLog;
 use App\Models\IntegrationOutbox;
 use App\Models\Location;
+use App\Models\LocationClosure;
+use App\Models\LocationFleetReserve;
 use App\Models\LocationTaxRule;
 use App\Models\MaintenanceRecord;
 use App\Models\MaintenanceWindow;
@@ -52,6 +59,7 @@ use App\Models\PromoCode;
 use App\Models\Refund;
 use App\Models\RentalCheckout;
 use App\Models\RentalReturn;
+use App\Models\ReportSummary;
 use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
@@ -65,11 +73,15 @@ use App\Models\TenantBranding;
 use App\Models\TenantDataExport;
 use App\Models\TenantNotificationSetting;
 use App\Models\TenantSetting;
+use App\Models\TenantSetupGuide;
 use App\Models\User;
 use App\Models\WaitlistEntry;
 use App\Models\WaitlistMutation;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
+use App\Models\WebhookDelivery;
+use App\Models\WebhookDeliveryAttempt;
+use App\Models\WebhookEndpoint;
 use App\Models\WidgetToken;
 use App\Services\AuditLogger;
 use App\Tenancy\StaffLocationAccess;
@@ -84,7 +96,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Writes one workspace's rows to a private JSON file so termination has a copy.
  * The read runs under that workspace's tenant context. A row from any other
- * workspace aborts the export before a file or a row is stored.
+ * workspace aborts the export before a file or a row is stored. Sign-in tokens,
+ * staff search tokens, and the ten-second undo rows stay out. Passwords and
+ * signing secrets are omitted from the rows that are included.
  */
 class TenantExporter
 {
@@ -277,12 +291,16 @@ class TenantExporter
             TenantSetting::class,
             TenantBranding::class,
             TenantNotificationSetting::class,
+            TenantSetupGuide::class,
             Domain::class,
             Membership::class,
             MembershipLocation::class,
             SignupAcceptance::class,
             Location::class,
+            LocationClosure::class,
             LocationTaxRule::class,
+            FleetItem::class,
+            LocationFleetReserve::class,
             ResourceCategory::class,
             Asset::class,
             Pool::class,
@@ -295,8 +313,11 @@ class TenantExporter
             ResourceRequirement::class,
             Customer::class,
             CustomerAccount::class,
+            CustomerDataExport::class,
+            CustomerDataDeletion::class,
             CsvImport::class,
             Booking::class,
+            BookingListView::class,
             BookingMutation::class,
             Participant::class,
             BookingLineItem::class,
@@ -330,11 +351,16 @@ class TenantExporter
             IncidentPhoto::class,
             RentalCheckout::class,
             RentalReturn::class,
+            ReportSummary::class,
             WidgetToken::class,
             BookingReminder::class,
+            FeedbackRequest::class,
             NotificationHook::class,
             IntegrationOutbox::class,
             IntegrationLog::class,
+            WebhookEndpoint::class,
+            WebhookDelivery::class,
+            WebhookDeliveryAttempt::class,
             GhlConnection::class,
             GhlMapping::class,
             GhlSyncLog::class,
