@@ -25,6 +25,7 @@ use App\Http\Controllers\Web\WaitlistLeaveController;
 use App\Http\Controllers\Web\WaiverSigningController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\Handbook as PlatformHandbook;
+use App\Livewire\Platform\Performance;
 use App\Livewire\Platform\Readiness;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
@@ -110,6 +111,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
         Route::get('/', Tenants::class);
         Route::get('/help', PlatformHandbook::class);
         Route::get('/readiness', Readiness::class);
+        Route::get('/performance', Performance::class);
         Route::get('/upgrade', Upgrade::class);
         Route::get('/tenants/{tenant}', TenantDetail::class);
         Route::get('/tenants/{tenant}/exports/{export}', [TenantExportController::class, 'download'])->name('platform.exports.download');

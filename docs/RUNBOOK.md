@@ -83,6 +83,10 @@ A platform administrator opens `/platform/upgrade` on the platform host. The sam
 
 A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.
 
+## Performance check
+
+A platform administrator opens `/platform/performance` on the platform host. `php artisan reserveworx:performance` prints the same lines and exits 0 only when nothing fails. It renders the product page, signup, and one verified booking page, counts the queries, and rolls that work back. Durations are printed and are not pass or fail. It does not call the public internet and does not keep a price, a payment, a tax, a fee, or a refund. Run it on the SiteGround server to measure that machine. A tenant address does not serve the page.
+
 ## Audit log
 
 An owner or manager opens `/staff/audit` on the workspace host. The page lists the latest 50 changes. Staff, and a member limited to some locations, cannot open it. The filter has to match the stored action, such as `booking.cancelled`. The page does not write a row. `GET /api/v1/audit-logs` is the same read.

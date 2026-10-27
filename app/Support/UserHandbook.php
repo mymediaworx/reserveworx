@@ -69,6 +69,11 @@ final class UserHandbook
                         'href' => '/platform/readiness',
                     ],
                     [
+                        'title' => 'Performance',
+                        'body' => 'How many database queries the product page, signup, and one booking page use on this server, and whether memory is at least 128M. The same lines are printed by reserveworx:performance. It does not call the public internet and does not keep a row.',
+                        'href' => '/platform/performance',
+                    ],
+                    [
                         'title' => 'A workspace',
                         'body' => 'From the list, open a workspace for its industry, domains, and owners. The GoHighLevel Location ID is saved there. The private token is typed once and is not shown again. Export the workspace before closing it for good. Booking fee rates are on that page. This handbook does not change them.',
                         'href' => '/platform',

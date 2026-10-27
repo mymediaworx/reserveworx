@@ -188,6 +188,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('Admin handbook')
             ->assertSee('does not change a workspace, a price, a payment, a tax, a fee, or a refund')
             ->assertSee('href="/platform/readiness"', false)
+            ->assertSee('href="/platform/performance"', false)
             ->assertSee('href="/platform"', false)
             ->assertSee('The private token is typed once and is not shown again.')
             ->assertSee('This handbook does not change them.')
