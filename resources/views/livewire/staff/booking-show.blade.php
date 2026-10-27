@@ -231,6 +231,35 @@
                 @endif
             </section>
 
+            <section class="panel" id="fee-ledger" data-fee-ledger="{{ count($feeLedger['fees']) }}">
+                <h2>Booking fee ledger</h2>
+                <style>
+                    .fee-ledger, .fee-ledger li, .fee-ledger p { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+                </style>
+                @if ($feeLedger['fees'] === [])
+                    <p class="muted">No booking fee has been charged on this booking.</p>
+                @else
+                    <p data-ledger-charged="{{ $feeLedger['charged_cents'] }}" data-ledger-refunded="{{ $feeLedger['refunded_cents'] }}">
+                        Charged {{ \App\Support\Display::money($feeLedger['charged_cents'], $currency) }}.
+                        Refunded {{ \App\Support\Display::money($feeLedger['refunded_cents'], $currency) }}.
+                    </p>
+                    <ul class="plain-list fee-ledger">
+                        @foreach ($feeLedger['fees'] as $fee)
+                            <li data-platform-fee="{{ $fee['id'] }}" data-fee-charged="{{ $fee['charged_cents'] }}">
+                                <strong>Charged {{ \App\Support\Display::money($fee['charged_cents'], $currency) }}</strong>
+                                <span class="muted">{{ \App\Support\FeeLedgerCopy::channel($fee['channel']) }}</span>
+                                @foreach ($fee['refunds'] as $refund)
+                                    <span data-fee-refund="{{ $refund['id'] }}" data-fee-refunded="{{ $refund['amount_cents'] }}">
+                                        Refunded {{ \App\Support\Display::money($refund['amount_cents'], $currency) }}.
+                                        {{ \App\Support\FeeLedgerCopy::reason($refund['reason'], $refund['rule']) }}
+                                    </span>
+                                @endforeach
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
+
             @if ($canReport)
                 <section class="panel" id="damage-report">
                     <h2>Damage report</h2>
