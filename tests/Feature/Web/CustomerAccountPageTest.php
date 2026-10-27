@@ -276,10 +276,9 @@ class CustomerAccountPageTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-06-15 12:00:00', 'UTC'));
         $workspace = $this->workspace('dock.test', 'owner', ['name' => 'Harbor Demo']);
         $other = $this->workspace('creek.test', 'owner', ['name' => 'Creek']);
-        TenantSetting::factory()->create([
-            'tenant_id' => $workspace['tenant']->id,
-            'timezone' => 'America/Chicago',
-        ]);
+        TenantSetting::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $workspace['tenant']->id)
+            ->update(['timezone' => 'America/Chicago']);
         $spring = $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-03-07 15:00:00', '2026-03-09 15:00:00');
         $fall = $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-10-31 14:00:00', '2026-11-02 14:00:00');
         $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-06-16 15:00:00', '2026-06-16 16:00:00', 'UTC');
