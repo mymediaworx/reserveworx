@@ -2,6 +2,8 @@
 
 Semantic versions start at the first tagged release. This file records what landed before that tag.
 
+Add a pull request note as `docs/changelog.d/<branch-or-slug>.md`. Do not edit the Unreleased section. See `docs/changelog.d/README.md`.
+
 ## Unreleased
 
 - The staff bookings list and the staff booking page name the visit in that location’s timezone, with the abbreviation. The list shows the start. The booking page shows the start and end. A visit that crosses a daylight-saving change names both, such as Sat, Mar 7, 10:00 AM EST – Mon, Mar 9, 11:00 AM EDT. The location zone wins over the business zone. A location stored as UTC still shows UTC. A location zone that is not a real name uses the business zone. Another workspace’s booking is not found. Opening the pages does not write a price rule, a payment, a tax, a fee, or a refund. Stored instants stay UTC. The time line wraps on a 390px-wide screen. Spec Section 2.4.

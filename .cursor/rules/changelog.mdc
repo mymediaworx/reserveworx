@@ -1,0 +1,10 @@
+---
+description: Record pull request notes as changelog fragments
+alwaysApply: true
+---
+
+Do not edit the Unreleased section of `docs/CHANGELOG.md`. Add one file, `docs/changelog.d/<branch-or-slug>.md`, instead. Name it with the branch (`/` replaced by `-`) or a short slug. Match the list style already in `docs/CHANGELOG.md`.
+
+`docs/` is excluded from the production release archive, and deploy removes a leftover `docs` directory from a release. Keep fragments under `docs/changelog.d/` so they add no inodes to a release.
+
+See `docs/changelog.d/README.md`.
