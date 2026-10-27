@@ -20,9 +20,11 @@ use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\StripeAccount;
 use App\Models\User;
+use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\AuditLogger;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -44,14 +46,12 @@ final class RefundService
         ?string $idempotencyKey,
         ?User $actor,
     ): Refund {
-        if ($idempotencyKey !== null && $idempotencyKey !== '') {
-            $existing = Refund::query()->where('idempotency_key', $idempotencyKey)->first();
+        $existing = $this->stored($idempotencyKey);
 
-            if ($existing instanceof Refund) {
-                $this->markLostDispute($booking, $reason);
+        if ($existing instanceof Refund) {
+            $this->markLostDispute($booking, $reason);
 
-                return $existing;
-            }
+            return $existing;
         }
 
         $state = $this->state($booking);
@@ -66,7 +66,7 @@ final class RefundService
             ? $state->remainingSubtotalCents()
             : $plan->refundSubtotalCents;
 
-        $refund = Refund::query()->create([
+        $attributes = [
             'tenant_id' => $booking->tenant_id,
             'booking_id' => $booking->id,
             'payment_id' => $stripeIds['payment_id'],
@@ -79,9 +79,31 @@ final class RefundService
             'refund_tax_cents' => $plan->refundTaxCents,
             'stripe_refund_id' => $stripeIds['refund_id'],
             'stripe_fee_refund_id' => $stripeIds['fee_refund_id'],
-            'idempotency_key' => $idempotencyKey !== '' ? $idempotencyKey : null,
             'actor_user_id' => $actor instanceof User ? $actor->id : null,
-        ]);
+        ];
+
+        if ($idempotencyKey !== null && $idempotencyKey !== '') {
+            $attributes['idempotency_key'] = $idempotencyKey;
+            $attributes['payload_hash'] = $this->requestHash($reason, $refundSubtotalCents, $refundTaxCents);
+        }
+
+        try {
+            $refund = Refund::query()->create($attributes);
+        } catch (QueryException $exception) {
+            if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+                throw $exception;
+            }
+
+            $existing = $this->stored($idempotencyKey);
+
+            if (! $existing instanceof Refund) {
+                throw $exception;
+            }
+
+            $this->markLostDispute($booking, $reason);
+
+            return $existing;
+        }
 
         $fee = PlatformFee::query()->where('booking_id', $booking->id)->orderBy('created_at')->first();
 
@@ -120,6 +142,58 @@ final class RefundService
         }
 
         return $refund;
+    }
+
+    /**
+     * Refuse a staff retry that reuses a key for another booking or another request.
+     * A row stored before payload hashes existed still matches, so that retry returns
+     * the first refund. Callers inside a settlement keep the first row themselves.
+     */
+    public function rejectDifferentRequest(
+        Booking $booking,
+        RefundReason $reason,
+        int $refundSubtotalCents,
+        int $refundTaxCents,
+        ?string $idempotencyKey,
+    ): void {
+        $existing = $this->stored($idempotencyKey);
+
+        if (! $existing instanceof Refund) {
+            return;
+        }
+
+        if ($existing->booking_id !== $booking->id) {
+            throw new IdempotencyConflictException;
+        }
+
+        $stored = $existing->payload_hash;
+        $hash = $this->requestHash($reason, $refundSubtotalCents, $refundTaxCents);
+
+        if (is_string($stored) && $stored !== '' && ! hash_equals($stored, $hash)) {
+            throw new IdempotencyConflictException;
+        }
+    }
+
+    private function stored(?string $idempotencyKey): ?Refund
+    {
+        if ($idempotencyKey === null || $idempotencyKey === '') {
+            return null;
+        }
+
+        $existing = Refund::query()->where('idempotency_key', $idempotencyKey)->first();
+
+        return $existing instanceof Refund ? $existing : null;
+    }
+
+    private function requestHash(RefundReason $reason, int $refundSubtotalCents, int $refundTaxCents): string
+    {
+        $encoded = json_encode([
+            'reason' => $reason->value,
+            'refund_subtotal_cents' => $refundSubtotalCents,
+            'refund_tax_cents' => $refundTaxCents,
+        ], JSON_THROW_ON_ERROR);
+
+        return hash('sha256', $encoded);
     }
 
     /**
