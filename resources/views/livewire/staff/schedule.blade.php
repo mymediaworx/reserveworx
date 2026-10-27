@@ -149,7 +149,7 @@
             <section class="schedule-scroll" aria-labelledby="schedule-{{ $place['id'] }}">
                 <header class="schedule-location">
                     <h2 id="schedule-{{ $place['id'] }}">{{ $place['name'] }}</h2>
-                    <span class="muted small">Times are in {{ $place['timezone'] }}. {{ $place['abbreviation'] }}</span>
+                    <span class="muted small">{{ $place['abbreviation'] }} · {{ $place['timezone'] }}</span>
                 </header>
                 @if ($place['groups'] === [] && ! $place['summary']['has_blocks'])
                     <p class="empty small">{{ $category !== '' ? 'Nothing in this category.' : $industry->emptyLocation() }}</p>

@@ -21,8 +21,8 @@ class LocalClockTest extends TestCase
 
     public function test_the_repeated_fall_back_hour_keeps_both_offsets(): void
     {
-        $early = CarbonImmutable::parse('2026-11-01 01:00:00-04:00');
-        $late = CarbonImmutable::parse('2026-11-01 01:00:00-05:00');
+        $early = CarbonImmutable::parse('2026-11-01 01:00:00-04:00')->timezone('America/New_York');
+        $late = CarbonImmutable::parse('2026-11-01 01:00:00-05:00')->timezone('America/New_York');
 
         $this->assertTrue(LocalClock::repeated($early));
         $this->assertTrue(LocalClock::repeated($late));

@@ -50,8 +50,7 @@ class StaffScheduleLocationTimeTest extends TestCase
         $page = $this->get($this->tenantUrl('alpha.test', '/staff/schedule?view=day&date=2026-11-01'));
 
         $page->assertOk()
-            ->assertSee('Times are in America/New_York')
-            ->assertSee('EDT / EST')
+            ->assertSee('EDT / EST · America/New_York')
             ->assertSee('data-minutes="1500"', false)
             ->assertSee('data-start="01:00-04:00"', false)
             ->assertSee('data-start="01:00-05:00"', false)
@@ -95,10 +94,10 @@ class StaffScheduleLocationTimeTest extends TestCase
 
         $page->assertOk()
             ->assertSee('data-minutes="1380"', false)
-            ->assertSee('1am EST')
-            ->assertSee('3am EDT')
-            ->assertDontSee('2am EST')
-            ->assertDontSee('2am EDT')
+            ->assertSee('2026-03-08 1am EST', false)
+            ->assertSee('2026-03-08 3am EDT', false)
+            ->assertDontSee('2026-03-08 2am EST', false)
+            ->assertDontSee('2026-03-08 2am EDT', false)
             ->assertDontSee('data-start="02:00"', false);
     }
 
@@ -133,6 +132,7 @@ class StaffScheduleLocationTimeTest extends TestCase
         $springTour = $this->service($alpha['tenant'], $dock, $boat, 'Morning tour', 'tour');
         $springKept = $this->departure($alpha['tenant'], $springTour, '2026-03-08 23:30:00', 'America/New_York');
         $springNext = $this->departure($alpha['tenant'], $springTour, '2026-03-09 00:30:00', 'America/New_York');
+        app(TenantManager::class)->set($alpha['tenant']);
         Livewire::test(Schedule::class)
             ->call('openSlot', 'asset:'.$boat->id, '2026-03-08', '09:00')
             ->call('chooseService', $springTour->id)
@@ -152,8 +152,7 @@ class StaffScheduleLocationTimeTest extends TestCase
         $this->actingAs($alpha['user']);
         $this->get($this->tenantUrl('alpha.test', '/staff/schedule?view=day&date=2026-11-01'))
             ->assertOk()
-            ->assertSee('Times are in America/New_York')
-            ->assertSee('EDT / EST')
+            ->assertSee('EDT / EST · America/New_York')
             ->assertDontSee('Mars/Phobos');
     }
 
