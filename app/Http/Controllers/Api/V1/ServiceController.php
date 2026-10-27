@@ -15,6 +15,7 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Services\Catalog\ServiceGear;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,7 +24,10 @@ use Illuminate\Validation\ValidationException;
 
 class ServiceController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly ServiceGear $gear,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -119,6 +123,14 @@ class ServiceController extends Controller
             'quantity' => $requirement->quantity,
             'per_participants' => $requirement->per_participants,
         ]], 201);
+    }
+
+    public function destroyRequirement(Request $request, Service $service, ResourceRequirement $resource_requirement): JsonResponse
+    {
+        $this->authorize('update', $service);
+        $this->gear->remove($service, $resource_requirement, $request);
+
+        return response()->json(['message' => 'Removed.']);
     }
 
     public function storeDuration(Request $request, Service $service): JsonResponse

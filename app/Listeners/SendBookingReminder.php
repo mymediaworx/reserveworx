@@ -13,6 +13,8 @@ use App\Notifications\BookingReminderNotification;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Notifications\TransactionalEmailPreferences;
+use App\Support\BookingReference;
+use App\Support\Display;
 use App\Support\DisplayZone;
 use App\Tenancy\TenantContextException;
 use App\Tenancy\TenantManager;
@@ -65,7 +67,7 @@ class SendBookingReminder implements ShouldQueue
                     throw new TenantContextException('Refusing to send a reminder for a different workspace.');
                 }
 
-                $booking = Booking::query()->with(['location', 'customer'])->find($event->bookingId);
+                $booking = Booking::query()->with(['location', 'customer', 'service'])->find($event->bookingId);
                 $now = Carbon::now('UTC');
                 $starts = $booking instanceof Booking ? CarbonImmutable::instance($booking->starts_at) : null;
 
@@ -128,11 +130,12 @@ class SendBookingReminder implements ShouldQueue
                         $hook->attempted_at = $now;
                         $hook->save();
                     } else {
+                        $serviceName = trim((string) $booking->service?->name);
                         Notification::route('mail', $email)->notify(new BookingReminderNotification(
-                            $booking->id,
+                            $serviceName !== '' ? $serviceName : 'your booking',
+                            Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
+                            BookingReference::short($booking->id),
                             $event->offsetMinutes,
-                            $localStart->toIso8601String(),
-                            $zone,
                         ));
                         $hook->delivery_status = 'sent';
                         $hook->delivery_error = null;

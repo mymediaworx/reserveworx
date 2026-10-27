@@ -6,15 +6,19 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
+/**
+ * Customer reminder. The visit line is already formatted in the location zone.
+ * This notification does not read or change a price, a payment, a tax, a fee, or a refund.
+ */
 class BookingReminderNotification extends Notification
 {
     use Queueable;
 
     public function __construct(
-        public string $bookingId,
+        public string $serviceName,
+        public string $when,
+        public string $reference,
         public int $offsetMinutes,
-        public string $localStartsAt,
-        public string $timezone,
     ) {}
 
     /**
@@ -27,10 +31,18 @@ class BookingReminderNotification extends Notification
 
     public function toMail(object $notifiable): MailMessage
     {
+        $data = [
+            'serviceName' => $this->serviceName,
+            'when' => $this->when,
+            'reference' => $this->reference,
+            'ahead' => $this->offsetMinutes === 1
+                ? '1 minute'
+                : $this->offsetMinutes.' minutes',
+        ];
+
         return (new MailMessage)
             ->subject('Booking reminder')
-            ->line('A booking starts at '.$this->localStartsAt.' ('.$this->timezone.').')
-            ->line('This reminder is '.$this->offsetMinutes.' minutes before the start.')
-            ->line('Booking '.$this->bookingId.'.');
+            ->view('mail.booking-reminder', $data)
+            ->text('mail.booking-reminder-text', $data);
     }
 }
