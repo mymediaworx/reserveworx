@@ -92,7 +92,7 @@
                     @foreach ($options as $option)
                         <label>
                             <input type="radio" name="variant_id" value="{{ $option['id'] }}" required @checked(($old['variant_id'] ?? '') === $option['id'] || (($old['variant_id'] ?? '') === '' && $loop->first))>
-                            <span>{{ $option['name'] }} ({{ \App\Support\Display::minutes($option['duration_minutes']) }})</span>
+                            @include('widget.partials.choice-price', ['name' => $option['name'], 'minutes' => $option['duration_minutes'], 'totalCents' => $option['total_cents'], 'currency' => $option['currency'], 'feeIncluded' => $option['fee_included']])
                         </label>
                     @endforeach
                 </fieldset>
@@ -127,17 +127,17 @@
                     @foreach ($options as $option)
                         <label>
                             <input type="radio" name="variant_id" value="{{ $option['id'] }}" required @checked(($old['variant_id'] ?? '') === $option['id'] || (($old['variant_id'] ?? '') === '' && $loop->first))>
-                            <span>{{ $option['name'] }} ({{ \App\Support\Display::minutes($option['duration_minutes']) }})@if ($option['total_cents'] !== null) {{ \App\Domain\Fees\Disclosures\Money::format($option['total_cents'], $option['currency']) }}@if ($option['fee_included']) <span class="optional">Booking fee included</span>@endif @endif</span>
+                            @include('widget.partials.choice-price', ['name' => $option['name'], 'minutes' => $option['duration_minutes'], 'totalCents' => $option['total_cents'], 'currency' => $option['currency'], 'feeIncluded' => $option['fee_included']])
                         </label>
                     @endforeach
                 </fieldset>
-            @elseif ($service->durations->isNotEmpty())
-                <fieldset>
+            @elseif (($lengthChoices ?? []) !== [])
+                <fieldset class="length-list">
                     <legend>Length</legend>
-                    @foreach ($service->durations as $duration)
+                    @foreach ($lengthChoices as $choice)
                         <label>
-                            <input type="radio" name="duration_id" value="{{ $duration->id }}" @checked(($old['duration_id'] ?? '') === $duration->id || ($loop->first && ($old['duration_id'] ?? '') === '')) required>
-                            {{ $duration->name }} ({{ \App\Support\Display::minutes($duration->duration_minutes) }})
+                            <input type="radio" name="duration_id" value="{{ $choice['id'] }}" @checked(($old['duration_id'] ?? '') === $choice['id'] || ($loop->first && ($old['duration_id'] ?? '') === '')) required>
+                            @include('widget.partials.choice-price', ['name' => $choice['name'], 'minutes' => $choice['duration_minutes'], 'totalCents' => $choice['total_cents'], 'currency' => $choice['currency'], 'feeIncluded' => $choice['fee_included']])
                         </label>
                     @endforeach
                 </fieldset>
