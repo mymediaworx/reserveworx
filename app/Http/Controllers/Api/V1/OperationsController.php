@@ -211,15 +211,24 @@ class OperationsController extends Controller
             'occurred_at' => ['required', 'date'],
             'asset_id' => ['nullable', 'string'],
         ]);
-        $incident = Incident::query()->create([
-            'tenant_id' => $tenant->id,
-            'booking_id' => $booking->id,
-            'asset_id' => $this->ownedId(Asset::class, $validated['asset_id'] ?? null),
-            'summary' => $validated['summary'],
-            'occurred_at' => CarbonImmutable::parse($validated['occurred_at'])->utc(),
-        ]);
+        $assetId = $this->ownedId(Asset::class, $validated['asset_id'] ?? null);
+        $occurredAt = CarbonImmutable::parse($validated['occurred_at'])->utc();
 
-        return response()->json(['data' => ['id' => $incident->id]], 201);
+        return $this->mutations->once($request, $booking, 'incident', [
+            'summary' => $validated['summary'],
+            'occurred_at' => $occurredAt->toIso8601String(),
+            'asset_id' => $assetId,
+        ], function () use ($tenant, $booking, $validated, $assetId, $occurredAt): JsonResponse {
+            $incident = Incident::query()->create([
+                'tenant_id' => $tenant->id,
+                'booking_id' => $booking->id,
+                'asset_id' => $assetId,
+                'summary' => $validated['summary'],
+                'occurred_at' => $occurredAt,
+            ]);
+
+            return response()->json(['data' => ['id' => $incident->id]], 201);
+        });
     }
 
     public function storeWaiver(Request $request): JsonResponse
