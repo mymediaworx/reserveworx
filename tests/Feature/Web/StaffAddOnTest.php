@@ -87,7 +87,7 @@ class StaffAddOnTest extends TestCase
         $page = $this->tenantUrl('alpha.test', '/book/'.$token.'/services/'.$shop['service']->id);
         app(TenantManager::class)->forget();
 
-        $this->get($page.'?date=2026-06-16&duration_minutes=60&participants=2')
+        $this->get($page.'?date=2026-06-16&duration_id='.$duration->id.'&participants=2')
             ->assertOk()
             ->assertSee('Equipment and add-ons')
             ->assertSee('Dry bag')
@@ -252,8 +252,13 @@ class StaffAddOnTest extends TestCase
         $token = app(WidgetTokens::class)->hostedPlain($alpha['tenant']);
         app(TenantManager::class)->forget();
 
-        $this->get($this->tenantUrl('alpha.test', '/book/'.$token.'/services/'.$shop['service']->id).'?date=2026-06-17&duration_minutes=60&participants=1')
+        $duration = $shop['service']->durations->first();
+        $this->assertNotNull($duration);
+
+        $this->get($this->tenantUrl('alpha.test', '/book/'.$token.'/services/'.$shop['service']->id).'?date=2026-06-17&duration_id='.$duration->id.'&participants=1')
             ->assertOk()
+            ->assertSee('Start time')
+            ->assertDontSee('Equipment and add-ons')
             ->assertDontSee('Cooler');
     }
 
