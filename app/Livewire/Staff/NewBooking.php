@@ -38,6 +38,12 @@ class NewBooking extends Component
     #[Url]
     public string $serviceId = '';
 
+    /**
+     * True until staff pick a date. The date then follows the selected service's location.
+     */
+    #[Locked]
+    public bool $dateIsAutomatic = true;
+
     public string $date = '';
 
     public int $durationMinutes = 0;
@@ -78,6 +84,10 @@ class NewBooking extends Component
 
     public function updated(string $property): void
     {
+        if ($property === 'date') {
+            $this->dateIsAutomatic = false;
+        }
+
         if (in_array($property, ['date', 'durationMinutes', 'participants'], true)) {
             $this->startsAt = '';
             $this->departureId = '';
@@ -310,12 +320,16 @@ class NewBooking extends Component
 
     private function selectService(string $id): void
     {
-        $service = $id !== '' ? Service::query()->with('durations')->atListedLocation()->find($id) : null;
+        $service = $id !== '' ? Service::query()->with(['durations', 'location'])->atListedLocation()->find($id) : null;
         $this->serviceId = $service instanceof Service ? $service->id : '';
         $this->durationMinutes = $service instanceof Service ? (int) ($service->durations->sortBy('duration_minutes')->first()->duration_minutes ?? 60) : 0;
         $this->participants = max(1, (int) ($service->min_participants ?? 1));
         $this->startsAt = '';
         $this->departureId = '';
+
+        if ($service instanceof Service && $this->dateIsAutomatic) {
+            $this->date = CarbonImmutable::now(DisplayZone::forLocation($service->location))->toDateString();
+        }
     }
 
     private function service(): ?Service
