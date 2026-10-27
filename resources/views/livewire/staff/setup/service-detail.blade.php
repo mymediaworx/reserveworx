@@ -187,16 +187,30 @@
                 @endif
             </section>
         @else
-            <section class="panel">
+            <section class="panel" data-departures>
                 <h2>Departures</h2>
+                @if ($canManage)
+                    <p class="muted small">An empty departure can be cancelled. One that still has a booking stays scheduled. Nothing is refunded.</p>
+                @endif
+                @error('departure')<p class="error" role="alert">{{ $message }}</p>@enderror
                 @if ($departures->isEmpty())
                     <p class="empty">No upcoming departures.</p>
                 @else
                     <ul class="rows compact">
                         @foreach ($departures as $departure)
-                            <li class="row">
+                            @php
+                                $count = $departureHeadcounts[$departure->id] ?? 0;
+                                $below = is_int($service->min_participants) && $count > 0 && $count < $service->min_participants;
+                            @endphp
+                            <li class="row" data-departure="{{ $departure->id }}" @if ($below) data-below-minimum="{{ $departure->id }}" @endif>
                                 <span class="grow">{{ Display::dateTime($departure->starts_at, $zone) }}</span>
-                                <span class="muted">{{ $departure->private ? 'Private' : $departure->headcount().' of '.$departure->seats }}{{ $departure->status->value === 'cancelled' ? ', cancelled' : '' }}</span>
+                                <span class="muted">{{ $departure->private ? 'Private' : $count.' of '.$departure->seats }}{{ $departure->status->value === 'cancelled' ? ', cancelled' : '' }}</span>
+                                @if ($below)
+                                    <span class="badge badge-below-minimum">Below minimum</span>
+                                @endif
+                                @if ($canManage && $departure->status->value === 'scheduled')
+                                    <button type="button" class="button" wire:click="cancelDeparture('{{ $departure->id }}')" wire:confirm="Cancel this departure? It stays if anyone is still booked. Nothing is refunded.">Cancel departure</button>
+                                @endif
                             </li>
                         @endforeach
                     </ul>
