@@ -4,7 +4,30 @@
     $kindLabels = ['base' => 'Per booking', 'per_person' => 'Per person', 'duration' => 'For a length'];
     $windowLabels = ['always' => 'Every day', 'weekday' => 'Weekdays', 'weekend' => 'Weekends'];
 @endphp
-<div class="page">
+<div class="page service-detail">
+    <style>
+        @media (max-width: 390px) {
+            .service-detail,
+            .service-detail .panel,
+            .service-detail .split,
+            .service-detail .stack,
+            .service-detail .row,
+            .service-detail .form-row,
+            .service-detail .field { min-width: 0; max-width: 100%; }
+            .service-detail h1,
+            .service-detail .lede,
+            .service-detail .row,
+            .service-detail .field span { overflow-wrap: anywhere; }
+            .service-detail .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            .service-detail .row { flex-wrap: wrap; }
+            .service-detail .row .grow { flex-basis: 100%; }
+            .service-detail .row .button,
+            .service-detail .form-row .button,
+            .service-detail .field input,
+            .service-detail .field select { width: 100%; max-width: 100%; min-width: 0; }
+            .service-detail .row .button { min-height: 44px; white-space: normal; }
+        }
+    </style>
     <p class="crumb"><a href="/staff/setup/services" wire:navigate>Services & prices</a></p>
     <header class="page-head">
         <div>
@@ -195,6 +218,72 @@
                     </form>
                 @endif
             </section>
+        @endif
+
+        @if ($canViewVariants)
+        <section class="panel" aria-labelledby="options-heading">
+            <h2 id="options-heading">Options</h2>
+            <p class="muted small">A tandem, a shorter rental, or another way to book this service. The schedule offers an option that uses the boat or pool you tap. Leave the price blank to keep the service price. Tax, the booking fee, and refunds stay as they are.</p>
+            @if ($variantProblem)<p class="error" role="alert">{{ $variantProblem }}</p>@endif
+            @if ($variants->isEmpty())
+                <p class="empty">No options yet.</p>
+            @else
+                <ul class="rows compact">
+                    @foreach ($variants as $variant)
+                        @php
+                            $gear = $variant->resources
+                                ->map(fn ($row) => $resourceNames[$row->resource_id] ?? 'Gear')
+                                ->implode(', ');
+                        @endphp
+                        <li class="row" wire:key="variant-{{ $variant->id }}">
+                            <span class="grow">
+                                <strong>{{ $variant->name }}</strong>
+                                <span class="muted">{{ Display::minutes($variant->duration_minutes) }} · {{ $variant->price_override_cents === null ? 'Service price' : Display::money($variant->price_override_cents) }}@if ($gear !== '') · {{ $gear }}@endif</span>
+                            </span>
+                            @if ($canManageVariants)
+                                <button type="button" class="button small" wire:click="editVariant('{{ $variant->id }}')">Edit</button>
+                                <button type="button" class="button small" wire:click="deleteVariant('{{ $variant->id }}')">Remove</button>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            @endif
+            @if ($canManageVariants)
+                <form wire:submit="saveVariant" class="stack top-gap">
+                    <div class="form-row">
+                        <label class="field compact grow"><span>Name</span><input type="text" wire:model="variantName" maxlength="80" required placeholder="Tandem"></label>
+                        <label class="field compact"><span>Length</span><input type="number" min="1" wire:model="variantQuantity" required></label>
+                        <label class="field compact"><span>Unit</span>
+                            <select wire:model="variantUnit"><option value="hours">Hours</option><option value="minutes">Minutes</option></select>
+                        </label>
+                    </div>
+                    <div class="form-row">
+                        <label class="field compact"><span>Price ($) <span class="muted">optional</span></span><input type="text" inputmode="decimal" wire:model="variantPrice" placeholder="Service price"></label>
+                        <label class="field compact grow"><span>Gear <span class="muted">optional</span></span>
+                            <select wire:model="variantResource">
+                                <option value="">No specific gear</option>
+                                @foreach ($variantPools as $pool)<option value="pool:{{ $pool->id }}">{{ $pool->name }}</option>@endforeach
+                                @foreach ($variantAssets as $asset)<option value="asset:{{ $asset->id }}">{{ $asset->name }}</option>@endforeach
+                            </select>
+                        </label>
+                        <label class="field compact"><span>How many</span><input type="number" min="1" wire:model="variantGearQuantity" required></label>
+                        <label class="field compact"><span>People each <span class="muted">optional</span></span><input type="number" min="1" wire:model="variantCapacity" placeholder="As entered"></label>
+                    </div>
+                    @error('variantName')<p class="error">{{ $message }}</p>@enderror
+                    @error('variantQuantity')<p class="error">{{ $message }}</p>@enderror
+                    @error('variantPrice')<p class="error">{{ $message }}</p>@enderror
+                    @error('variantResource')<p class="error">{{ $message }}</p>@enderror
+                    @error('variantGearQuantity')<p class="error">{{ $message }}</p>@enderror
+                    @error('variantCapacity')<p class="error">{{ $message }}</p>@enderror
+                    <div class="form-row">
+                        <button type="submit" class="button">{{ $editingVariantId === '' ? 'Add option' : 'Save option' }}</button>
+                        @if ($editingVariantId !== '')
+                            <button type="button" class="button" wire:click="cancelVariant">Cancel</button>
+                        @endif
+                    </div>
+                </form>
+            @endif
+        </section>
         @endif
 
         <section class="panel">

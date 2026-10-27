@@ -4,10 +4,12 @@ namespace App\Livewire\Staff\Setup;
 
 use App\Enums\DepartureStatus;
 use App\Enums\DurationUnit;
+use App\Enums\ResourceStatus;
 use App\Enums\ResourceType;
 use App\Enums\ServiceKind;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Asset;
+use App\Models\Booking;
 use App\Models\CorporateAccount;
 use App\Models\Departure;
 use App\Models\FleetItem;
@@ -16,8 +18,14 @@ use App\Models\PriceRule;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
+use App\Models\ServiceVariant;
+use App\Models\WaitlistEntry;
+use App\Services\Catalog\VariantResourceWriter;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -78,6 +86,24 @@ class ServiceDetail extends Component
     public ?int $departureSeats = 10;
 
     public bool $departurePrivate = false;
+
+    public string $variantName = '';
+
+    public int $variantQuantity = 1;
+
+    public string $variantUnit = 'hours';
+
+    public string $variantPrice = '';
+
+    public string $variantResource = '';
+
+    public int $variantGearQuantity = 1;
+
+    public string $variantCapacity = '';
+
+    public string $editingVariantId = '';
+
+    public ?string $variantProblem = null;
 
     public ?string $flash = null;
 
@@ -196,6 +222,157 @@ class ServiceDetail extends Component
         $this->flash = 'Gear linked.';
     }
 
+    public function saveVariant(): void
+    {
+        $service = $this->manageable();
+        $this->variantName = trim($this->variantName);
+        $this->variantPrice = trim($this->variantPrice);
+        $this->variantCapacity = trim($this->variantCapacity);
+        $this->variantResource = trim($this->variantResource);
+        $this->validate([
+            'variantName' => ['required', 'string', 'max:80'],
+            'variantQuantity' => ['required', 'integer', 'min:1', 'max:10080'],
+            'variantUnit' => ['required', 'in:minutes,hours'],
+            'variantPrice' => ['nullable', 'string', 'max:20'],
+            'variantResource' => ['nullable', 'string', 'max:80'],
+            'variantGearQuantity' => ['required', 'integer', 'min:1'],
+            'variantCapacity' => ['nullable', 'integer', 'min:1', 'max:65535'],
+        ]);
+        $minutes = $this->variantUnit === 'hours' ? $this->variantQuantity * 60 : $this->variantQuantity;
+
+        if ($minutes < 1 || $minutes > 10080) {
+            $this->addError('variantQuantity', 'That length is outside the supported range.');
+
+            return;
+        }
+
+        $price = $this->variantPriceCents();
+
+        if ($this->getErrorBag()->has('variantPrice')) {
+            return;
+        }
+
+        $rows = $this->variantResourceRows($service);
+
+        if ($rows === null) {
+            return;
+        }
+
+        $existing = $this->editingVariantId !== ''
+            ? $this->variantOnService($service, $this->editingVariantId)
+            : null;
+
+        if ($existing instanceof ServiceVariant) {
+            $this->authorize('update', $existing);
+        }
+
+        try {
+            DB::transaction(function () use ($service, $minutes, $price, $rows, $existing): void {
+                $variant = $existing ?? new ServiceVariant([
+                    'tenant_id' => $this->tenant()->id,
+                    'service_id' => $service->id,
+                ]);
+                $variant->fill([
+                    'name' => $this->variantName,
+                    'duration_minutes' => $minutes,
+                    'price_override_cents' => $price,
+                ]);
+
+                try {
+                    $variant->save();
+                } catch (QueryException $exception) {
+                    $this->rejectDuplicateVariantName($exception);
+                }
+
+                app(VariantResourceWriter::class)->replace($variant, $service, $rows);
+                $this->audit(
+                    $existing instanceof ServiceVariant ? 'service_variant.updated' : 'service_variant.created',
+                    $variant,
+                    [
+                        'service_id' => $service->id,
+                        'name' => $variant->name,
+                        'duration_minutes' => $variant->duration_minutes,
+                        'price_override_cents' => $variant->price_override_cents,
+                    ],
+                );
+            });
+        } catch (ValidationException $exception) {
+            $this->applyVariantErrors($exception);
+
+            return;
+        }
+
+        $this->resetVariantForm();
+        $this->flash = $existing instanceof ServiceVariant ? 'Option saved.' : 'Option added.';
+    }
+
+    public function editVariant(string $id): void
+    {
+        $service = $this->manageable();
+        $variant = $this->variantOnService($service, $id);
+        $this->authorize('update', $variant);
+        $this->editingVariantId = $variant->id;
+        $this->variantName = $variant->name;
+        $this->variantPrice = $variant->price_override_cents === null
+            ? ''
+            : number_format($variant->price_override_cents / 100, 2, '.', '');
+        $this->variantCapacity = '';
+        $this->variantResource = '';
+        $this->variantGearQuantity = 1;
+
+        if ($variant->duration_minutes % 60 === 0) {
+            $this->variantUnit = 'hours';
+            $this->variantQuantity = (int) ($variant->duration_minutes / 60);
+        } else {
+            $this->variantUnit = 'minutes';
+            $this->variantQuantity = $variant->duration_minutes;
+        }
+
+        $resource = $variant->resources->first();
+
+        if ($resource !== null) {
+            $this->variantResource = $resource->resource_type->value.':'.$resource->resource_id;
+            $this->variantGearQuantity = $resource->quantity;
+            $this->variantCapacity = $resource->capacity === null ? '' : (string) $resource->capacity;
+        }
+
+        $this->variantProblem = null;
+        $this->flash = null;
+    }
+
+    public function deleteVariant(string $id): void
+    {
+        $service = $this->manageable();
+        $variant = $this->variantOnService($service, $id);
+        $this->authorize('delete', $variant);
+
+        if ($this->variantInUse($variant)) {
+            $this->variantProblem = 'This option is on a booking. It stays so that booking can still be priced.';
+            $this->flash = null;
+
+            return;
+        }
+
+        $name = $variant->name;
+        $this->audit('service_variant.deleted', $variant, [
+            'service_id' => $service->id,
+            'name' => $name,
+        ]);
+        $variant->delete();
+
+        if ($this->editingVariantId === $variant->id) {
+            $this->resetVariantForm();
+        }
+
+        $this->flash = $name.' removed.';
+    }
+
+    public function cancelVariant(): void
+    {
+        $this->resetVariantForm();
+        $this->flash = null;
+    }
+
     public function addPrice(): void
     {
         $service = $this->editable();
@@ -302,13 +479,23 @@ class ServiceDetail extends Component
         $service = $this->service($this->serviceId)->load(['location', 'durations', 'requirements']);
         $zone = DisplayZone::forLocation($service->location);
 
+        $pools = Pool::query()->where('location_id', $service->location_id)->orderBy('name')->get();
+        $assets = Asset::query()->where('location_id', $service->location_id)->orderBy('name')->get();
+
         return view('livewire.staff.setup.service-detail', [
             'service' => $service,
             'zone' => $zone,
             'prices' => PriceRule::query()->with('corporateAccount')->where('service_id', $service->id)->orderBy('kind')->orderBy('amount_cents')->get(),
             'accounts' => CorporateAccount::query()->where('active', true)->orderBy('name')->get(),
-            'pools' => Pool::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
-            'assets' => Asset::query()->where('location_id', $service->location_id)->orderBy('name')->get(),
+            'pools' => $pools,
+            'assets' => $assets,
+            'variants' => $service->variants()->with('resources')->orderBy('name')->get(),
+            'canViewVariants' => $this->allows('settings.view'),
+            'canManageVariants' => $this->allows('inventory.manage') && $this->allows('settings.update'),
+            'variantPools' => $pools->filter(fn (Pool $pool): bool => $pool->resource_category_id !== null)->values(),
+            'variantAssets' => $assets->filter(
+                fn (Asset $asset): bool => $asset->resource_category_id !== null && $asset->status !== ResourceStatus::Retired,
+            )->values(),
             'fleetItems' => $service->location?->delivered_from_fleet
                 ? FleetItem::query()->orderBy('name')->get()
                 : collect(),
@@ -337,5 +524,139 @@ class ServiceDetail extends Component
         $this->authorize('update', $service);
 
         return $service;
+    }
+
+    private function manageable(): Service
+    {
+        $service = $this->editable();
+        $this->authorize('create', ServiceVariant::class);
+        $this->variantProblem = null;
+
+        return $service;
+    }
+
+    private function variantOnService(Service $service, string $id): ServiceVariant
+    {
+        $variant = ServiceVariant::query()->with('resources')->find($id);
+        abort_unless($variant instanceof ServiceVariant && $variant->service_id === $service->id, 404);
+
+        return $variant;
+    }
+
+    private function variantInUse(ServiceVariant $variant): bool
+    {
+        return Booking::query()->where('service_variant_id', $variant->id)->exists()
+            || WaitlistEntry::query()->where('service_variant_id', $variant->id)->exists();
+    }
+
+    private function variantPriceCents(): ?int
+    {
+        if ($this->variantPrice === '') {
+            return null;
+        }
+
+        if (preg_match('/^(\d+)(?:\.(\d{1,2}))?$/', $this->variantPrice, $match) !== 1) {
+            $this->addError('variantPrice', 'Enter a price from $0.00 to $10,000.00, or leave it blank.');
+
+            return null;
+        }
+
+        $cents = ((int) $match[1] * 100) + (int) str_pad($match[2] ?? '', 2, '0');
+
+        if ($cents > 1_000_000) {
+            $this->addError('variantPrice', 'Enter a price from $0.00 to $10,000.00, or leave it blank.');
+
+            return null;
+        }
+
+        return $cents;
+    }
+
+    /**
+     * @return list<array{resource_type: string, resource_category_id: string, resource_id: string, quantity: int, capacity: int|null}>|null
+     */
+    private function variantResourceRows(Service $service): ?array
+    {
+        if ($this->variantResource === '') {
+            return [];
+        }
+
+        if (preg_match('/^(asset|pool):([0-9A-Za-z]+)$/', $this->variantResource, $match) !== 1) {
+            $this->addError('variantResource', 'That gear is not at this service’s location.');
+
+            return null;
+        }
+
+        $type = $match[1];
+        $id = $match[2];
+        $resourceType = ResourceType::from($type);
+        $model = $resourceType === ResourceType::Asset ? Asset::query()->find($id) : Pool::query()->find($id);
+
+        if ((! $model instanceof Asset && ! $model instanceof Pool) || $model->location_id !== $service->location_id) {
+            $this->addError('variantResource', 'That gear is not at this service’s location.');
+
+            return null;
+        }
+
+        if ($model instanceof Asset && $model->status === ResourceStatus::Retired) {
+            $this->addError('variantResource', 'That gear is not at this service’s location.');
+
+            return null;
+        }
+
+        $categoryId = $model->resource_category_id;
+
+        if (! is_string($categoryId) || $categoryId === '') {
+            $this->addError('variantResource', 'That gear needs an asset type before it can be an option.');
+
+            return null;
+        }
+
+        return [[
+            'resource_type' => $resourceType->value,
+            'resource_category_id' => $categoryId,
+            'resource_id' => $model->id,
+            'quantity' => $this->variantGearQuantity,
+            'capacity' => $this->variantCapacity === '' ? null : (int) $this->variantCapacity,
+        ]];
+    }
+
+    private function applyVariantErrors(ValidationException $exception): void
+    {
+        foreach ($exception->errors() as $key => $messages) {
+            $message = $messages[0] ?? null;
+
+            if (! is_string($message)) {
+                continue;
+            }
+
+            $this->addError($key === 'variantName' ? 'variantName' : 'variantResource', $message);
+        }
+    }
+
+    private function rejectDuplicateVariantName(QueryException $exception): never
+    {
+        if ((int) ($exception->errorInfo[1] ?? 0) === 1062) {
+            throw ValidationException::withMessages([
+                'variantName' => 'This service already has an option with that name.',
+            ]);
+        }
+
+        throw $exception;
+    }
+
+    private function resetVariantForm(): void
+    {
+        $this->reset(
+            'variantName',
+            'variantPrice',
+            'variantResource',
+            'variantCapacity',
+            'editingVariantId',
+        );
+        $this->variantQuantity = 1;
+        $this->variantGearQuantity = 1;
+        $this->variantUnit = 'hours';
+        $this->variantProblem = null;
     }
 }
