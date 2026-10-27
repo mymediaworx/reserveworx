@@ -127,7 +127,7 @@ A booking stores the customer interval in UTC, party size, status, payment statu
 
 ## Booking widget tokens
 
-`widget_tokens` stores the SHA-256 hash of an embed token. The plain token is returned once when a member with `bookings.manage` creates it. `revoked_at` or a past `expires_at` makes the public booking pages 404. The token is not a cookie and is not a Stripe secret. `tenant_settings.guest_cancel_before_minutes` is null until the workspace turns guest cancellation on. `notification_hooks.dedupe_key` is unique when set, so a repeated guest cancel does not queue a second hook.
+`widget_tokens` stores the SHA-256 hash of an embed token. The plain token is returned once when a member with `bookings.manage` creates it. `revoked_at` or a past `expires_at` makes the public booking pages 404. The token is not a cookie and is not a Stripe secret. `tenant_settings.guest_cancel_before_minutes` is null until an owner or manager turns guest cancellation on at `/staff/settings`. Staff with `settings.view` can see it and cannot change it. The value is whole minutes from 0 to 43,200. Saving it does not write a cancellation window, a price, a payment, a tax, a fee, or a refund. `notification_hooks.dedupe_key` is unique when set, so a repeated guest cancel does not queue a second hook.
 
 ## Operations
 
