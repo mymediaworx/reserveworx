@@ -7,6 +7,7 @@ use App\Models\Participant;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Publishes waiver versions and stores signatures. The staff API, the staff
@@ -30,8 +31,9 @@ final class WaiverSigner
     }
 
     /**
-     * A named participant signs once per version; a repeat returns the first
-     * signature. Without a participant the signature covers the booking.
+     * A named participant signs once per version. A booking with nobody named
+     * keeps one signature per version. A repeat returns that first row and
+     * does not replace the stored name, hash, guardian, IP address, or browser.
      */
     public function sign(
         Booking $booking,
@@ -44,29 +46,41 @@ final class WaiverSigner
         ?string $userAgent,
     ): WaiverSignature {
         if ($participant instanceof Participant) {
-            $existing = $this->existing($booking, $waiver, $participant);
+            return $this->signParticipant($booking, $waiver, $participant, $name, $minor, $guardian, $ip, $userAgent);
+        }
+
+        return DB::transaction(function () use ($booking, $waiver, $name, $minor, $guardian, $ip, $userAgent): WaiverSignature {
+            Booking::query()->whereKey($booking->id)->lockForUpdate()->first();
+            $existing = $this->bookingSignature($booking, $waiver);
 
             if ($existing instanceof WaiverSignature) {
                 return $existing;
             }
+
+            return $this->store($booking, $waiver, null, $name, $minor, $guardian, $ip, $userAgent);
+        });
+    }
+
+    private function signParticipant(
+        Booking $booking,
+        WaiverVersion $waiver,
+        Participant $participant,
+        string $name,
+        bool $minor,
+        ?string $guardian,
+        ?string $ip,
+        ?string $userAgent,
+    ): WaiverSignature {
+        $existing = $this->existing($booking, $waiver, $participant);
+
+        if ($existing instanceof WaiverSignature) {
+            return $existing;
         }
 
         try {
-            return WaiverSignature::query()->create([
-                'tenant_id' => $booking->tenant_id,
-                'booking_id' => $booking->id,
-                'participant_id' => $participant?->id,
-                'waiver_version_id' => $waiver->id,
-                'participant_name' => $name,
-                'is_minor' => $minor,
-                'guardian_name' => $minor ? $guardian : null,
-                'ip_address' => $ip,
-                'user_agent' => mb_substr((string) $userAgent, 0, 255),
-                'content_hash' => $waiver->content_hash,
-                'signed_at' => now(),
-            ]);
+            return $this->store($booking, $waiver, $participant, $name, $minor, $guardian, $ip, $userAgent);
         } catch (QueryException $exception) {
-            if (! $participant instanceof Participant || (int) ($exception->errorInfo[1] ?? 0) !== 1062) {
+            if ((int) ($exception->errorInfo[1] ?? 0) !== 1062) {
                 throw $exception;
             }
 
@@ -78,6 +92,44 @@ final class WaiverSigner
 
             return $existing;
         }
+    }
+
+    private function bookingSignature(Booking $booking, WaiverVersion $waiver): ?WaiverSignature
+    {
+        $existing = WaiverSignature::query()
+            ->where('booking_id', $booking->id)
+            ->where('waiver_version_id', $waiver->id)
+            ->whereNull('participant_id')
+            ->orderBy('signed_at')
+            ->orderBy('id')
+            ->first();
+
+        return $existing instanceof WaiverSignature ? $existing : null;
+    }
+
+    private function store(
+        Booking $booking,
+        WaiverVersion $waiver,
+        ?Participant $participant,
+        string $name,
+        bool $minor,
+        ?string $guardian,
+        ?string $ip,
+        ?string $userAgent,
+    ): WaiverSignature {
+        return WaiverSignature::query()->create([
+            'tenant_id' => $booking->tenant_id,
+            'booking_id' => $booking->id,
+            'participant_id' => $participant?->id,
+            'waiver_version_id' => $waiver->id,
+            'participant_name' => $name,
+            'is_minor' => $minor,
+            'guardian_name' => $minor ? $guardian : null,
+            'ip_address' => $ip,
+            'user_agent' => mb_substr((string) $userAgent, 0, 255),
+            'content_hash' => $waiver->content_hash,
+            'signed_at' => now(),
+        ]);
     }
 
     public function existing(Booking $booking, WaiverVersion $waiver, Participant $participant): ?WaiverSignature
