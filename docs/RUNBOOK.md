@@ -67,6 +67,10 @@ Without `--password-file`, the command does not create a user. The production de
 
 An owner or manager opens `/staff/customers` on the workspace host. Search finds this workspace’s customers by name, email, or phone. **Download their record** queues the same private zip as the customer export API. The file stays on the local disk. The page shows a signed link that lasts 30 minutes. **Remove personal details** anonymizes that customer. It is refused until a download file is on disk, unless the person checks the box to remove details anyway. Bookings, payments, and signed waivers stay. How long a signed waiver is kept is still open question 3. Staff, and a member limited to some locations, cannot open the page.
 
+## Signed waiver PDF
+
+Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each signed waiver has **Download PDF**. The file is the stored text, hash, and signature record. It is not an electronic-signature certificate. `bookings.view` is required. A member limited to other locations does not see that booking. How long a signed waiver is kept is still open question 3.
+
 ## Audit log
 
 An owner or manager opens `/staff/audit` on the workspace host. The page lists the latest 50 changes. Staff, and a member limited to some locations, cannot open it. The filter has to match the stored action, such as `booking.cancelled`. The page does not write a row. `GET /api/v1/audit-logs` is the same read.

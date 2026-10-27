@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToTenant;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WaiverSignature extends Model
 {
@@ -19,4 +20,12 @@ class WaiverSignature extends Model
         'is_minor' => 'boolean',
         'signed_at' => 'datetime',
     ];
+
+    /**
+     * @return BelongsTo<WaiverVersion, $this>
+     */
+    public function version(): BelongsTo
+    {
+        return $this->belongsTo(WaiverVersion::class, 'waiver_version_id');
+    }
 }

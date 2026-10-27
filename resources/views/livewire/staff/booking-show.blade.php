@@ -113,6 +113,45 @@
                 @endif
             </section>
 
+            <section class="panel waiver-copies" data-signed-waivers>
+                <style>
+                    @media (max-width: 390px) {
+                        .waiver-copies,
+                        .waiver-copies li,
+                        .waiver-copies a,
+                        .waiver-copies .muted { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+                    }
+                </style>
+                <h2>Signed waivers</h2>
+                @if ($booking->waiverSignatures->isEmpty())
+                    <p class="muted">No one has signed a waiver for this booking.</p>
+                @else
+                    <ul class="stack">
+                        @foreach ($booking->waiverSignatures as $signature)
+                            <li>
+                                <strong>{{ $signature->participant_name }}</strong>
+                                @if ($signature->is_minor)
+                                    <span class="muted">under 18, {{ $signature->guardian_name }}</span>
+                                @endif
+                                <span class="muted">
+                                    {{ $signature->version?->name ?? 'Waiver' }}
+                                    @if ($signature->version)
+                                        version {{ $signature->version->version }}
+                                    @endif
+                                    @if ($signature->signed_at)
+                                        · {{ Display::dateTime($signature->signed_at, $zone) }}
+                                    @endif
+                                </span>
+                                @if ($signature->version)
+                                    <a class="button small" href="/staff/bookings/{{ $booking->id }}/waivers/{{ $signature->id }}">Download PDF</a>
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                    <p class="muted small">The file is the stored waiver text and signature. It is not an electronic-signature certificate.</p>
+                @endif
+            </section>
+
             <section class="panel">
                 <h2>Price</h2>
                 @if ($snapshot)

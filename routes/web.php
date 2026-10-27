@@ -19,6 +19,7 @@ use App\Http\Controllers\Web\StaffIncidentPhotoController;
 use App\Http\Controllers\Web\StaffInviteController;
 use App\Http\Controllers\Web\StaffManifestController;
 use App\Http\Controllers\Web\StaffReportController;
+use App\Http\Controllers\Web\StaffWaiverPdfController;
 use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\Web\WaitlistLeaveController;
 use App\Http\Controllers\Web\WaiverSigningController;
@@ -140,6 +141,10 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
         Route::get('/schedule', Schedule::class);
         Route::get('/bookings', Bookings::class);
         Route::get('/bookings/new', NewBooking::class);
+        Route::get('/bookings/{booking}/waivers/{signature}', [StaffWaiverPdfController::class, 'show'])
+            ->whereUlid('booking')
+            ->whereUlid('signature')
+            ->name('staff.bookings.waiver');
         Route::get('/bookings/{booking}', BookingShow::class);
         Route::get('/setup', SetupGuidePage::class)->name('staff.setup');
         Route::get('/setup/locations', Locations::class);

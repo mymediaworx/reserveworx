@@ -155,6 +155,16 @@ class Booking extends Model
     }
 
     /**
+     * Stored waiver signatures for this booking, oldest first.
+     *
+     * @return HasMany<WaiverSignature, $this>
+     */
+    public function waiverSignatures(): HasMany
+    {
+        return $this->hasMany(WaiverSignature::class)->orderBy('signed_at')->orderBy('id');
+    }
+
+    /**
      * @return HasMany<RentalCheckout, $this>
      */
     public function checkouts(): HasMany
