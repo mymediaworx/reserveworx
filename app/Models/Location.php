@@ -10,11 +10,12 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Location extends Model
 {
     /** @use HasFactory<LocationFactory> */
-    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations;
+    use BelongsToTenant, HasFactory, HasUlids, LimitsStaffLocations, SoftDeletes;
 
     public static function staffLocationColumn(): string
     {
