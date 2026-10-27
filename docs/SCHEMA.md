@@ -196,7 +196,7 @@ The client calls `https://services.leadconnectorhq.com` with `Authorization: Bea
 These Section 13 tables are design-only. Do not infer columns beyond the spec and [`ALLOCATION.md`](ALLOCATION.md):
 
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
-- a waiver retention job. Signed waivers can be downloaded as PDF. How long they are kept is still open
+- a waiver retention job. Signed waivers can be downloaded as PDF from the booking page and from the API. How long they are kept is still open
 - a mail transport. Outbound webhook endpoints are migrated
 - inbound HighLevel webhooks. Check-in, return, and payment failed are still not sent as messages. Reminders, confirmations, receipts, cancellations, refunds, and overdue rentals are `ghl_message_logs`
 
