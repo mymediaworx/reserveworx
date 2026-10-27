@@ -826,6 +826,10 @@ class Allocator
                 ]);
             }
 
+            if (in_array($booking->operational_status, [OperationalStatus::NotArrived, OperationalStatus::CheckedIn], true)) {
+                $this->markOperational($booking, OperationalStatus::InProgress);
+            }
+
             return $booking->load('checkouts');
         }));
 
@@ -886,6 +890,10 @@ class Allocator
                 ->where('booking_id', $booking->id)
                 ->whereNull('returned_at')
                 ->update(['returned_at' => $now]);
+
+            if ($booking->operational_status !== OperationalStatus::Completed) {
+                $this->markOperational($booking, OperationalStatus::Returned);
+            }
 
             foreach ($plan['demands'] as $index => $demand) {
                 if ($demand['type'] !== ResourceType::Pool) {
@@ -1083,6 +1091,16 @@ class Allocator
         if ($tenant instanceof Tenant) {
             $this->tenants->set($tenant);
         }
+    }
+
+    private function markOperational(Booking $booking, OperationalStatus $status): void
+    {
+        if ($booking->operational_status === $status) {
+            return;
+        }
+
+        $booking->operational_status = $status;
+        $booking->save();
     }
 
     private function replayIdempotentHold(AllocationIntent $intent, QueryException $exception): Booking
