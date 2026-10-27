@@ -13,7 +13,7 @@
                 @else
                     {{ $first->format('M j') }} – {{ $last->format('M j, Y') }}
                 @endif
-                <span class="muted">Times are local to each location. Shaded edges are buffers.</span>
+                <span class="muted">Each location uses its own timezone. Shaded edges are buffers.</span>
                 @if ($canBook)
                     <span class="muted">{{ $industry->scheduleHint($view) }}</span>
                 @endif
@@ -71,7 +71,7 @@
                 <p class="flash bad" role="alert">{{ $problem }}</p>
             @endif
             <p class="lede">{{ $move['who'] }} · {{ $move['service'] }}</p>
-            <p>{{ $move['when'] }} <span class="muted small">{{ $move['zone'] }}</span></p>
+            <p data-when>{{ $move['when'] }} <span class="muted small">{{ $move['zone'] }}</span></p>
             @if ($move['resource'] !== '')
                 <p>On {{ $move['resource'] }}.</p>
             @endif
@@ -149,7 +149,7 @@
             <section class="schedule-scroll" aria-labelledby="schedule-{{ $place['id'] }}">
                 <header class="schedule-location">
                     <h2 id="schedule-{{ $place['id'] }}">{{ $place['name'] }}</h2>
-                    <span class="muted small">{{ $place['abbreviation'] }} · {{ $place['timezone'] }}</span>
+                    <span class="muted small">Times are in {{ $place['timezone'] }}. {{ $place['abbreviation'] }}</span>
                 </header>
                 @if ($place['groups'] === [] && ! $place['summary']['has_blocks'])
                     <p class="empty small">{{ $category !== '' ? 'Nothing in this category.' : $industry->emptyLocation() }}</p>
@@ -163,7 +163,7 @@
                                     <span class="schedule-daytitle">{{ $day['heading'] }}</span>
                                     <div class="schedule-hours" aria-hidden="true">
                                         @foreach ($day['hours'] as $hour)
-                                            @if ($loop->index % 2 === 0)
+                                            @if ($loop->index % 2 === 0 || ($hour['repeated'] ?? false))
                                             <span class="schedule-hour" style="left: {{ $hour['left'] }}%">{{ $hour['label'] }}</span>
                                         @endif
                                         @endforeach
