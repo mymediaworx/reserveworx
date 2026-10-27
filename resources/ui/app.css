@@ -387,10 +387,17 @@ fieldset.panel > legend + * { clear: both; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
 .panel-head h2 { margin: 0; }
 
-.notice { background: var(--brand-soft); color: var(--brand-soft-ink); border-radius: var(--radius); padding: 1rem 1.15rem; margin-bottom: 1rem; }
+.notice { background: var(--brand-soft); color: var(--brand-soft-ink); border-radius: var(--radius); padding: 1rem 1.15rem; margin-bottom: 1rem; overflow-wrap: anywhere; }
 .notice.attention { background: var(--accent-soft); color: var(--accent-soft-ink); }
 .notice h2 { color: inherit; }
 .notice .button { margin-top: 0.25rem; }
+.recover-time { min-width: 0; }
+.recover-time .field input { width: 100%; min-width: 0; max-width: 100%; }
+@media (max-width: 390px) {
+    .notice,
+    .recover-time { min-width: 0; overflow-wrap: anywhere; }
+    .recover-time .field input { width: 100%; min-width: 0; max-width: 100%; }
+}
 
 .undo-toast {
     position: fixed;
