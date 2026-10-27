@@ -6,6 +6,7 @@ use App\Models\Booking;
 use App\Models\NotificationHook;
 use App\Models\Tenant;
 use App\Models\TenantNotificationSetting;
+use App\Models\TenantSetting;
 use App\Notifications\BookingUpdateNotification;
 use App\Services\Branding\CurrentWorkspaceBranding;
 use App\Services\Integrations\GhlMessages;
@@ -24,6 +25,8 @@ use Throwable;
 final class HookDelivery
 {
     public const NO_PROVIDER = 'No transactional email provider is configured.';
+
+    public const RECEIPT_OFF = 'The workspace does not email payment receipts.';
 
     /**
      * A hook left queued longer than this (for example while cron was not
@@ -72,6 +75,10 @@ final class HookDelivery
      */
     private function deliver(NotificationHook $hook, Tenant $tenant): array
     {
+        if ($hook->kind === 'payment.completed' && ! $this->paymentReceiptsEnabled($tenant)) {
+            return ['skipped', self::RECEIPT_OFF];
+        }
+
         if (! $this->canSend()) {
             return ['skipped', self::NO_PROVIDER];
         }
@@ -119,6 +126,13 @@ final class HookDelivery
         }
 
         return ['sent', null];
+    }
+
+    private function paymentReceiptsEnabled(Tenant $tenant): bool
+    {
+        $setting = TenantSetting::query()->where('tenant_id', $tenant->id)->first();
+
+        return $setting instanceof TenantSetting && $setting->email_payment_receipt;
     }
 
     private function canSend(): bool

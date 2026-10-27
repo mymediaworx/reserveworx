@@ -88,6 +88,18 @@
     </section>
 
     <section class="panel">
+        <h2>Payment receipts</h2>
+        <p>After a card or offline payment, email the customer the receipt already stored on that booking. This stays off until you turn it on.</p>
+        <form wire:submit="savePaymentReceipt" class="stack">
+            <label class="check">
+                <input type="checkbox" wire:model="emailPaymentReceipt" @disabled(! $canUpdate)>
+                <span>Email customers a payment receipt</span>
+            </label>
+            @if ($canUpdate)<button type="submit" class="button primary">Save payment receipts</button>@endif
+        </form>
+    </section>
+
+    <section class="panel">
         <h2>Card payments</h2>
         @if ($account && $account->canCharge())
             <p>Connected to Stripe. Customers can pay by card when they book.</p>

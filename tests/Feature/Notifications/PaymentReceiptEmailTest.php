@@ -18,8 +18,10 @@ use App\Models\Service;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\TenantNotificationSetting;
+use App\Models\TenantSetting;
 use App\Models\User;
 use App\Notifications\BookingUpdateNotification;
+use App\Services\Notifications\HookDelivery;
 use App\Services\Payments\FakeStripeGateway;
 use App\Support\Display;
 use App\Tenancy\TenantManager;
@@ -45,6 +47,8 @@ class PaymentReceiptEmailTest extends TestCase
     {
         $paid = $this->payByCard('dock.test', 'ada@example.com', 'Ada');
         $offline = $this->payOffline('pier.test', 'bea@example.com', 'Bea');
+        $this->allowReceipts($paid['tenant']);
+        $this->allowReceipts($offline['tenant']);
         config(['mail.default' => 'smtp']);
         Notification::fake();
 
@@ -124,6 +128,7 @@ class PaymentReceiptEmailTest extends TestCase
             'private_integration_token' => 'pit-dock.test',
         ]);
         app(TenantManager::class)->forget();
+        $this->allowReceipts($linked['tenant']);
         config(['mail.default' => 'smtp']);
         Notification::fake();
         $this->artisan('integrations:dispatch')->assertSuccessful();
@@ -139,6 +144,7 @@ class PaymentReceiptEmailTest extends TestCase
             ['staff_alert_recipients' => [], 'transactional_emails' => ['payment.completed' => false]],
         );
         app(TenantManager::class)->forget();
+        $this->allowReceipts($quiet['tenant']);
         $this->artisan('integrations:dispatch')->assertSuccessful();
         Notification::assertSentOnDemandTimes(BookingUpdateNotification::class, 0);
         app(TenantManager::class)->set($quiet['tenant']);
@@ -146,6 +152,7 @@ class PaymentReceiptEmailTest extends TestCase
         $this->assertUnchanged($quiet);
 
         $refused = $this->payOffline('cove.test', 'cy@example.com', 'Cy');
+        $this->allowReceipts($refused['tenant']);
         app(TenantManager::class)->forget();
         Mail::extend('refusing', function (): TransportInterface {
             return new class implements TransportInterface
@@ -172,6 +179,35 @@ class PaymentReceiptEmailTest extends TestCase
         $this->assertSame('failed', $hook->delivery_status);
         $this->assertSame('The mailer refused the message (RuntimeException).', $hook->delivery_error);
         $this->assertUnchanged($refused);
+        app(TenantManager::class)->forget();
+    }
+
+    public function test_a_workspace_leaves_the_receipt_unsent_until_it_opts_in(): void
+    {
+        $paid = $this->payOffline('dock.test', 'ada@example.com', 'Ada');
+        app(TenantManager::class)->set($paid['tenant']);
+        $this->assertFalse(TenantSetting::query()->value('email_payment_receipt'));
+        app(TenantManager::class)->forget();
+        config(['mail.default' => 'smtp']);
+        Notification::fake();
+
+        $this->artisan('integrations:dispatch')->assertSuccessful();
+        $this->artisan('integrations:dispatch')->assertSuccessful();
+
+        Notification::assertSentOnDemandTimes(BookingUpdateNotification::class, 0);
+        app(TenantManager::class)->set($paid['tenant']);
+        $hook = NotificationHook::query()->where('kind', 'payment.completed')->sole();
+        $this->assertSame('skipped', $hook->delivery_status);
+        $this->assertSame(HookDelivery::RECEIPT_OFF, $hook->delivery_error);
+        $this->assertUnchanged($paid);
+        $this->assertSame(0, Refund::query()->count());
+        app(TenantManager::class)->forget();
+    }
+
+    private function allowReceipts(Tenant $tenant): void
+    {
+        app(TenantManager::class)->set($tenant);
+        TenantSetting::query()->where('tenant_id', $tenant->id)->update(['email_payment_receipt' => true]);
         app(TenantManager::class)->forget();
     }
 

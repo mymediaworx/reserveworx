@@ -31,6 +31,7 @@ class TenantSettingFactory extends Factory
             'currency' => 'USD',
             'pay_at_pickup' => false,
             'timezone' => 'America/New_York',
+            'email_payment_receipt' => false,
         ];
     }
 }
