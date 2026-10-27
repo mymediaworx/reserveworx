@@ -97,7 +97,9 @@
         @media (max-width: 390px) {
             .card p:last-child a { display: block; }
             input[name="customer_phone"], p[data-customer-phone] { width: 100%; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
-            .option-list, .option-list label, .option-list span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .option-list, .option-list label, .option-list span, .length-list, .length-list label, .length-list span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .option-list label, .length-list label { flex-wrap: wrap; align-items: flex-start; }
+            .option-list label span, .length-list label span { flex: 1 1 auto; }
         }
     </style>
 </head>

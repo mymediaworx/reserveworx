@@ -127,6 +127,7 @@ class WidgetController extends Controller
             'groupPrice' => $this->groupPrice($service, $chosen, $setting),
             'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
             'options' => $this->optionChoices($service, $setting),
+            'lengthChoices' => $this->lengthChoices($service, $setting),
         ]);
     }
 
@@ -998,6 +999,9 @@ class WidgetController extends Controller
     }
 
     /**
+     * Prices shown beside the option radios. This uses the same preview as the
+     * service list and does not write a quote.
+     *
      * @return list<array{id: string, name: string, duration_minutes: int, total_cents: int|null, fee_included: bool, currency: string}>
      */
     private function optionChoices(Service $service, ?TenantSetting $setting): array
@@ -1007,38 +1011,76 @@ class WidgetController extends Controller
         $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
 
         foreach ($service->variants->sortBy('name') as $variant) {
-            $total = null;
-            $feeIncluded = false;
-
-            if ($service->kind !== ServiceKind::Tour) {
-                try {
-                    $preview = $this->previewAt(
-                        $service,
-                        $setting,
-                        max(1, (int) ($service->min_participants ?? 1)),
-                        $variant->duration_minutes,
-                        CarbonImmutable::now($this->visibleZone($service->location)),
-                        $variant->price_override_cents,
-                    );
-                    $total = $preview['total_cents'];
-                    $feeIncluded = $preview['fee_included'];
-                    $currency = $preview['currency'];
-                } catch (InvalidArgumentException) {
-                    $total = null;
-                }
-            }
-
+            $preview = $this->choicePreview($service, $setting, $variant->duration_minutes, $variant->price_override_cents, $currency);
+            $currency = $preview['currency'];
             $choices[] = [
                 'id' => $variant->id,
                 'name' => $variant->name,
                 'duration_minutes' => $variant->duration_minutes,
-                'total_cents' => $total,
-                'fee_included' => $feeIncluded,
+                'total_cents' => $preview['total_cents'],
+                'fee_included' => $preview['fee_included'],
                 'currency' => $currency,
             ];
         }
 
         return $choices;
+    }
+
+    /**
+     * Prices shown beside the length radios. This uses the same preview as the
+     * service list and does not write a quote.
+     *
+     * @return list<array{id: string, name: string, duration_minutes: int, total_cents: int|null, fee_included: bool, currency: string}>
+     */
+    private function lengthChoices(Service $service, ?TenantSetting $setting): array
+    {
+        $service->loadMissing('durations');
+        $choices = [];
+        $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
+
+        foreach ($service->durations as $duration) {
+            $preview = $this->choicePreview($service, $setting, $duration->duration_minutes, null, $currency);
+            $currency = $preview['currency'];
+            $choices[] = [
+                'id' => $duration->id,
+                'name' => $duration->name,
+                'duration_minutes' => $duration->duration_minutes,
+                'total_cents' => $preview['total_cents'],
+                'fee_included' => $preview['fee_included'],
+                'currency' => $currency,
+            ];
+        }
+
+        return $choices;
+    }
+
+    /**
+     * @return array{total_cents: int|null, fee_included: bool, currency: string}
+     */
+    private function choicePreview(Service $service, ?TenantSetting $setting, int $minutes, ?int $baseOverrideCents, string $currency): array
+    {
+        try {
+            $preview = $this->previewAt(
+                $service,
+                $setting,
+                max(1, (int) ($service->min_participants ?? 1)),
+                $minutes,
+                CarbonImmutable::now($this->visibleZone($service->location)),
+                $baseOverrideCents,
+            );
+
+            return [
+                'total_cents' => $preview['total_cents'],
+                'fee_included' => $preview['fee_included'],
+                'currency' => $preview['currency'],
+            ];
+        } catch (InvalidArgumentException) {
+            return [
+                'total_cents' => null,
+                'fee_included' => false,
+                'currency' => $currency,
+            ];
+        }
     }
 
     private function signatureExpiry(Booking $booking): CarbonImmutable
@@ -1101,6 +1143,7 @@ class WidgetController extends Controller
             'groupPrice' => $this->groupPrice($service, $request->all(), $this->setting($this->tenant($request))),
             'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
             'options' => $this->optionChoices($service, $this->setting($this->tenant($request))),
+            'lengthChoices' => $this->lengthChoices($service, $this->setting($this->tenant($request))),
         ], $status);
     }
 
