@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ServiceKind;
 use App\Models\Concerns\BelongsToTenant;
 use App\Models\Concerns\LimitsStaffLocations;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -32,11 +33,24 @@ class Service extends Model
     ];
 
     /**
+     * An archived location is omitted, so a booking list that requires this relation leaves the service out.
+     *
      * @return BelongsTo<Location, $this>
      */
     public function location(): BelongsTo
     {
         return $this->belongsTo(Location::class);
+    }
+
+    /**
+     * Services still offered at a location that has not been archived.
+     *
+     * @param  Builder<Service>  $query
+     * @return Builder<Service>
+     */
+    public function scopeAtListedLocation(Builder $query): Builder
+    {
+        return $query->whereHas('location');
     }
 
     /**

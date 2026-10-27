@@ -1,4 +1,56 @@
-<div class="page">
+<div class="page locations-page">
+    <style>
+        .locations-page .delete-location {
+            flex: 1 0 100%;
+            display: grid;
+            gap: 0.6rem;
+            min-width: 0;
+            max-width: 100%;
+            margin: 0.25rem 0 0;
+            padding: 0.8rem 0.9rem;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-lg);
+            background: var(--page);
+        }
+        .locations-page .delete-location,
+        .locations-page .delete-location * { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+        @media (max-width: 390px) {
+            body.app:has(.fab):has(.locations-page) {
+                height: auto;
+                min-height: 100dvh;
+                overflow: visible;
+            }
+            body.app:has(.fab):has(.locations-page) .app-shell,
+            body.app:has(.fab):has(.locations-page) .app-main {
+                height: auto;
+                max-height: none;
+                min-height: 0;
+                overflow: visible;
+            }
+            body.app:has(.fab):has(.locations-page) .app-content {
+                padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 5.5rem);
+            }
+            .locations-page,
+            .locations-page .panel,
+            .locations-page .split,
+            .locations-page .stack,
+            .locations-page .row,
+            .locations-page .form-row,
+            .locations-page .field,
+            .locations-page .delete-location { min-width: 0; max-width: 100%; }
+            .locations-page .form-row,
+            .locations-page .delete-location .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            .locations-page .row .button,
+            .locations-page .form-row .button,
+            .locations-page .delete-location .button,
+            .locations-page .delete-location input,
+            .locations-page .field input,
+            .locations-page .field select { width: 100%; max-width: 100%; white-space: normal; }
+            .locations-page h1,
+            .locations-page .lede,
+            .locations-page .delete-location { overflow-wrap: anywhere; }
+        }
+    </style>
     <header class="page-head">
         <div>
             <h1>Locations</h1>
@@ -64,6 +116,33 @@
                                 @if ($canManage)
                                     <button type="button" class="button small" wire:click="edit('{{ $location->id }}')">Edit</button>
                                 @endif
+                                @if ($canDelete && $deletingId !== $location->id)
+                                    <button type="button" class="button small danger" wire:click="askDelete('{{ $location->id }}')">Delete</button>
+                                @endif
+                            @endif
+                            @if ($canDelete && $deletePreview && $deletePreview['id'] === $location->id)
+                                <section class="delete-location" aria-label="Delete {{ $deletePreview['name'] }}">
+                                    <h3>Delete {{ $deletePreview['name'] }}?</h3>
+                                    <p>{{ $deletePreview['summary'] }}</p>
+                                    @foreach ($deletePreview['reasons'] as $reason)
+                                        <p class="error">{{ $reason }}</p>
+                                    @endforeach
+                                    @if ($deletePreview['reasons'] === [])
+                                        <form wire:submit="archive" class="stack">
+                                            <p>Past bookings, payments, fees, and refunds stay on this location. Type {{ $deletePreview['name'] }} to delete it.</p>
+                                            <label class="field"><span>Location name</span>
+                                                <input type="text" wire:model="confirmName" autocomplete="off" spellcheck="false" required maxlength="120" aria-label="Location name">
+                                            </label>
+                                            @error('confirmName')<p class="error">{{ $message }}</p>@enderror
+                                            <div class="form-row">
+                                                <button type="submit" class="button danger">Delete location</button>
+                                                <button type="button" class="button" wire:click="cancelDelete">Keep it</button>
+                                            </div>
+                                        </form>
+                                    @else
+                                        <button type="button" class="button" wire:click="cancelDelete">Keep it</button>
+                                    @endif
+                                </section>
                             @endif
                         </li>
                     @endforeach

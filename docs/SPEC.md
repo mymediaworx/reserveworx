@@ -338,6 +338,7 @@ Staff workflows cover:
 - maintenance scheduling and inspections
 - temporary inventory blocks
 - retiring and replacing resources
+- archiving a location from staff settings. An owner or manager with `settings.update` opens Delete, sees how many upcoming held or confirmed bookings the location has and how many assets and pools it keeps, then types the location's name. Archiving sets `deleted_at` and leaves the row in place. It is refused while an upcoming held or confirmed booking exists, and while the location is the workspace's only one. Past bookings, payments, fees, and refunds stay and still point at the location. An archived location is left off the public booking page and staff location pickers. The audit action is `location.archived`
 
 When a resource becomes unavailable, the system finds affected future bookings and flags them. It never cancels or reassigns automatically without validated alternatives and a recorded action.
 
@@ -392,7 +393,7 @@ When a resource becomes unavailable, the system finds affected future bookings a
 The minimum entities are:
 
 - tenants, tenant_settings, domains, memberships, users, roles, permissions
-- locations (with timezone), customers
+- locations (with timezone, and `deleted_at` when archived), customers
 - services, service_variants, resource_requirements
 - resource_categories, assets, pools, capacity_ledger
 - availability_schedules, blackouts
