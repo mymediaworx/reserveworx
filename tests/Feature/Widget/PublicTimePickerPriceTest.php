@@ -170,8 +170,8 @@ class PublicTimePickerPriceTest extends TestCase
 
         $form = $this->get($book);
         $form->assertOk()
-            ->assertSee('Wed, Oct 28, 6:00 PM EDT · 10 seats left · $56.65 · Booking fee included')
-            ->assertSee('Wed, Oct 28, 10:00 AM EDT · 6 seats left · $56.65 · Booking fee included')
+            ->assertSee('Wed, Oct 28, 6:00 PM – 8:00 PM EDT · 10 seats left · $56.65 · Booking fee included')
+            ->assertSee('Wed, Oct 28, 10:00 AM – 11:30 AM EDT · 6 seats left · $56.65 · Booking fee included')
             ->assertSee('10 seats left')
             ->assertSee('6 seats left');
         $this->assertSame($rules, PriceRule::withoutGlobalScope(TenantScope::class)->count());
@@ -181,7 +181,7 @@ class PublicTimePickerPriceTest extends TestCase
         $this->assertSame(0, PlatformFee::query()->count());
 
         $party = $this->get($book.'?participants=2')->assertOk();
-        $party->assertSee('Wed, Oct 28, 6:00 PM EDT · 10 seats left · $113.30 · Booking fee included');
+        $party->assertSee('Wed, Oct 28, 6:00 PM – 8:00 PM EDT · 10 seats left · $113.30 · Booking fee included');
         $party->assertDontSee('$56.65');
         $this->assertSame(0, PricingSnapshot::withoutGlobalScope(TenantScope::class)->count());
 
