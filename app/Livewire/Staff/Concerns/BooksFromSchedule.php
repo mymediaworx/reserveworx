@@ -11,6 +11,7 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Departure;
 use App\Models\DisclosureVersion;
+use App\Models\Location;
 use App\Models\Pool;
 use App\Models\PricingSnapshot;
 use App\Models\ResourceRequirement;
@@ -703,6 +704,7 @@ trait BooksFromSchedule
         if (str_starts_with($key, 'asset:')) {
             $asset = Asset::query()->find(substr($key, 6));
             abort_unless($asset instanceof Asset, 404);
+            $this->requireListedLocation($asset->location_id);
 
             return $asset;
         }
@@ -710,11 +712,17 @@ trait BooksFromSchedule
         if (str_starts_with($key, 'pool:')) {
             $pool = Pool::query()->find(substr($key, 5));
             abort_unless($pool instanceof Pool, 404);
+            $this->requireListedLocation($pool->location_id);
 
             return $pool;
         }
 
         abort(404);
+    }
+
+    private function requireListedLocation(?string $locationId): void
+    {
+        abort_unless(is_string($locationId) && Location::query()->whereKey($locationId)->exists(), 404);
     }
 
     private function bookZone(Asset|Pool $resource): string
@@ -742,6 +750,7 @@ trait BooksFromSchedule
 
         return Service::query()
             ->with(['durations', 'variants.resources', 'requirements', 'location'])
+            ->atListedLocation()
             ->where('location_id', $resource->location_id)
             ->whereIn('id', $direct->merge($viaVariant)->unique()->filter()->values())
             ->orderBy('name')
