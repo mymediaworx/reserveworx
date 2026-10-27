@@ -51,7 +51,7 @@ class Maintenance extends Component
 
     public string $windowReason = '';
 
-    public string $inspectionAsset = '';
+    public string $inspectionResource = '';
 
     public string $inspectionName = '';
 
@@ -176,15 +176,15 @@ class Maintenance extends Component
         $this->authorize('create', Asset::class);
         $this->reset('flash');
         $this->resetErrorBag();
-        if ($this->inspectionAsset === '') {
-            $this->addError('inspectionAsset', 'Choose a boat.');
+        if ($this->inspectionResource === '') {
+            $this->addError('inspectionResource', 'Choose a boat or pool.');
 
             return;
         }
 
-        $asset = $this->resourceFromKey('asset:'.$this->inspectionAsset);
-        abort_unless($asset instanceof Asset, 404);
-        $this->authorize('update', $asset);
+        $resource = $this->resourceFromKey($this->inspectionResource);
+        $this->authorize('update', $resource);
+        $onAsset = $resource instanceof Asset;
 
         $validated = Validator::make([
             'inspectionName' => trim($this->inspectionName),
@@ -199,30 +199,33 @@ class Maintenance extends Component
         $every = (int) $validated['inspectionEvery'];
         $byDays = $validated['inspectionUnit'] === 'days';
         $schedule = InspectionSchedule::query()->create([
-            'tenant_id' => $asset->tenant_id,
-            'asset_id' => $asset->id,
+            'tenant_id' => $resource->tenant_id,
+            'asset_id' => $onAsset ? $resource->id : null,
+            'pool_id' => $onAsset ? null : $resource->id,
             'name' => $validated['inspectionName'],
             'interval_days' => $byDays ? $every : null,
             'interval_uses' => $byDays ? null : $every,
             'next_due_at' => $byDays ? CarbonImmutable::now()->addDays($every) : null,
         ]);
         $this->audit('inspection.scheduled', $schedule, [
-            'asset_id' => $asset->id,
+            'asset_id' => $schedule->asset_id,
+            'pool_id' => $schedule->pool_id,
             'interval_days' => $schedule->interval_days,
             'interval_uses' => $schedule->interval_uses,
         ]);
 
         $this->inspectionName = '';
-        $this->flash = 'Inspection added for '.$asset->name.'.';
+        $this->flash = 'Inspection added for '.$resource->name.'.';
     }
 
     public function markDone(string $scheduleId, MaintenancePlanner $planner): void
     {
         $this->authorize('create', Asset::class);
         $this->reset('flash');
-        $schedule = InspectionSchedule::query()->with('asset.location')->whereHas('asset')->find($scheduleId);
-        abort_unless($schedule instanceof InspectionSchedule && $schedule->asset instanceof Asset, 404);
-        $this->authorize('update', $schedule->asset);
+        $schedule = InspectionSchedule::query()->find($scheduleId);
+        abort_unless($schedule instanceof InspectionSchedule, 404);
+        $resource = $this->inspectionResourceOf($schedule);
+        $this->authorize('update', $resource);
 
         $note = trim($this->doneNote[$schedule->id] ?? '');
 
@@ -235,11 +238,12 @@ class Maintenance extends Component
         $record = $planner->markInspectionDone($schedule, $note);
         $this->audit('inspection.done', $schedule, [
             'asset_id' => $schedule->asset_id,
+            'pool_id' => $schedule->pool_id,
             'maintenance_record_id' => $record->id,
         ]);
         unset($this->doneNote[$schedule->id]);
 
-        $zone = DisplayZone::forLocation($schedule->asset->location);
+        $zone = DisplayZone::forLocation($resource->location);
         $this->flash = $schedule->next_due_at !== null
             ? $schedule->name.' done. Next due '.$schedule->next_due_at->setTimezone($zone)->format('M j, Y').'.'
             : $schedule->name.' done. The count of uses starts again now.';
@@ -279,13 +283,12 @@ class Maintenance extends Component
             $affected[$window->id] = $planner->affectedBookings($window);
         }
 
-        $inspections = $this->inspections($assets->pluck('id')->all(), $planner);
+        $inspections = $this->inspections($assets->pluck('id')->all(), $pools->pluck('id')->all(), $planner);
 
         return view('livewire.staff.maintenance', [
             'locations' => $locations,
             'selected' => $selected,
             'resources' => $resources,
-            'assets' => $assets,
             'inProgress' => $inProgress,
             'upcoming' => $upcoming,
             'past' => $past,
@@ -321,20 +324,21 @@ class Maintenance extends Component
 
     /**
      * @param  list<string>  $assetIds
+     * @param  list<string>  $poolIds
      * @return Collection<int, array{schedule: InspectionSchedule, due: bool, uses: int|null}>
      */
-    private function inspections(array $assetIds, MaintenancePlanner $planner): Collection
+    private function inspections(array $assetIds, array $poolIds, MaintenancePlanner $planner): Collection
     {
         [$type, $id] = array_pad(explode(':', $this->resource, 2), 2, '');
 
-        if ($type === 'pool') {
-            return collect();
-        }
-
         return InspectionSchedule::query()
-            ->with('asset.location')
-            ->whereIn('asset_id', $assetIds === [] ? [''] : $assetIds)
+            ->with(['asset.location', 'pool.location'])
+            ->where(function (Builder $query) use ($assetIds, $poolIds): void {
+                $query->whereIn('asset_id', $assetIds === [] ? [''] : $assetIds)
+                    ->orWhereIn('pool_id', $poolIds === [] ? [''] : $poolIds);
+            })
             ->when($type === 'asset', fn (Builder $query) => $query->where('asset_id', $id))
+            ->when($type === 'pool', fn (Builder $query) => $query->where('pool_id', $id))
             ->orderByRaw('next_due_at is null')
             ->orderBy('next_due_at')
             ->orderBy('name')
@@ -370,10 +374,6 @@ class Maintenance extends Component
     }
 
     /**
-     * Resolves a boat or pool through the tenant and location scopes, so one
-     * in another workspace or at a location this member cannot use is a 404.
-     */
-    /**
      * The boat or pool through the location scope, so a member limited to
      * other locations cannot end a window they cannot see.
      */
@@ -388,6 +388,29 @@ class Maintenance extends Component
 
         if ($window->pool_id !== null) {
             $pool = Pool::query()->with('location')->find($window->pool_id);
+            abort_unless($pool instanceof Pool, 404);
+
+            return $pool;
+        }
+
+        abort(404);
+    }
+
+    /**
+     * The boat or pool on this schedule, through the tenant and location
+     * scopes. Another workspace, or a location this member cannot use, is a 404.
+     */
+    private function inspectionResourceOf(InspectionSchedule $schedule): Asset|Pool
+    {
+        if ($schedule->asset_id !== null) {
+            $asset = Asset::query()->with('location')->find($schedule->asset_id);
+            abort_unless($asset instanceof Asset, 404);
+
+            return $asset;
+        }
+
+        if ($schedule->pool_id !== null) {
+            $pool = Pool::query()->with('location')->find($schedule->pool_id);
             abort_unless($pool instanceof Pool, 404);
 
             return $pool;
