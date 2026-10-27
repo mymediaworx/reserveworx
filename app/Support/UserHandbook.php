@@ -74,6 +74,11 @@ final class UserHandbook
                         'href' => '/platform/performance',
                     ],
                     [
+                        'title' => 'Limits',
+                        'body' => 'Whether scheduled work stays inside the shared-host window. The same lines are printed by reserveworx:limits. It does not print secrets and does not keep a row.',
+                        'href' => '/platform/limits',
+                    ],
+                    [
                         'title' => 'Upgrade',
                         'body' => 'How a later release replaces the live one. The page does not run a deploy. Rollback swaps the previous release and does not undo migrations.',
                         'href' => '/platform/upgrade',

@@ -61,6 +61,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('All businesses')
             ->assertSee('Add a business')
             ->assertSee('href="/admin/integrations"', false)
+            ->assertDontSee('href="/platform/limits"', false)
+            ->assertDontSee('reserveworx:limits')
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
             ->assertDontSee('Beta Only Kayaks')
@@ -217,6 +219,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('does not change a workspace, a price, a payment, a tax, a fee, or a refund')
             ->assertSee('href="/platform/readiness"', false)
             ->assertSee('href="/platform/performance"', false)
+            ->assertSee('href="/platform/limits"', false)
+            ->assertSee('The same lines are printed by reserveworx:limits.')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy.')
             ->assertSee('href="/platform"', false)
@@ -237,6 +241,8 @@ class UserHandbookTest extends TestCase
         Livewire::actingAs($admin)->test(PlatformHandbook::class)
             ->assertSee('Readiness')
             ->assertSee('Performance')
+            ->assertSee('Limits')
+            ->assertSee('The same lines are printed by reserveworx:limits.')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
