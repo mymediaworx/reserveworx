@@ -73,7 +73,7 @@ Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each 
 
 ## Handbook
 
-Staff open `/staff/help` on the workspace host. A platform administrator opens `/platform/help` on the platform host. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
 
 ## Upgrade
 
