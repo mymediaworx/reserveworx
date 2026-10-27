@@ -67,6 +67,32 @@
         </form>
     </section>
 
+    <section class="panel" id="guest-cancellation">
+        <h2>Guest cancellation</h2>
+        <p>A guest can cancel a held or confirmed booking from their manage page until this many minutes before it starts. Leave it off until you want that. This does not change a cancellation window or a refund.</p>
+        @if (! $guestCancellationEnabled)
+            <p class="muted">Online cancellation is off.</p>
+        @elseif ($guestCancelMinutes === '0')
+            <p class="muted">Guests can cancel until the start.</p>
+        @elseif ($guestCancelMinutes !== '')
+            <p class="muted">Guests can cancel until {{ $guestCancelMinutes }} minutes before the start.</p>
+        @endif
+        <form wire:submit="saveGuestCancellation" class="stack">
+            <label class="check">
+                <input type="checkbox" wire:model.live="guestCancellationEnabled" @disabled(! $canUpdate)>
+                <span>Guests can cancel their own booking</span>
+            </label>
+            @if ($guestCancellationEnabled)
+                <label class="field compact">
+                    <span>Minutes before the start</span>
+                    <input type="number" min="0" max="43200" inputmode="numeric" wire:model="guestCancelMinutes" @disabled(! $canUpdate)>
+                </label>
+                @error('guestCancelMinutes')<p class="error" role="alert">{{ $message }}</p>@enderror
+            @endif
+            @if ($canUpdate)<button type="submit" class="button primary">Save guest cancellation</button>@endif
+        </form>
+    </section>
+
     <section class="panel">
         <h2>Cancellation and refunds</h2>
         <p>These windows decide the card refund when a customer cancels, and the refund when a booking is marked as a no-show. Until you save a window, a customer cancellation does not refund a card.</p>
