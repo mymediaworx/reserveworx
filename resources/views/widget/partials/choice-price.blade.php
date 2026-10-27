@@ -1,0 +1,1 @@
+<span>{{ $name }} ({{ \App\Support\Display::minutes($minutes) }})@if ($totalCents !== null) {{ \App\Domain\Fees\Disclosures\Money::format($totalCents, $currency) }}@if ($feeIncluded) <span class="optional">Booking fee included</span>@endif @endif</span>
