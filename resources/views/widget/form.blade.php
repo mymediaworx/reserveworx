@@ -4,6 +4,13 @@
 @section('content')
     <p><a href="{{ url('/book/'.$token) }}">All services</a></p>
     <h1>{{ $service->name }}</h1>
+    <p class="muted" data-location-zone>{{ $timeZoneNote }}</p>
+    <style>
+        p[data-location-zone] { max-width: 100%; overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            p[data-location-zone] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+        }
+    </style>
     @include('widget.partials.group-price')
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>

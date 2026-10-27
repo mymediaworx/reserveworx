@@ -47,6 +47,7 @@ use App\Services\Pricing\BookingPricer;
 use App\Services\Waivers\WaiverForm;
 use App\Services\Waivers\WaiverLinks;
 use App\Services\Widget\WidgetTokens;
+use App\Support\Display;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
@@ -118,6 +119,7 @@ class WidgetController extends Controller
             'departureChoices' => $this->departureChoices($service),
             'slots' => $this->openTimes($service, $chosen),
             'today' => $this->localToday($service),
+            'timeZoneNote' => $this->timeZoneNote($service),
             'addOns' => $this->catalogAddOns(),
             'currency' => $this->currency(),
             'groupPrice' => $this->groupPrice($service, $chosen, $setting),
@@ -271,7 +273,7 @@ class WidgetController extends Controller
         return response()->view('widget.waitlist-joined', [
             'token' => $token,
             'serviceName' => $service->name,
-            'when' => $interval['local']->format('D, M j, g:i A'),
+            'when' => Display::dateTimeWithZone($interval['local'], $this->visibleZone($service->location)),
             'participants' => $entry->participants,
             'email' => (string) ($entry->customer_email ?? $validated['customer_email']),
             'emailed' => $emailed,
@@ -834,7 +836,7 @@ class WidgetController extends Controller
 
         foreach ($departures as $departure) {
             $when = CarbonImmutable::instance($departure->starts_at)->timezone($zone);
-            $label = $when->format('D, M j, g:i A');
+            $label = $when->format('D, M j, g:i A').' '.$when->format('T');
 
             if ($departure->private) {
                 $label .= ' · Private';
@@ -975,6 +977,7 @@ class WidgetController extends Controller
             'departureChoices' => $this->departureChoices($service),
             'slots' => $this->openTimes($service, $request->all()),
             'today' => $this->localToday($service),
+            'timeZoneNote' => $this->timeZoneNote($service),
             'addOns' => $this->catalogAddOns(),
             'currency' => $this->currency(),
             'groupPrice' => $this->groupPrice($service, $request->all(), $this->setting($this->tenant($request))),
@@ -1035,6 +1038,22 @@ class WidgetController extends Controller
         return DisplayZone::forLocation($location);
     }
 
+    private function timeZoneNote(Service $service): string
+    {
+        return 'Times are in '.$this->visibleZone($service->location).'.';
+    }
+
+    private function whenLabel(Booking $booking): string
+    {
+        $booking->loadMissing('location');
+
+        return Display::rangeWithZone(
+            $booking->starts_at,
+            $booking->ends_at,
+            DisplayZone::forLocation($booking->location),
+        );
+    }
+
     private function localToday(Service $service): string
     {
         $zone = $this->visibleZone($service->location);
@@ -1091,9 +1110,9 @@ class WidgetController extends Controller
                 continue;
             }
 
-            $start = CarbonImmutable::parse($time['starts_at'])->timezone($zone);
-            $end = CarbonImmutable::parse($time['ends_at'])->timezone($zone);
-            $lines[] = $start->format('M j, g:i A').' to '.$end->format('g:i A');
+            $start = CarbonImmutable::parse($time['starts_at']);
+            $end = CarbonImmutable::parse($time['ends_at']);
+            $lines[] = Display::rangeWithZone($start, $end, $zone);
         }
 
         $ids = [];
@@ -1244,6 +1263,7 @@ class WidgetController extends Controller
             'promoUrl' => $this->promoUrl($token, $booking, $hold),
             'promoValue' => $promoValue,
             'cancellationLines' => $this->policies->sentencesFor($booking->tenant_id),
+            'whenLabel' => $this->whenLabel($booking),
             'error' => $error,
             'payLocked' => $lockedPay,
             'pickupLocked' => $lockedPickup,
@@ -1344,6 +1364,7 @@ class WidgetController extends Controller
 
         return view('widget.confirmation', [
             'booking' => $booking,
+            'whenLabel' => $this->whenLabel($booking),
             'checkInQr' => $this->checkInPass->svg($booking),
             'checkInUrl' => $this->checkInPass->url($booking),
             'waiverUrl' => in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($booking) : null,

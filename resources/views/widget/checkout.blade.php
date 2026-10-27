@@ -4,6 +4,13 @@
 @section('content')
     <h1>Review before payment</h1>
     <p>{{ $booking->service?->name }} · reference {{ \App\Support\BookingReference::short($booking->id) }}</p>
+    <p data-when>{{ $whenLabel }}</p>
+    <style>
+        p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            p[data-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+        }
+    </style>
     @if (is_string($booking->customer?->phone) && $booking->customer->phone !== '')
         <p data-customer-phone="1">Phone <a href="tel:{{ $booking->customer->phone }}">{{ $booking->customer->phone }}</a></p>
     @endif
