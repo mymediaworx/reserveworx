@@ -41,22 +41,9 @@ final class CustomerChrome
     public const SLOT = '#F9FAFB';
 
     /**
-     * @return array{
-     *     --page: string,
-     *     --surface: string,
-     *     --ink: string,
-     *     --ink-soft: string,
-     *     --muted: string,
-     *     --line: string,
-     *     --line-strong: string,
-     *     --danger: string,
-     *     --danger-surface: string,
-     *     --notice: string,
-     *     --notice-surface: string,
-     *     --ok: string,
-     *     --ok-surface: string,
-     *     --slot: string
-     * }
+     * CSS custom properties. Keys are names such as `--muted`. Values are `#RRGGBB`.
+     *
+     * @return array<string, string>
      */
     public static function variables(): array
     {

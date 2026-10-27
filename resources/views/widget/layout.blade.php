@@ -51,7 +51,6 @@
         @media (max-width: 390px) {
             fieldset.extras label { flex-wrap: wrap; }
             fieldset.extras input[type="number"] { width: 100%; }
-            .card p:last-child a { display: block; max-width: 100%; }
         }
         button { font: inherit; font-weight: 600; padding: .75rem 1.1rem; min-height: 3rem; background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 10px; cursor: pointer; }
         button:hover { background: var(--brand-strong); }
@@ -94,6 +93,9 @@
         @media (max-width: 480px) {
             .card { grid-template-columns: 1fr; }
             .card p:last-child { grid-column: 1; grid-row: auto; margin-top: .5rem; }
+        }
+        @media (max-width: 390px) {
+            .card p:last-child a { display: block; }
         }
     </style>
 </head>
