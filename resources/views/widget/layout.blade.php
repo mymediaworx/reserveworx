@@ -63,6 +63,8 @@
         .slots label { justify-content: flex-start; padding: .55rem .6rem; flex-wrap: wrap; gap: .2rem .45rem; }
         .slots label.is-full { color: var(--muted); background: var(--slot); cursor: not-allowed; }
         .slots .slot-note { font-size: .75rem; font-weight: 400; width: 100%; }
+        .slots .slot-price { display: block; width: 100%; font-weight: 600; font-size: .85rem; overflow-wrap: anywhere; }
+        .slots .slot-price .optional { font-weight: 400; }
         .error { background: var(--danger-surface); color: var(--danger); border-radius: 10px; padding: .75rem 1rem; }
         .optional { font-weight: 400; color: var(--muted); }
         .waitlist-join { margin: 0 0 .75rem; }
@@ -100,6 +102,8 @@
             .option-list, .option-list label, .option-list span, .length-list, .length-list label, .length-list span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
             .option-list label, .length-list label { flex-wrap: wrap; align-items: flex-start; }
             .option-list label span, .length-list label span { flex: 1 1 auto; }
+            .slots, .slots label, .slots .slot-price { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            select[name="departure_id"] { width: 100%; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
         }
     </style>
 </head>
