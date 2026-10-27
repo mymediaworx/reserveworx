@@ -96,6 +96,7 @@
         }
         @media (max-width: 390px) {
             .card p:last-child a { display: block; }
+            input[name="customer_phone"], p[data-customer-phone] { width: 100%; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
         }
     </style>
 </head>

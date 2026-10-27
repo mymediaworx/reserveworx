@@ -86,6 +86,9 @@
             <label>Email
                 <input name="customer_email" type="email" required maxlength="255" autocomplete="email" value="{{ $old['customer_email'] ?? '' }}">
             </label>
+            <label>Phone <span class="optional">(optional)</span>
+                <input name="customer_phone" type="tel" maxlength="255" autocomplete="tel" inputmode="tel" value="{{ $old['customer_phone'] ?? '' }}">
+            </label>
             <input type="hidden" name="idempotency_key" value="{{ $old['idempotency_key'] ?? (string) \Illuminate\Support\Str::uuid() }}">
             <button type="submit">Review price and hold this time</button>
         </form>
@@ -148,6 +151,9 @@
                     </label>
                     <label>Email
                         <input name="customer_email" type="email" required maxlength="255" autocomplete="email" value="{{ $old['customer_email'] ?? '' }}">
+                    </label>
+                    <label>Phone <span class="optional">(optional)</span>
+                        <input name="customer_phone" type="tel" maxlength="255" autocomplete="tel" inputmode="tel" value="{{ $old['customer_phone'] ?? '' }}">
                     </label>
                     <input type="hidden" name="idempotency_key" value="{{ $old['idempotency_key'] ?? (string) \Illuminate\Support\Str::uuid() }}">
                     <button type="submit">Review price and hold this time</button>
