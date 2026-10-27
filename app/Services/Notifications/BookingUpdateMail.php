@@ -17,11 +17,13 @@ use Throwable;
 /**
  * Words for the customer emails that notification hooks used to skip (#136).
  * Confirmation and reminder emails have their own senders and are not here.
- * A payment receipt uses the amounts already stored on the booking. It does
- * not recalculate a price, a tax, a booking fee, or a refund. A refund notice
- * lists the booking-fee amount already stored on that hook and does not
- * calculate a new fee. A waitlist opening names the visit and does not read
- * those amounts.
+ * Each visit line names the start and end in the location timezone, including
+ * both abbreviations when the visit crosses daylight saving. An overdue return
+ * names the due time with that zone's abbreviation. A payment receipt uses the
+ * amounts already stored on the booking. It does not recalculate a price, a
+ * tax, a booking fee, or a refund. A refund notice lists the booking-fee
+ * amount already stored on that hook and does not calculate a new fee. A
+ * waitlist opening names the visit and does not read those amounts.
  */
 final class BookingUpdateMail
 {
@@ -54,8 +56,9 @@ final class BookingUpdateMail
     public function compose(NotificationHook $hook, Booking $booking, string $businessName): ?array
     {
         $service = trim((string) $booking->service?->name) ?: 'your booking';
+        $booking->loadMissing('location');
         $zone = DisplayZone::forLocation($booking->location);
-        $when = Display::dateTime($booking->starts_at, $zone);
+        $when = Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone);
         $reference = 'Reference: '.strtoupper(substr($booking->id, -8)).'.';
         $payload = $hook->payload;
 
@@ -266,7 +269,7 @@ final class BookingUpdateMail
         }
 
         try {
-            return 'at '.Display::dateTime(new DateTimeImmutable($due), $zone);
+            return 'at '.Display::dateTimeWithZone(new DateTimeImmutable($due), $zone);
         } catch (Throwable) {
             return 'earlier';
         }
