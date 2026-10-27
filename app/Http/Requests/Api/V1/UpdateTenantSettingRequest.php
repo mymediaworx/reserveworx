@@ -30,7 +30,7 @@ class UpdateTenantSettingRequest extends FormRequest
             'guest_cancel_before_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,43200'],
             'late_fee_per_minute_cents' => ['sometimes', 'nullable', 'integer', 'between:0,100000'],
             'late_grace_minutes' => ['sometimes', 'nullable', 'integer', 'between:0,10080'],
-            'ledger_bucket_minutes' => ['sometimes', 'integer', Rule::in([5, 10, 15, 30, 60])],
+            'ledger_bucket_minutes' => ['sometimes', 'integer', Rule::in(TenantSetting::LEDGER_BUCKET_MINUTES)],
             'fee_payer' => ['sometimes', Rule::enum(FeePayer::class)],
             'pay_at_pickup' => ['sometimes', 'boolean'],
             'direct_fee_bps' => ['prohibited'],
