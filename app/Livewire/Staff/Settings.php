@@ -44,6 +44,10 @@ class Settings extends Component
 
     public bool $emailPaymentReceipt = false;
 
+    public bool $guestCancellationEnabled = false;
+
+    public string $guestCancelMinutes = '';
+
     /**
      * Minutes before a confirmed booking starts. An empty list turns reminders off.
      *
@@ -84,6 +88,7 @@ class Settings extends Component
         $this->ledgerBucketMinutes = $setting->ledger_bucket_minutes;
         $this->timezone = DisplayZone::named($setting->timezone) ?? TenantSetting::DEFAULT_TIMEZONE;
         $this->emailPaymentReceipt = $setting->email_payment_receipt;
+        $this->loadGuestCancellation($setting);
         $this->loadReminders($setting);
         $this->loadMessages();
         $this->stripeName = $this->tenant()->name;
@@ -162,6 +167,25 @@ class Settings extends Component
             'after' => ['email_payment_receipt' => $setting->email_payment_receipt],
         ]);
         $this->flash = 'Payment receipt email saved.';
+        $this->problem = null;
+    }
+
+    public function saveGuestCancellation(): void
+    {
+        $setting = $this->setting();
+        $this->authorize('update', $setting);
+        $minutes = $this->parsedGuestCancelMinutes();
+        $before = $setting->guest_cancel_before_minutes;
+        $setting->guest_cancel_before_minutes = $minutes;
+        $setting->save();
+        $this->loadGuestCancellation($setting);
+        $this->audit('settings.updated', $setting, [
+            'before' => ['guest_cancel_before_minutes' => $before],
+            'after' => ['guest_cancel_before_minutes' => $setting->guest_cancel_before_minutes],
+        ]);
+        $this->flash = $minutes === null
+            ? 'Guest cancellation is off. A refund, a price, and a payment stay as they were.'
+            : 'Guest cancellation saved. A refund, a price, and a payment stay as they were.';
         $this->problem = null;
     }
 
@@ -403,6 +427,37 @@ class Settings extends Component
     private function notificationSetting(): TenantNotificationSetting
     {
         return app(WorkspaceProfiles::class)->notificationSettings();
+    }
+
+    private function loadGuestCancellation(TenantSetting $setting): void
+    {
+        $minutes = $setting->guest_cancel_before_minutes;
+        $this->guestCancellationEnabled = $minutes !== null;
+        $this->guestCancelMinutes = $minutes === null ? '' : (string) $minutes;
+    }
+
+    private function parsedGuestCancelMinutes(): ?int
+    {
+        if (! $this->guestCancellationEnabled) {
+            return null;
+        }
+
+        $trimmed = trim((string) $this->guestCancelMinutes);
+        $validator = Validator::make(
+            ['guestCancelMinutes' => $trimmed],
+            ['guestCancelMinutes' => ['required', 'integer', 'between:0,43200']],
+            [
+                'guestCancelMinutes.required' => 'Enter how many minutes before the start a guest can still cancel.',
+                'guestCancelMinutes.integer' => 'Enter whole minutes from 0 to 43,200.',
+                'guestCancelMinutes.between' => 'Enter whole minutes from 0 to 43,200.',
+            ],
+        );
+
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
+        return (int) $trimmed;
     }
 
     private function loadReminders(TenantSetting $setting): void
