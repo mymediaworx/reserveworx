@@ -71,6 +71,10 @@ An owner or manager opens `/staff/customers` on the workspace host. Search finds
 
 Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each signed waiver has **Download PDF**. The file is the stored text, hash, and signature record. It is not an electronic-signature certificate. `bookings.view` is required. A member limited to other locations does not see that booking. How long a signed waiver is kept is still open question 3.
 
+## Handbook
+
+Staff open `/staff/help` on the workspace host. A platform administrator opens `/platform/help` on the platform host. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+
 ## Production readiness
 
 A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.

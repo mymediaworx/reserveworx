@@ -20,6 +20,7 @@
             <a href="/staff/reports" wire:navigate><span class="app-circle"><x-icon name="trending" size="26" /></span>Reports</a>
             <a href="/staff/waitlist" wire:navigate><span class="app-circle"><x-icon name="clock" size="26" /></span>Waitlist</a>
             <a href="/staff/share" wire:navigate><span class="app-circle"><x-icon name="share" size="26" /></span>Share & embed</a>
+            <a href="/staff/help" wire:navigate><span class="app-circle"><x-icon name="book" size="26" /></span>Handbook</a>
         </div>
     </section>
 
