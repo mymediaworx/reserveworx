@@ -325,7 +325,7 @@ class InodeGuardTest extends TestCase
         $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_A);
     }
 
-    public function test_maintenance_clean_clears_caches_in_shared_and_every_release_and_deletes_no_release(): void
+    public function test_maintenance_clean_clears_caches_and_only_old_sessions_in_shared_and_every_release_and_deletes_no_release(): void
     {
         $home = $this->home();
         $laravel = $this->laravel($home);
@@ -336,6 +336,10 @@ class InodeGuardTest extends TestCase
                 file_put_contents($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f', 'x');
                 touch($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f', time() - 9 * 86400);
             }
+            file_put_contents($laravel.'/releases/'.$sha.'/storage/framework/sessions/live', 'x');
+            touch($laravel.'/releases/'.$sha.'/storage/framework/sessions/live', time() - 3600);
+            file_put_contents($laravel.'/releases/'.$sha.'/storage/framework/sessions/day', 'x');
+            touch($laravel.'/releases/'.$sha.'/storage/framework/sessions/day', time() - 30 * 3600);
         }
         symlink($laravel.'/releases/'.self::SHA_A, $laravel.'/current');
         mkdir($laravel.'/previous/vendor/y', 0777, true);
@@ -343,7 +347,11 @@ class InodeGuardTest extends TestCase
         file_put_contents($laravel.'/shared/backups/20260101T000000Z.sql.gz', 'x');
         foreach (['views', 'sessions', 'cache/data'] as $dir) {
             file_put_contents($laravel.'/shared/storage/framework/'.$dir.'/f', 'x');
-            touch($laravel.'/shared/storage/framework/'.$dir.'/f', time() - 600);
+            touch($laravel.'/shared/storage/framework/'.$dir.'/f', time() - 3 * 86400);
+        }
+        foreach (['live' => 3600, 'day' => 30 * 3600] as $name => $age) {
+            file_put_contents($laravel.'/shared/storage/framework/sessions/'.$name, 'x');
+            touch($laravel.'/shared/storage/framework/sessions/'.$name, time() - $age);
         }
         $old = $laravel.'/shared/storage/logs/laravel-2026-01-01.log';
         file_put_contents($old, 'x');
@@ -359,12 +367,16 @@ class InodeGuardTest extends TestCase
             foreach (['framework/views', 'framework/sessions', 'framework/cache/data', 'logs'] as $dir) {
                 $this->assertFileDoesNotExist($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f');
             }
+            $this->assertFileExists($laravel.'/releases/'.$sha.'/storage/framework/sessions/live');
+            $this->assertFileExists($laravel.'/releases/'.$sha.'/storage/framework/sessions/day');
         }
         $this->assertDirectoryExists($laravel.'/previous/vendor/y');
         $this->assertTrue(is_link($laravel.'/current'));
         foreach (['views', 'sessions', 'cache/data'] as $dir) {
             $this->assertFileDoesNotExist($laravel.'/shared/storage/framework/'.$dir.'/f');
         }
+        $this->assertFileExists($laravel.'/shared/storage/framework/sessions/live');
+        $this->assertFileExists($laravel.'/shared/storage/framework/sessions/day');
         $this->assertFileDoesNotExist($old);
         $this->assertFileExists($new);
         $this->assertFileExists($laravel.'/shared/backups/20260101T000000Z.sql.gz');

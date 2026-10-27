@@ -53,6 +53,8 @@ docroot="${domain}/public_html"
 archive=""
 # Daily logs older than this are deleted: seven days.
 log_retention_minutes=10080
+# Sessions older than 2 days only. Never all sessions: the app has live users.
+session_retention_minutes=2880
 
 if [[ -n "${RELEASE:-}" ]]; then
   archive="${incoming}/${RELEASE}.tar.gz"
@@ -1156,7 +1158,7 @@ inode_guard_cleanup() {
     find "$incoming" -maxdepth 1 -type f -name '*.tar.gz' ! -name "${RELEASE:-none}.tar.gz" -delete 2>/dev/null || true
   fi
   prune_old_files "${shared}/storage/framework/views" 180 views
-  prune_old_files "${shared}/storage/framework/sessions" 1440 sessions
+  prune_old_files "${shared}/storage/framework/sessions" "$session_retention_minutes" sessions
   prune_old_files "${shared}/storage/framework/cache/data" 10080 cache
   prune_old_files "${shared}/storage/framework/testing" 0 testing
   prune_old_files "${shared}/storage/pail" 1440 pail
@@ -1333,7 +1335,7 @@ maintenance_breakdown() {
 
 # Clean without touching any release. It never deletes, creates, links or
 # uploads a release. It clears regenerable files only: compiled views, file
-# cache and sessions in shared storage and in each release's own storage, logs
+# cache and sessions older than 2 days in shared storage and in each release's own storage, logs
 # older than 7 days, stale archives in incoming, and dumps beyond two
 # (shared/backups stays). A secret hand-off file found under
 # app.reserveworx.com/public_html is moved into laravel/shared, never read.
@@ -1344,7 +1346,7 @@ maintenance_clean() {
     [[ -d "$dir" ]] || continue
     prune_old_files "${dir}/framework/cache/data" 0 "cache_$(basename "$(dirname "$dir")")"
     prune_old_files "${dir}/framework/views" 0 "views_$(basename "$(dirname "$dir")")"
-    prune_old_files "${dir}/framework/sessions" 0 "sessions_$(basename "$(dirname "$dir")")"
+    prune_old_files "${dir}/framework/sessions" "$session_retention_minutes" "sessions_$(basename "$(dirname "$dir")")"
     prune_old_files "${dir}/logs" "$log_retention_minutes" "logs_$(basename "$(dirname "$dir")")"
   done
   shopt -u nullglob
@@ -1507,7 +1509,7 @@ inode_cleanup() {
   # Compiled views are rebuilt by view:cache on each deploy and lazily after.
   prune_old_files "${shared}/storage/framework/views" 180 views
   # Session lifetime is 120 minutes, so file sessions older than a day are dead.
-  prune_old_files "${shared}/storage/framework/sessions" 1440 sessions
+  prune_old_files "${shared}/storage/framework/sessions" "$session_retention_minutes" sessions
   prune_old_files "${shared}/storage/framework/cache/data" 10080 cache
   prune_old_files "${shared}/storage/framework/testing" 0 testing
   prune_old_files "${shared}/storage/pail" 1440 pail
