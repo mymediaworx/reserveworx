@@ -25,14 +25,17 @@ class Handbook extends Component
         $tenant = $this->tenant();
         $user = $this->currentUser();
 
+        $access = app(Access::class);
+
         return view('livewire.staff.handbook', [
             'workspace' => $tenant->name,
             'sections' => $handbook->forMember(
                 $tenant->industry,
                 $user,
                 $tenant->id,
-                app(Access::class)->hasRole($user, $tenant->id, 'owner', 'manager'),
+                $access->hasRole($user, $tenant->id, 'owner', 'manager'),
                 app(StaffLocationAccess::class)->isRestricted($user),
+                $access->hasRole($user, $tenant->id, 'owner'),
             ),
         ]);
     }
