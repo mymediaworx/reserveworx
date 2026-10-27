@@ -2,7 +2,7 @@
 
 Multi-tenant booking and rental platform for BrandWorx. The product spec is [`docs/SPEC.md`](docs/SPEC.md) (v1.0, October 23, 2026).
 
-This repository is the Phase 1 architecture package and the Phase 2 foundation: tenant registry, domain and membership resolution, authentication, roles, audit logging, and CI. The allocation engine, payments, and GoHighLevel client are not implemented.
+This repository is the ReserveWorx application. Local setup below is a first install. An upgrade of a site that is already serving is the Upgrade section of [`docs/DEPLOY.md`](docs/DEPLOY.md). Platform administrators read those same steps at `/platform/upgrade`.
 
 ## Requirements
 
@@ -78,4 +78,4 @@ Migrations stay off unless **Run migrations** is enabled. The deploy then writes
 
 ## Status
 
-Foundation API and tests are in this branch. Blocked on product-owner decisions in [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) and on the first real hosting-check run. Do not treat SiteGround compatibility as confirmed.
+The application is in active development before the first tagged release. Open product-owner questions stay in [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md). Do not treat SiteGround compatibility as confirmed until hosting check has been read.
