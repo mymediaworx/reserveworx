@@ -8,12 +8,15 @@ use App\Domain\Payments\ConnectAccountSpec;
 use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
 use App\Enums\FeePayer;
+use App\Enums\TransactionalEmail;
 use App\Livewire\Concerns\WithinTenant;
 use App\Models\Booking;
 use App\Models\StripeAccount;
+use App\Models\TenantNotificationSetting;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Booking\CancellationPolicies;
+use App\Services\Branding\WorkspaceProfiles;
 use App\Services\Onboarding\SetupGuide;
 use App\Support\DisplayZone;
 use App\Tenancy\Access;
@@ -39,6 +42,22 @@ class Settings extends Component
 
     public bool $emailPaymentReceipt = false;
 
+    /**
+     * Minutes before a confirmed booking starts. An empty list turns reminders off.
+     *
+     * @var list<string>
+     */
+    public array $reminderOffsets = [];
+
+    public bool $remindersAreDefault = true;
+
+    /**
+     * On/off for the customer messages this page controls, in messageChoices() order.
+     *
+     * @var list<bool>
+     */
+    public array $messageEnabled = [];
+
     public string $stripeName = '';
 
     public string $stripeEmail = '';
@@ -62,6 +81,8 @@ class Settings extends Component
         $this->holdMinutes = $setting->hold_minutes;
         $this->timezone = DisplayZone::named($setting->timezone) ?? TenantSetting::DEFAULT_TIMEZONE;
         $this->emailPaymentReceipt = $setting->email_payment_receipt;
+        $this->loadReminders($setting);
+        $this->loadMessages();
         $this->stripeName = $this->tenant()->name;
         $this->stripeEmail = (string) auth()->user()?->email;
         $this->loadPolicy($policies);
@@ -120,6 +141,72 @@ class Settings extends Component
             'after' => ['email_payment_receipt' => $setting->email_payment_receipt],
         ]);
         $this->flash = 'Payment receipt email saved.';
+        $this->problem = null;
+    }
+
+    public function addReminder(): void
+    {
+        $this->authorize('manageReminders', $this->setting());
+
+        if (count($this->reminderOffsets) >= 8) {
+            return;
+        }
+
+        $this->reminderOffsets[] = '';
+    }
+
+    public function removeReminder(int $index): void
+    {
+        $this->authorize('manageReminders', $this->setting());
+        unset($this->reminderOffsets[$index]);
+        $this->reminderOffsets = array_values($this->reminderOffsets);
+    }
+
+    public function saveReminders(): void
+    {
+        $setting = $this->setting();
+        $this->authorize('manageReminders', $setting);
+        $parsed = $this->parsedReminders();
+        rsort($parsed);
+        $before = $setting->reminder_offsets_minutes === null
+            ? null
+            : $setting->reminderOffsets();
+        $setting->reminder_offsets_minutes = $parsed;
+        $setting->save();
+        $this->audit('reminders.updated', $setting, [
+            'before' => $before,
+            'after' => $setting->reminderOffsets(),
+        ]);
+        $this->loadReminders($setting->fresh() ?? $setting);
+        $this->flash = $parsed === []
+            ? 'Reminders are off. A booking that was already reminded is unchanged.'
+            : 'Reminders saved. They apply the next time a reminder is due.';
+        $this->problem = null;
+    }
+
+    public function saveMessages(WorkspaceProfiles $profiles): void
+    {
+        $setting = $profiles->notificationSettings();
+        $this->authorize('update', $setting);
+        $this->validate([
+            'messageEnabled' => ['array'],
+            'messageEnabled.*' => ['boolean'],
+        ]);
+        $before = $setting->auditSnapshot();
+        $preferences = $setting->preferences();
+
+        foreach (self::messageChoices() as $index => $choice) {
+            $preferences[$choice['kind']] = (bool) ($this->messageEnabled[$index] ?? false);
+        }
+
+        $setting->transactional_emails = $preferences;
+        $setting->save();
+        $this->audit('notification_settings.updated', $setting, [
+            'before' => $before,
+            'after' => $setting->fresh()?->auditSnapshot() ?? $setting->auditSnapshot(),
+        ]);
+        $this->loadMessages();
+        $this->flash = 'Customer messages saved. A price, a payment, and a refund stay as they were.';
         $this->problem = null;
     }
 
@@ -246,6 +333,10 @@ class Settings extends Component
             'directRate' => FeeRate::fromTenantSetting($setting, FeeChannel::Direct),
             'account' => $account,
             'canUpdate' => $this->allows('settings.update'),
+            'canManageReminders' => $this->currentUser()->can('manageReminders', $setting),
+            'canUpdateMessages' => $this->currentUser()->can('update', $this->notificationSetting()),
+            'messageChoices' => self::messageChoices(),
+            'reminderHints' => array_map(fn (string $minutes): string => $this->reminderHint($minutes), $this->reminderOffsets),
             'timezones' => timezone_identifiers_list(),
             'canSeeSetupGuide' => $this->ownerOrManager(),
             'setupGuideHidden' => app(SetupGuide::class)->isHidden($this->tenant()),
@@ -285,5 +376,120 @@ class Settings extends Component
         abort_unless($setting instanceof TenantSetting, 404);
 
         return $setting;
+    }
+
+    private function notificationSetting(): TenantNotificationSetting
+    {
+        return app(WorkspaceProfiles::class)->notificationSettings();
+    }
+
+    private function loadReminders(TenantSetting $setting): void
+    {
+        $this->remindersAreDefault = $setting->reminder_offsets_minutes === null;
+        $offsets = $setting->reminderOffsets();
+        rsort($offsets);
+        $this->reminderOffsets = array_map(static fn (int $minutes): string => (string) $minutes, $offsets);
+    }
+
+    private function loadMessages(): void
+    {
+        $preferences = $this->notificationSetting()->preferences();
+        $enabled = [];
+
+        foreach (self::messageChoices() as $choice) {
+            $enabled[] = $preferences[$choice['kind']] ?? true;
+        }
+
+        $this->messageEnabled = $enabled;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function parsedReminders(): array
+    {
+        $rules = [
+            'reminderOffsets' => ['array', 'max:8'],
+        ];
+        $data = [
+            'reminderOffsets' => $this->reminderOffsets,
+        ];
+        $parsed = [];
+
+        foreach ($this->reminderOffsets as $index => $minutes) {
+            $trimmed = trim((string) $minutes);
+
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $rules['reminderOffsets.'.$index] = ['required', 'integer', 'between:1,10080'];
+            $data['reminderOffsets'][$index] = $trimmed;
+            $parsed[] = (int) $trimmed;
+        }
+
+        $validator = Validator::make($data, $rules);
+
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
+        if (count($parsed) !== count(array_unique($parsed))) {
+            throw ValidationException::withMessages([
+                'reminderOffsets' => 'Each reminder needs its own number of minutes.',
+            ]);
+        }
+
+        return $parsed;
+    }
+
+    private function reminderHint(string $minutes): string
+    {
+        if (preg_match('/^\d+$/', $minutes) !== 1) {
+            return '';
+        }
+
+        $value = (int) $minutes;
+
+        if ($value % 1440 === 0 && $value >= 1440) {
+            $days = intdiv($value, 1440);
+
+            return $days === 1 ? '1 day before the start' : $days.' days before the start';
+        }
+
+        if ($value > 0 && $value % 60 === 0) {
+            $hours = intdiv($value, 60);
+
+            return $hours === 1 ? '1 hour before the start' : $hours.' hours before the start';
+        }
+
+        if ($value === 1) {
+            return '1 minute before the start';
+        }
+
+        return $value > 0 ? $value.' minutes before the start' : '';
+    }
+
+    /**
+     * Customer messages this page can turn on or off.
+     * Feedback stays on the feedback page. The payment receipt stays on its own switch.
+     * Check-out and return are recorded and are not emailed from this queue.
+     *
+     * @return list<array{kind: string, label: string}>
+     */
+    public static function messageChoices(): array
+    {
+        return [
+            ['kind' => TransactionalEmail::BookingConfirmed->value, 'label' => 'Confirmation'],
+            ['kind' => TransactionalEmail::BookingReminder->value, 'label' => 'Reminder'],
+            ['kind' => TransactionalEmail::BookingCancelled->value, 'label' => 'Cancellation'],
+            ['kind' => TransactionalEmail::BookingGuestCancelled->value, 'label' => 'Guest cancellation'],
+            ['kind' => TransactionalEmail::BookingGuestRescheduled->value, 'label' => 'New time'],
+            ['kind' => TransactionalEmail::PaymentFailed->value, 'label' => 'Payment failed'],
+            ['kind' => TransactionalEmail::RefundIssued->value, 'label' => 'Refund'],
+            ['kind' => TransactionalEmail::RentalOverdue->value, 'label' => 'Overdue rental'],
+            ['kind' => TransactionalEmail::WaitlistJoined->value, 'label' => 'Waitlist joined'],
+            ['kind' => TransactionalEmail::WaitlistPromoted->value, 'label' => 'Waitlist opening'],
+        ];
     }
 }
