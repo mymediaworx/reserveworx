@@ -88,11 +88,13 @@ class Booking extends Model
     }
 
     /**
+     * Includes an archived location so a past booking still names the place it used.
+     *
      * @return BelongsTo<Location, $this>
      */
     public function location(): BelongsTo
     {
-        return $this->belongsTo(Location::class);
+        return $this->belongsTo(Location::class)->withTrashed();
     }
 
     /**
