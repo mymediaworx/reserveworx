@@ -18,6 +18,7 @@ use App\Models\ResourceRequirement;
 use App\Models\ServiceVariantResource;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
+use App\Services\Operations\AffectedBookings;
 use App\Services\Operations\AssetRetirement;
 use App\Services\Staff\StaffUndo;
 use App\Support\BookingReference;
@@ -121,7 +122,7 @@ class Resources extends Component
         $this->flash = 'Added. Link it to a service under Services & prices so it can be booked.';
     }
 
-    public function setStatus(string $type, string $id, string $status): void
+    public function setStatus(string $type, string $id, string $status, AffectedBookings $affected): void
     {
         $value = ResourceStatus::tryFrom($status);
         abort_if($value === null, 422);
@@ -136,8 +137,18 @@ class Resources extends Component
             return;
         }
 
+        $previous = $resource->status;
         $resource->status = $value;
         $resource->save();
+
+        if ($resource instanceof Asset) {
+            $affected->flagAssetStatus($resource, $previous);
+        }
+
+        if ($resource instanceof Pool) {
+            $affected->flagPoolStatus($resource, $previous);
+        }
+
         $this->audit($type.'.updated', $resource, ['status' => $value->value]);
     }
 

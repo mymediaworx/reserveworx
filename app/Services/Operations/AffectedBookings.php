@@ -7,6 +7,7 @@ use App\Models\Allocation;
 use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Hold;
+use App\Models\Pool;
 use Carbon\CarbonImmutable;
 
 final class AffectedBookings
@@ -79,6 +80,26 @@ final class AffectedBookings
             CarbonImmutable::now()->utc(),
             CarbonImmutable::now()->utc()->addYear(),
             'Asset is '.$asset->status->value.'.',
+        );
+    }
+
+    /**
+     * Same flag a direct status change writes when a pool becomes
+     * maintenance or blocked. A pool cannot be retired. It does not
+     * cancel those bookings.
+     */
+    public function flagPoolStatus(Pool $pool, ResourceStatus $previous): int
+    {
+        if ($pool->status === $previous || ! in_array($pool->status, [ResourceStatus::Maintenance, ResourceStatus::Blocked], true)) {
+            return 0;
+        }
+
+        return $this->flag(
+            null,
+            $pool->id,
+            CarbonImmutable::now()->utc(),
+            CarbonImmutable::now()->utc()->addYear(),
+            'Pool is '.$pool->status->value.'.',
         );
     }
 }
