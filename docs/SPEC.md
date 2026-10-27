@@ -467,7 +467,7 @@ Each phase becomes one GitHub milestone. Deliver working, tested functionality a
   - `docs/DECISIONS.md`, `docs/OPEN_QUESTIONS.md`, `docs/HOSTING.md`, `docs/ALLOCATION.md`, `docs/SCHEMA.md`, `docs/INTEGRATIONS.md`, `docs/FEES.md` (Section 7 as implemented), `docs/DEPLOY.md`, `docs/RUNBOOK.md`
   - `.env.example` (no real values)
 - **Secrets:** use GitHub Actions secrets for CI and the server environment for production. Never commit them.
-- **Versioning:** semantic versioning, with a CHANGELOG and tagged releases.
+- **Versioning:** semantic versioning, with a CHANGELOG and tagged releases. A pull request adds `docs/changelog.d/<branch-or-slug>.md` and does not edit the Unreleased section of `docs/CHANGELOG.md`.
 - **Deployment:** a documented script for SiteGround (pull, composer install, migrate, cache, and a cron check), with a rollback procedure.
 
 ---
