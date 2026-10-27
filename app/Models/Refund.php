@@ -25,6 +25,7 @@ class Refund extends Model
         'stripe_refund_id',
         'stripe_fee_refund_id',
         'idempotency_key',
+        'payload_hash',
         'actor_user_id',
     ];
 

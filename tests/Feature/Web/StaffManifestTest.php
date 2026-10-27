@@ -161,8 +161,8 @@ class StaffManifestTest extends TestCase
 
         $csv = $this->rows((string) $this->get($this->tenantUrl('alpha.test', '/staff/manifest.csv?date=2026-06-15'))->assertOk()->getContent());
         $lateRow = $this->rowFor($csv, $late->id);
-        $this->assertSame('2026-06-15 23:30', $lateRow['starts_at']);
-        $this->assertSame('2026-06-16 00:30', $lateRow['return_due']);
+        $this->assertSame('2026-06-15 23:30 EDT', $lateRow['starts_at']);
+        $this->assertSame('2026-06-16 00:30 EDT', $lateRow['return_due']);
         $this->assertSame('America/New_York', $lateRow['timezone']);
         $this->assertArrayNotHasKey($early->id, $this->byId($csv));
         $this->assertArrayNotHasKey($islandBooking->id, $this->byId($csv));
