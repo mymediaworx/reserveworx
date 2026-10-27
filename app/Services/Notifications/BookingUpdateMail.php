@@ -2,10 +2,13 @@
 
 namespace App\Services\Notifications;
 
+use App\Domain\Fees\Disclosures\BookingFeeRefundTerms;
 use App\Enums\TransactionalEmail;
 use App\Models\Booking;
+use App\Models\DisclosureVersion;
 use App\Models\NotificationHook;
 use App\Models\PricingSnapshot;
+use App\Services\Customers\CustomerReceipts;
 use App\Support\Display;
 use App\Support\DisplayZone;
 use DateTimeImmutable;
@@ -14,9 +17,13 @@ use Throwable;
 /**
  * Words for the customer emails that notification hooks used to skip (#136).
  * Confirmation and reminder emails have their own senders and are not here.
+ * A payment receipt uses the amounts already stored on the booking. It does
+ * not recalculate a price, a tax, a booking fee, or a refund.
  */
 final class BookingUpdateMail
 {
+    public function __construct(private readonly CustomerReceipts $receipts) {}
+
     /**
      * Hook kind => the workspace email switch that controls it.
      *
@@ -28,6 +35,7 @@ final class BookingUpdateMail
         'booking.guest_rescheduled' => TransactionalEmail::BookingGuestRescheduled,
         'booking.refunded' => TransactionalEmail::RefundIssued,
         'rental.overdue' => TransactionalEmail::RentalOverdue,
+        'payment.completed' => TransactionalEmail::PaymentCompleted,
         'payment.failed' => TransactionalEmail::PaymentFailed,
     ];
 
@@ -72,6 +80,7 @@ final class BookingUpdateMail
                 ],
             ],
             'booking.refunded' => $this->refund($booking, $payload, $service, $when, $businessName, $reference),
+            'payment.completed' => $this->receipt($booking, $payload, $service, $when, $businessName, $reference),
             'rental.overdue' => [
                 'subject' => 'Your rental from '.$businessName.' is past its return time',
                 'lines' => [
@@ -115,6 +124,94 @@ final class BookingUpdateMail
                 $reference,
             ],
         ];
+    }
+
+    /**
+     * The stored receipt, in the same order as the receipt the customer can open.
+     * Amounts come from that receipt. This method does not price the booking again.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{subject: string, lines: list<string>}
+     */
+    private function receipt(Booking $booking, array $payload, string $service, string $when, string $businessName, string $reference): array
+    {
+        $stored = $this->receipts->forBooking($booking);
+        $currency = $stored['currency'];
+        $method = ($payload['method'] ?? null) === 'offline' ? 'Paid offline' : 'Card';
+        $thisPayment = is_numeric($payload['amount_cents'] ?? null) ? (int) $payload['amount_cents'] : $stored['paid_cents'];
+        $lines = [
+            'Receipt from '.$businessName.' for '.$service.' on '.$when.'.',
+            $method.': '.Display::money($thisPayment, $currency).'.',
+            'Subtotal: '.Display::money($stored['subtotal_cents'], $currency).'.',
+        ];
+
+        foreach ($stored['operator_fees'] as $fee) {
+            $lines[] = $fee['name'].': '.Display::money($fee['total_cents'], $currency).'.';
+        }
+
+        if ($stored['late_fee_cents'] > 0) {
+            $lines[] = 'Late fee: '.Display::money($stored['late_fee_cents'], $currency).'.';
+        }
+
+        if ($stored['damage_cents'] > 0) {
+            $lines[] = 'Damage: '.Display::money($stored['damage_cents'], $currency).'.';
+        }
+
+        if ($stored['booking_fee_cents'] !== null) {
+            $lines[] = BookingFeeRefundTerms::LABEL.': '.Display::money($stored['booking_fee_cents'], $currency).'.';
+        }
+
+        foreach ($stored['tax_lines'] as $tax) {
+            $lines[] = $tax['name'].': '.Display::money($tax['cents'], $currency).'.';
+        }
+
+        if ($stored['tax_lines'] === [] && $stored['tax_cents'] > 0) {
+            $lines[] = 'Tax: '.Display::money($stored['tax_cents'], $currency).'.';
+        }
+
+        $lines[] = 'Total: '.Display::money($stored['total_cents'], $currency).'.';
+        $lines[] = 'Paid: '.Display::money($stored['paid_cents'], $currency).'.';
+
+        if ($stored['refunded_cents'] !== null) {
+            $lines[] = 'Refunded: '.Display::money($stored['refunded_cents'], $currency).'.';
+
+            if ($stored['booking_fee_cents'] !== null) {
+                $lines[] = BookingFeeRefundTerms::LABEL.' refunded: '.Display::money($stored['refunded_booking_fee_cents'] ?? 0, $currency).'.';
+            }
+        }
+
+        $lines = array_merge($lines, $this->storedTerms($booking));
+        $lines[] = $reference;
+
+        return [
+            'subject' => 'Your receipt from '.$businessName,
+            'lines' => $lines,
+        ];
+    }
+
+    /**
+     * The disclosure version already stored on the booking, not a new set of rules.
+     *
+     * @return list<string>
+     */
+    private function storedTerms(Booking $booking): array
+    {
+        $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
+
+        if (! $snapshot instanceof PricingSnapshot || $snapshot->disclosure_version_id === null) {
+            return [];
+        }
+
+        $terms = DisclosureVersion::query()->find($snapshot->disclosure_version_id);
+
+        if (! $terms instanceof DisclosureVersion) {
+            return [];
+        }
+
+        $lines = $terms->lines();
+        $lines[] = 'Terms version '.$terms->version.'.';
+
+        return $lines;
     }
 
     /**
