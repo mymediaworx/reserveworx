@@ -1,5 +1,16 @@
 @php use App\Support\Display; @endphp
-<div class="page narrow">
+<div class="page narrow new-booking">
+    <style>
+        @media (max-width: 390px) {
+            .new-booking { min-width: 0; }
+            .new-booking .booking-zone,
+            .new-booking .slot,
+            .new-booking .slot-time,
+            .new-booking .field { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .new-booking .slot-grid,
+            .new-booking .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+        }
+    </style>
     <header class="page-head">
         <h1>New booking</h1>
     </header>
@@ -54,6 +65,7 @@
             @if ($service)
                 <fieldset class="panel">
                     <legend>When</legend>
+                    <p class="muted small booking-zone" data-booking-zone="{{ $zone }}">Times are in {{ $zone }}.</p>
                     @if ($service->kind->value === 'tour')
                         @if ($departures->isEmpty())
                             <p class="empty">No departures on this date. Schedule one under Services & prices.</p>
@@ -67,7 +79,7 @@
                                     @endphp
                                     <label @class(['slot', 'is-full' => $full, 'is-picked' => $departureId === $d->id])>
                                         <input type="radio" wire:model.live="departureId" value="{{ $d->id }}" @disabled($closed || ($full && ! $service->waitlist_enabled))>
-                                        <span class="slot-time">{{ Display::time($d->starts_at, $zone) }}</span>
+                                        <span class="slot-time">{{ Display::rangeWithZone($d->starts_at, $d->ends_at, $zone) }}</span>
                                         <span class="slot-note">
                                             @if ($closed)
                                                 Closed

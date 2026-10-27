@@ -108,12 +108,18 @@ final class SlotFinder
     }
 
     /**
-     * Scheduled departures for a tour on one local date, with seats left.
+     * Scheduled departures for a tour on one location-local date, with seats left.
+     *
+     * The window is that location's half-open day: local midnight through the
+     * next local midnight. A spring-forward day is 23 hours and a fall-back
+     * day is 25. The end is the next local midnight in UTC, not 24 hours
+     * after the UTC start.
      *
      * @return Collection<int, array{departure: Departure, seats_left: int|null, closed: bool}>
      */
     public function departures(Service $service, string $date, ?CarbonImmutable $notBefore = null): Collection
     {
+        $service->loadMissing(['location', 'requirements']);
         $zone = DisplayZone::forLocation($service->location);
         $day = $this->parseDate($date, $zone);
 
@@ -121,15 +127,16 @@ final class SlotFinder
             return collect();
         }
 
-        $service->loadMissing('requirements');
-        $from = $day->startOfDay()->utc();
+        $localStart = $day->startOfDay();
+        $from = $localStart->utc();
+        $until = $localStart->addDay()->utc();
         $earliest = ($notBefore ?? CarbonImmutable::now())->utc();
 
         return Departure::query()
             ->where('service_id', $service->id)
             ->where('status', DepartureStatus::Scheduled->value)
             ->where('starts_at', '>=', $from->max($earliest))
-            ->where('starts_at', '<', $from->addDay())
+            ->where('starts_at', '<', $until)
             ->orderBy('starts_at')
             ->get()
             ->map(fn (Departure $departure): array => [
