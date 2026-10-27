@@ -76,7 +76,7 @@ class WaitlistOpeningNoticeTest extends TestCase
             function (BookingUpdateNotification $mail, array $channels, AnonymousNotifiable $to) use ($booking, $other): bool {
                 $reference = 'Reference: '.strtoupper(substr($booking->id, -8)).'.';
                 $lines = [
-                    'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM.',
+                    'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM – 11:00 AM EDT.',
                     'The booking is held for you. Finish it from the booking page, or contact Feest Group.',
                     $reference,
                 ];
