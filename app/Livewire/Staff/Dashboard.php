@@ -19,13 +19,19 @@ use App\Services\Booking\BookingListFilters;
 use App\Services\Onboarding\OnboardingChecklist;
 use App\Services\Onboarding\OnboardingProgress;
 use App\Services\Onboarding\SetupGuide;
+use App\Services\Scheduling\LocationDayWindow;
 use App\Services\Scheduling\TourMinimum;
 use App\Services\Signup\SignupVerification;
 use App\Services\TenantLifecycle;
 use App\Services\Workspaces\WorkspaceDirectory;
+use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -50,24 +56,24 @@ class Dashboard extends Component
     {
         $zone = $this->defaultTimezone();
         $now = CarbonImmutable::now($zone);
-        $start = $now->startOfDay()->utc();
-        $end = $now->endOfDay()->utc();
+        $nowUtc = CarbonImmutable::now('UTC');
         $active = [BookingStatus::Confirmed->value, BookingStatus::Held->value, BookingStatus::PendingPayment->value];
+        $locations = Location::query()->orderBy('created_at')->orderBy('id')->get();
+        $days = app(LocationDayWindow::class);
 
-        $today = Booking::query()
-            ->with('service')
-            ->where('starts_at', '<', $end)
-            ->where('ends_at', '>', $start)
-            ->whereNotIn('status', [BookingStatus::Cancelled->value])
-            ->orderBy('starts_at')
-            ->get();
+        $today = $this->overlappingLocalToday(
+            Booking::query()->with('service')->whereNotIn('status', [BookingStatus::Cancelled->value]),
+            $locations,
+            $nowUtc,
+            $days,
+        );
 
-        $departures = Departure::query()
-            ->with('service')
-            ->where('starts_at', '<', $end)
-            ->where('ends_at', '>', $start)
-            ->orderBy('starts_at')
-            ->get();
+        $departures = $this->overlappingLocalToday(
+            Departure::query()->with('service'),
+            $locations,
+            $nowUtc,
+            $days,
+        );
         $upcomingDepartures = Departure::query()
             ->with('service')
             ->where('status', DepartureStatus::Scheduled)
@@ -92,7 +98,6 @@ class Dashboard extends Component
         $onboarding = $this->tenant()->status === TenantStatus::Onboarding;
         $progress = $onboarding ? app(OnboardingChecklist::class)->assess($this->tenant()) : null;
         $access = app(StaffLocationAccess::class);
-        $nowUtc = CarbonImmutable::now('UTC');
         $open = RentalCheckout::query()->whereNull('returned_at');
         $access->constrainToVisibleBookings($open);
         $overdue = (clone $open)->where('due_at', '<', $nowUtc);
@@ -131,11 +136,7 @@ class Dashboard extends Component
             'checkedOutLater' => $checkedOutLater,
             'attentionCount' => BookingListFilters::needsAttention(Booking::query())->count(),
             'waitingCount' => Booking::query()->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value])->count(),
-            'upcomingCount' => Booking::query()
-                ->where('starts_at', '>', $end)
-                ->where('starts_at', '<', $now->addDays(7)->endOfDay()->utc())
-                ->whereIn('status', $active)
-                ->count(),
+            'upcomingCount' => $this->upcomingCount($locations, $nowUtc, $days, $active),
             'paidCents' => (int) $paid->sum('amount_cents'),
             'currency' => $currency,
             'customers' => $this->customersFor($today),
@@ -148,6 +149,60 @@ class Dashboard extends Component
             'isOwner' => $user instanceof User && app(WorkspaceDirectory::class)->isOwner($user, $this->tenant()->id),
             'canResend' => $progress instanceof OnboardingProgress && $user instanceof User && $progress->canResend($user),
         ]);
+    }
+
+    /**
+     * Visits that overlap today in their own location's timezone.
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  Collection<int, Location>  $locations
+     * @return EloquentCollection<int, TModel>
+     */
+    private function overlappingLocalToday(Builder $query, Collection $locations, CarbonImmutable $nowUtc, LocationDayWindow $days): EloquentCollection
+    {
+        if ($locations->isEmpty()) {
+            return new EloquentCollection;
+        }
+
+        $query->where(function (Builder $outer) use ($locations, $nowUtc, $days): void {
+            foreach ($locations as $location) {
+                [$start, $end] = $days->today(DisplayZone::forLocation($location), $nowUtc);
+                $outer->orWhere(function (Builder $inner) use ($location, $start, $end): void {
+                    $inner->where('location_id', $location->id)
+                        ->where('starts_at', '<', $end)
+                        ->where('ends_at', '>', $start);
+                });
+            }
+        });
+
+        return $query->orderBy('starts_at')->orderBy('id')->get();
+    }
+
+    /**
+     * @param  Collection<int, Location>  $locations
+     * @param  list<string>  $active
+     */
+    private function upcomingCount(Collection $locations, CarbonImmutable $nowUtc, LocationDayWindow $days, array $active): int
+    {
+        if ($locations->isEmpty()) {
+            return 0;
+        }
+
+        return Booking::query()
+            ->whereIn('status', $active)
+            ->where(function (Builder $outer) use ($locations, $nowUtc, $days): void {
+                foreach ($locations as $location) {
+                    [$afterToday, $horizon] = $days->upcoming(DisplayZone::forLocation($location), $nowUtc);
+                    $outer->orWhere(function (Builder $inner) use ($location, $afterToday, $horizon): void {
+                        $inner->where('location_id', $location->id)
+                            ->where('starts_at', '>', $afterToday)
+                            ->where('starts_at', '<', $horizon);
+                    });
+                }
+            })
+            ->count();
     }
 
     /**

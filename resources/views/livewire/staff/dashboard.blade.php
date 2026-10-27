@@ -12,7 +12,11 @@
             .home-page .below-minimum-list a,
             .home-page .checked-out-list,
             .home-page .checked-out-list li,
-            .home-page .checked-out-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .home-page .checked-out-list a,
+            .home-page .time-rail,
+            .home-page .time-rail li,
+            .home-page .today-departures,
+            .home-page .today-departures li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
             .home-page .below-minimum-list .badge { white-space: normal; }
         }
     </style>
@@ -49,7 +53,7 @@
     @endif
 
     <div class="stat-grid">
-        <a class="stat-card" href="/staff/calendar?view=day" wire:navigate>
+        <a class="stat-card" href="/staff/calendar?view=day" wire:navigate data-today="{{ $todayCount }}">
             <span class="stat-strip"><x-icon name="history" size="16" /> Today</span>
             <span class="stat-body">
                 <span class="stat-title">Bookings</span>
@@ -117,7 +121,7 @@
                 @endif
             </span>
         </a>
-        <a class="stat-card" href="/staff/calendar" wire:navigate>
+        <a class="stat-card" href="/staff/calendar" wire:navigate data-upcoming="{{ $upcomingCount }}">
             <span class="stat-strip"><x-icon name="history" size="16" /> Next 7 days</span>
             <span class="stat-body">
                 <span class="stat-title">Upcoming</span>
@@ -241,19 +245,26 @@
         @else
             <ol class="time-rail">
                 @foreach ($today as $booking)
-                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$zones->get($booking->location_id, $zone)" />
+                    @php
+                        $bookingZone = $zones->get($booking->location_id, $zone);
+                        $bookingZone = is_string($bookingZone) && $bookingZone !== '' ? $bookingZone : $zone;
+                        $bookingDate = \Carbon\CarbonImmutable::instance($booking->starts_at)->timezone($bookingZone)->toDateString();
+                    @endphp
+                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$bookingZone" :showDate="$bookingDate !== $now->toDateString()" />
                 @endforeach
             </ol>
             @if ($departures->isNotEmpty())
                 <h3>Tour departures</h3>
-                <ul class="plain-list">
+                <ul class="plain-list today-departures">
                     @foreach ($departures as $departure)
                         @php
                             $fact = $departureSummary[$departure->id] ?? ['participants' => $departure->headcount(), 'minimum' => $departure->service?->min_participants, 'belowMinimum' => false];
                             $departureZone = $zones->get($departure->location_id, $zone);
+                            $departureZone = is_string($departureZone) && $departureZone !== '' ? $departureZone : $zone;
+                            $departureDate = \Carbon\CarbonImmutable::instance($departure->starts_at)->timezone($departureZone)->toDateString();
                         @endphp
-                        <li @if ($fact['belowMinimum']) data-below-minimum="{{ $departure->id }}" @endif>
-                            <strong>{{ Display::time($departure->starts_at, $departureZone) }}</strong>
+                        <li data-departure="{{ $departure->id }}" @if ($fact['belowMinimum']) data-below-minimum="{{ $departure->id }}" @endif>
+                            <strong>{{ $departureDate === $now->toDateString() ? Display::time($departure->starts_at, $departureZone) : Display::dateTime($departure->starts_at, $departureZone) }}</strong>
                             {{ $departure->service?->name }}
                             <span class="muted">
                                 @if ($fact['belowMinimum'] && is_int($fact['minimum']))
