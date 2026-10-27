@@ -148,7 +148,7 @@
                         <input type="checkbox" wire:click="toggle('{{ $booking->id }}')" @checked(in_array($booking->id, $selected, true)) aria-label="Select {{ $who }}">
                     </label>
                     <a class="booking-card" href="/staff/bookings/{{ $booking->id }}" wire:navigate>
-                        <span class="when">{{ Display::dateTime($booking->starts_at, $z) }}</span>
+                        <span class="when" data-when>{{ Display::dateTimeWithZone($booking->starts_at, $z) }}</span>
                         <strong>{{ $booking->service?->name }}</strong>
                         <span class="badge badge-{{ $booking->status->value }}">{{ Display::status($booking->status->value) }}</span>
                         @if ($booking->attention_reason && in_array($booking->status->value, ['held', 'pending_payment', 'confirmed'], true))
@@ -184,7 +184,7 @@
                                     <input type="checkbox" wire:click="toggle('{{ $booking->id }}')" @checked(in_array($booking->id, $selected, true)) aria-label="Select {{ $who }}">
                                 </label>
                             </td>
-                            <td><a href="/staff/bookings/{{ $booking->id }}" wire:navigate>{{ Display::dateTime($booking->starts_at, $z) }}</a></td>
+                            <td><a href="/staff/bookings/{{ $booking->id }}" data-when wire:navigate>{{ Display::dateTimeWithZone($booking->starts_at, $z) }}</a></td>
                             <td>{{ $booking->service?->name }}</td>
                             <td>{{ $booking->location?->name }}</td>
                             <td>{{ $who }}</td>
