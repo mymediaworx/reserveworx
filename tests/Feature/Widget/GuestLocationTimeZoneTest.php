@@ -149,7 +149,7 @@ class GuestLocationTimeZoneTest extends TestCase
         $form = $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$service->id));
         $form->assertOk()
             ->assertSee('Times are in America/New_York.')
-            ->assertSee('Tue, Jun 16, 6:00 PM EDT')
+            ->assertSee('Tue, Jun 16, 6:00 PM – 8:00 PM EDT · 8 seats left')
             ->assertSee('data-location-zone', false)
             ->assertSee('@media (max-width: 390px)', false)
             ->assertSee('overflow-wrap: anywhere', false)
