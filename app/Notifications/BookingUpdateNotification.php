@@ -8,7 +8,7 @@ use Illuminate\Notifications\Notification;
 
 /**
  * A plain customer email about a booking: a cancellation, a refund, a new
- * time, an overdue rental, a failed payment, or a stored receipt.
+ * time, an overdue rental, a failed payment, a waitlist opening, or a stored receipt.
  */
 class BookingUpdateNotification extends Notification
 {
