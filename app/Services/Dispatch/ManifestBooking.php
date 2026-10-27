@@ -2,6 +2,7 @@
 
 namespace App\Services\Dispatch;
 
+use App\Support\Display;
 use Carbon\CarbonImmutable;
 
 /**
@@ -33,12 +34,27 @@ final readonly class ManifestBooking
 
     public function localStart(): string
     {
-        return $this->startsAt->timezone($this->timezone)->format('Y-m-d H:i');
+        return $this->clock($this->startsAt);
     }
 
     public function localReturn(): string
     {
-        return $this->returnDue->timezone($this->timezone)->format('Y-m-d H:i');
+        return $this->clock($this->returnDue);
+    }
+
+    public function startLabel(): string
+    {
+        return Display::dateTimeWithZone($this->startsAt, $this->timezone);
+    }
+
+    public function returnLabel(): string
+    {
+        return Display::dateTimeWithZone($this->returnDue, $this->timezone);
+    }
+
+    public function visitLabel(): string
+    {
+        return Display::rangeWithZone($this->startsAt, $this->returnDue, $this->timezone);
     }
 
     public function participantSummary(): string
@@ -71,5 +87,12 @@ final readonly class ManifestBooking
         }
 
         return implode('; ', $parts);
+    }
+
+    private function clock(CarbonImmutable $at): string
+    {
+        $local = $at->timezone($this->timezone);
+
+        return $local->format('Y-m-d H:i').' '.$local->format('T');
     }
 }

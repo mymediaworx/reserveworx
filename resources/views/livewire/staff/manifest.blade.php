@@ -22,6 +22,7 @@
             .manifest-page .departure-list li,
             .manifest-page .departure-list a { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
             .manifest-page .departure-list .badge { white-space: normal; }
+            .manifest-page .when { overflow-wrap: anywhere; max-width: 100%; }
         }
         @media print {
             .app-side,
@@ -128,7 +129,7 @@
                         <ul class="departure-list">
                             @foreach ($section['departures'] as $row)
                                 <li data-departure="{{ $row['departure']->id }}" @if ($row['belowMinimum']) data-below-minimum="{{ $row['departure']->id }}" @endif>
-                                    <strong>{{ Display::time($row['departure']->starts_at, $row['timezone']) }}</strong>
+                                    <strong class="when">{{ Display::rangeWithZone($row['departure']->starts_at, $row['departure']->ends_at, $row['timezone']) }}</strong>
                                     <span>{{ $row['departure']->service?->name ?? 'Tour' }}</span>
                                     <span class="muted">
                                         @if ($row['belowMinimum'] && is_int($row['minimum']))
@@ -151,7 +152,7 @@
                         <ul class="booking-cards">
                             @foreach ($section['bookings'] as $booking)
                                 <li class="booking-card manifest-card" data-booking="{{ $booking->id }}" data-local-start="{{ $booking->startsAt->timezone($booking->timezone)->format('Y-m-d\TH:i') }}" data-return-due="{{ $booking->returnDue->timezone($booking->timezone)->format('Y-m-d\TH:i') }}" data-balance="{{ $booking->balanceCents === null ? 'none' : $booking->balanceCents }}" data-waiver="{{ $booking->waiverSummary() }}">
-                                    <span class="when">{{ Display::time($booking->startsAt, $booking->timezone) }} · back {{ $booking->startsAt->timezone($booking->timezone)->isSameDay($booking->returnDue->timezone($booking->timezone)) ? Display::time($booking->returnDue, $booking->timezone) : Display::dateTime($booking->returnDue, $booking->timezone) }}</span>
+                                    <span class="when">{{ $booking->visitLabel() }}</span>
                                     <strong>{{ $booking->service }}</strong>
                                     <span class="badge">{{ $booking->checkIn }}</span>
                                     @include('livewire.staff.partials.manifest-facts', ['booking' => $booking, 'canManage' => $canManage])
@@ -178,8 +179,8 @@
                                 <tbody>
                                     @foreach ($section['bookings'] as $booking)
                                         <tr data-booking="{{ $booking->id }}" data-local-start="{{ $booking->startsAt->timezone($booking->timezone)->format('Y-m-d\TH:i') }}" data-return-due="{{ $booking->returnDue->timezone($booking->timezone)->format('Y-m-d\TH:i') }}" data-balance="{{ $booking->balanceCents === null ? 'none' : $booking->balanceCents }}" data-waiver="{{ $booking->waiverSummary() }}">
-                                            <td>{{ Display::time($booking->startsAt, $booking->timezone) }}</td>
-                                            <td>{{ $booking->startsAt->timezone($booking->timezone)->isSameDay($booking->returnDue->timezone($booking->timezone)) ? Display::time($booking->returnDue, $booking->timezone) : Display::dateTime($booking->returnDue, $booking->timezone) }}</td>
+                                            <td class="when">{{ $booking->startLabel() }}</td>
+                                            <td class="when">{{ $booking->returnLabel() }}</td>
                                             <td>{{ $booking->resource }}</td>
                                             <td>{{ $booking->guideName !== '' ? $booking->guideName : 'No guide' }}</td>
                                             <td>

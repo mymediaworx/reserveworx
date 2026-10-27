@@ -29,6 +29,7 @@ use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\TourDepartureChoices;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Payments\CheckoutService;
+use App\Services\Payments\FeeLedger;
 use App\Services\Pricing\BookingPricer;
 use App\Services\Staff\StaffUndo;
 use App\Services\Widget\GuestManageLink;
@@ -502,6 +503,7 @@ class BookingShow extends Component
 
         $heldOpen = $booking->status->isOpenHold()
             && $booking->holds->contains(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
+        $ledger = app(FeeLedger::class)->build($booking->id);
 
         return view('livewire.staff.booking-show', [
             'booking' => $booking,
@@ -510,6 +512,7 @@ class BookingShow extends Component
             'snapshot' => $snapshot,
             'disclosure' => $disclosure,
             'payments' => Payment::query()->where('booking_id', $booking->id)->orderBy('created_at')->get(),
+            'feeLedger' => $ledger['bookings'][0],
             'assets' => Asset::query()->whereIn('id', $assetIds)->pluck('name', 'id'),
             'pools' => Pool::query()->whereIn('id', $poolIds)->pluck('name', 'id'),
             'holdExpires' => $holdExpires,
