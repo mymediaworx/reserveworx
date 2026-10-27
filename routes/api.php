@@ -160,6 +160,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/services', [ServiceController::class, 'store']);
             Route::get('/services/{service}', [ServiceController::class, 'show']);
             Route::post('/services/{service}/requirements', [ServiceController::class, 'storeRequirement']);
+            Route::delete('/services/{service}/requirements/{resource_requirement}', [ServiceController::class, 'destroyRequirement']);
             Route::post('/services/{service}/durations', [ServiceController::class, 'storeDuration']);
             Route::get('/services/{service}/variants', [ServiceVariantController::class, 'index']);
             Route::post('/services/{service}/variants', [ServiceVariantController::class, 'store']);

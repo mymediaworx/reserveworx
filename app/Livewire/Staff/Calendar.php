@@ -19,7 +19,9 @@ use App\Models\Pool;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Scheduling\TourMinimum;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -36,6 +38,12 @@ class Calendar extends Component
     use LoadsBookingRows, PollsCalendar, WithinTenant;
 
     private const VIEWS = ['day', 'week', 'month', 'agenda'];
+
+    /**
+     * IANA offsets run from UTC−12 through UTC+14. An all-location window
+     * is padded by that span so a visit on a shown date is still loaded.
+     */
+    private const ZONE_PAD_HOURS = 26;
 
     #[Url]
     public string $date = '';
@@ -89,18 +97,20 @@ class Calendar extends Component
 
     public function today(): void
     {
-        $this->date = CarbonImmutable::now($this->defaultTimezone())->toDateString();
+        $this->prepareFilters();
+        $this->date = CarbonImmutable::now($this->activeTimezone())->toDateString();
     }
 
     public function render(TourMinimum $minimum): View
     {
         $this->prepareFilters();
-        $zone = $this->defaultTimezone();
+        $zone = $this->activeTimezone();
         $bounds = $this->bounds();
         $bookings = $this->bookings($bounds['start'], $bounds['end']);
         $departures = $this->departures($bounds['start'], $bounds['end']);
         $summary = $minimum->summarize($departures, CarbonImmutable::now($zone));
-        $days = $this->days($bounds['dates'], $bounds['month'], $bookings, $departures, $summary, $zone);
+        $zones = $this->zones();
+        $days = $this->days($bounds['dates'], $bounds['month'], $bookings, $departures, $summary, $zone, $zones);
 
         return view('livewire.staff.calendar', [
             'zone' => $zone,
@@ -110,7 +120,7 @@ class Calendar extends Component
             'last' => $bounds['labelEnd'],
             'weekdayLabels' => $this->weekdayLabels($bounds['dates']),
             'customers' => $this->customersFor($bookings),
-            'zones' => $this->zones(),
+            'zones' => $zones,
             'locations' => Location::query()->orderBy('name')->get(['id', 'name']),
             'services' => $this->services(),
             'assets' => $this->assets(),
@@ -126,10 +136,6 @@ class Calendar extends Component
 
     private function prepareFilters(): void
     {
-        if (! $this->validDate($this->date)) {
-            $this->date = CarbonImmutable::now($this->defaultTimezone())->toDateString();
-        }
-
         if (! in_array($this->view, self::VIEWS, true)) {
             $this->view = 'week';
         }
@@ -140,6 +146,10 @@ class Calendar extends Component
 
         if ($this->location !== '' && ! Location::query()->whereKey($this->location)->exists()) {
             abort(404);
+        }
+
+        if (! $this->validDate($this->date)) {
+            $this->date = CarbonImmutable::now($this->activeTimezone())->toDateString();
         }
 
         $this->guardChoice($this->service, Service::class);
@@ -311,6 +321,7 @@ class Calendar extends Component
      */
     private function bookings(CarbonImmutable $start, CarbonImmutable $end): Collection
     {
+        [$start, $end] = $this->queryBounds($start, $end);
         $query = Booking::query()
             ->with('service')
             ->where('starts_at', '<', $end)
@@ -327,6 +338,7 @@ class Calendar extends Component
      */
     private function departures(CarbonImmutable $start, CarbonImmutable $end): Collection
     {
+        [$start, $end] = $this->queryBounds($start, $end);
         $query = Departure::query()
             ->with('service')
             ->where('starts_at', '<', $end)
@@ -429,6 +441,7 @@ class Calendar extends Component
      * @param  Collection<int, Booking>  $bookings
      * @param  Collection<int, Departure>  $departures
      * @param  array<string, array{participants: int, minimum: int|null, belowMinimum: bool}>  $summary
+     * @param  Collection<string, string>  $zones
      * @return list<array{date: CarbonImmutable, inMonth: bool, bookings: Collection<int, Booking>, departures: list<array{departure: Departure, participants: int, minimum: int|null, belowMinimum: bool}>}>
      */
     private function days(
@@ -438,6 +451,7 @@ class Calendar extends Component
         Collection $departures,
         array $summary,
         string $zone,
+        Collection $zones,
     ): array {
         $days = [];
 
@@ -446,7 +460,7 @@ class Calendar extends Component
             $rows = [];
 
             foreach ($departures as $departure) {
-                if (CarbonImmutable::instance($departure->starts_at)->timezone($zone)->toDateString() !== $key) {
+                if (! $this->startsOn($departure->starts_at, $departure->location_id, $zones, $zone, $key)) {
                     continue;
                 }
 
@@ -463,7 +477,7 @@ class Calendar extends Component
                 'date' => $date,
                 'inMonth' => $month === null || ($date->month === $month->month && $date->year === $month->year),
                 'bookings' => $bookings
-                    ->filter(fn (Booking $booking): bool => CarbonImmutable::instance($booking->starts_at)->timezone($zone)->toDateString() === $key)
+                    ->filter(fn (Booking $booking): bool => $this->startsOn($booking->starts_at, $booking->location_id, $zones, $zone, $key))
                     ->values(),
                 'departures' => $rows,
             ];
@@ -576,7 +590,7 @@ class Calendar extends Component
 
     private function day(): CarbonImmutable
     {
-        $zone = $this->defaultTimezone();
+        $zone = $this->activeTimezone();
         $parsed = $this->validDate($this->date)
             ? CarbonImmutable::createFromFormat('!Y-m-d', $this->date, $zone)
             : false;
@@ -584,6 +598,50 @@ class Calendar extends Component
         return $parsed instanceof CarbonImmutable
             ? $parsed->startOfDay()
             : CarbonImmutable::now($zone)->startOfDay();
+    }
+
+    /**
+     * The selected location's zone, or the first location's zone when every location is showing.
+     */
+    private function activeTimezone(): string
+    {
+        if ($this->location !== '') {
+            $selected = Location::query()->find($this->location);
+
+            if ($selected instanceof Location) {
+                return DisplayZone::forLocation($selected);
+            }
+        }
+
+        return $this->defaultTimezone();
+    }
+
+    /**
+     * Widen an all-location window so a visit whose location clock differs from the column zone is still loaded.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}
+     */
+    private function queryBounds(CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        if ($this->location !== '') {
+            return [$start, $end];
+        }
+
+        return [$start->subHours(self::ZONE_PAD_HOURS), $end->addHours(self::ZONE_PAD_HOURS)];
+    }
+
+    /**
+     * @param  Collection<string, string>  $zones
+     */
+    private function startsOn(DateTimeInterface $at, mixed $locationId, Collection $zones, string $fallback, string $date): bool
+    {
+        $zone = is_string($locationId) ? $zones->get($locationId) : null;
+
+        if (! is_string($zone) || $zone === '') {
+            $zone = $fallback;
+        }
+
+        return CarbonImmutable::instance($at)->timezone($zone)->toDateString() === $date;
     }
 
     private function validDate(string $value): bool
