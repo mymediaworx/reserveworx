@@ -21,6 +21,7 @@ use App\Models\ServiceDuration;
 use App\Models\ServiceVariant;
 use App\Models\WaitlistEntry;
 use App\Services\Catalog\VariantResourceWriter;
+use App\Services\Inventory\ClosureCalendar;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
@@ -28,6 +29,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -87,6 +89,8 @@ class ServiceDetail extends Component
     public ?int $departureSeats = 10;
 
     public bool $departurePrivate = false;
+
+    public string $departureOccurrence = '';
 
     public string $variantName = '';
 
@@ -456,7 +460,11 @@ class ServiceDetail extends Component
             'departurePrivate' => ['boolean'],
         ]);
         $zone = DisplayZone::forLocation($service->location);
-        $start = CarbonImmutable::createFromFormat('Y-m-d H:i', $this->departureDate.' '.$this->departureTime, $zone)->utc();
+        $start = $this->chosenDepartureStart($zone);
+
+        if (! $start instanceof CarbonImmutable) {
+            return;
+        }
 
         $departure = Departure::query()->create([
             'tenant_id' => $this->tenant()->id,
@@ -472,6 +480,7 @@ class ServiceDetail extends Component
             'service_id' => $service->id,
             'starts_at' => $departure->starts_at->toIso8601String(),
         ]);
+        $this->departureOccurrence = '';
         $this->flash = 'Departure scheduled.';
     }
 
@@ -540,8 +549,87 @@ class ServiceDetail extends Component
                 ->union(FleetItem::query()->pluck('name', 'id')),
             'departures' => $departures,
             'departureHeadcounts' => Departure::headcountsFor($departures),
+            'departureClock' => $this->departureClock($zone),
             'canManage' => $this->allows('inventory.manage'),
         ])->title($service->name);
+    }
+
+    /**
+     * The local clock on the departure form, in the location zone.
+     * A missing spring-forward hour has no instant. A fall-back hour has two.
+     *
+     * @return array{ambiguous: bool, missing: bool, earlier: ?CarbonImmutable, later: ?CarbonImmutable}
+     */
+    private function departureClock(string $zone): array
+    {
+        $empty = [
+            'ambiguous' => false,
+            'missing' => false,
+            'earlier' => null,
+            'later' => null,
+        ];
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->departureDate) !== 1 || preg_match('/^\d{2}:\d{2}$/', $this->departureTime) !== 1) {
+            return $empty;
+        }
+
+        try {
+            $calendar = app(ClosureCalendar::class);
+            $earlier = $calendar->localInstant($this->departureDate, $this->departureTime, $zone, false);
+            $later = $calendar->localInstant($this->departureDate, $this->departureTime, $zone, true);
+        } catch (InvalidArgumentException) {
+            return [
+                'ambiguous' => false,
+                'missing' => true,
+                'earlier' => null,
+                'later' => null,
+            ];
+        }
+
+        if ($earlier->timezone($zone)->format('H:i') !== $this->departureTime) {
+            return [
+                'ambiguous' => false,
+                'missing' => true,
+                'earlier' => null,
+                'later' => null,
+            ];
+        }
+
+        $ambiguous = $earlier->getTimestamp() !== $later->getTimestamp();
+
+        return [
+            'ambiguous' => $ambiguous,
+            'missing' => false,
+            'earlier' => $earlier,
+            'later' => $ambiguous ? $later : $earlier,
+        ];
+    }
+
+    private function chosenDepartureStart(string $zone): ?CarbonImmutable
+    {
+        $clock = $this->departureClock($zone);
+
+        if ($clock['missing'] || ! $clock['earlier'] instanceof CarbonImmutable) {
+            $this->addError('departureTime', 'That time does not exist in '.$zone.'.');
+
+            return null;
+        }
+
+        if (! $clock['ambiguous']) {
+            return $clock['earlier'];
+        }
+
+        if ($this->departureOccurrence === 'earlier') {
+            return $clock['earlier'];
+        }
+
+        if ($this->departureOccurrence === 'later' && $clock['later'] instanceof CarbonImmutable) {
+            return $clock['later'];
+        }
+
+        $this->addError('departureOccurrence', 'That time happens twice. Choose the earlier or the later one.');
+
+        return null;
     }
 
     private function service(string $id): Service
