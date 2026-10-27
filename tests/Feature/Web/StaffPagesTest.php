@@ -56,6 +56,7 @@ class StaffPagesTest extends TestCase
             '/staff/setup/resources' => 'Single kayak',
             '/staff/setup/services' => 'Kayak rental',
             '/staff/promo-codes' => 'Promo codes',
+            '/staff/add-ons' => 'No add-ons yet.',
             '/staff/import' => 'Upload a CSV',
             '/staff/customers' => 'Customer records',
             '/staff/setup/services/'.$shop['service']->id => 'Per paddler',
