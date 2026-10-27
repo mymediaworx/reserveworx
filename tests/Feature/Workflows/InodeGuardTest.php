@@ -325,55 +325,65 @@ class InodeGuardTest extends TestCase
         $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_A);
     }
 
-    public function test_maintenance_prune_keeps_current_and_one_rollback_and_removes_a_stray_previous_directory(): void
+    public function test_maintenance_clean_clears_caches_in_shared_and_every_release_and_deletes_no_release(): void
     {
         $home = $this->home();
         $laravel = $this->laravel($home);
-        foreach ([self::SHA_A, self::SHA_B, self::SHA_C] as $i => $sha) {
+        foreach ([self::SHA_A, self::SHA_B, self::SHA_C] as $sha) {
             mkdir($laravel.'/releases/'.$sha.'/vendor/x', 0777, true);
-            touch($laravel.'/releases/'.$sha, time() - $i * 100);
+            foreach (['framework/views', 'framework/sessions', 'framework/cache/data', 'logs'] as $dir) {
+                mkdir($laravel.'/releases/'.$sha.'/storage/'.$dir, 0777, true);
+                file_put_contents($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f', 'x');
+                touch($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f', time() - 9 * 86400);
+            }
         }
-        // previous is a real directory holding a full copy, as made by hand.
-        mkdir($laravel.'/previous/vendor/y', 0777, true);
         symlink($laravel.'/releases/'.self::SHA_A, $laravel.'/current');
+        mkdir($laravel.'/previous/vendor/y', 0777, true);
         mkdir($laravel.'/shared/backups', 0777, true);
         file_put_contents($laravel.'/shared/backups/20260101T000000Z.sql.gz', 'x');
+        foreach (['views', 'sessions', 'cache/data'] as $dir) {
+            file_put_contents($laravel.'/shared/storage/framework/'.$dir.'/f', 'x');
+            touch($laravel.'/shared/storage/framework/'.$dir.'/f', time() - 600);
+        }
         $old = $laravel.'/shared/storage/logs/laravel-2026-01-01.log';
         file_put_contents($old, 'x');
         touch($old, time() - 9 * 86400);
         $new = $laravel.'/shared/storage/logs/laravel-new.log';
         file_put_contents($new, 'x');
 
-        $ran = $this->lib($home, 'maintenance_prune');
+        $ran = $this->lib($home, 'maintenance_clean');
 
         $this->assertSame(0, $ran['exit'], $ran['output']);
-        $this->assertStringContainsString('maintenance_removed_stray_previous_dir=1', $ran['output']);
-        $this->assertTrue(is_link($laravel.'/previous'), 'previous is now a symlink to one rollback');
-        $this->assertSame(realpath($laravel.'/releases/'.self::SHA_B), realpath($laravel.'/previous'));
-        $this->assertSame(realpath($laravel.'/releases/'.self::SHA_A), realpath($laravel.'/current'));
-        $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_A.'/vendor/x');
-        $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_B.'/vendor/x');
-        $this->assertDirectoryDoesNotExist($laravel.'/releases/'.self::SHA_C);
-        $this->assertFileExists($laravel.'/shared/backups/20260101T000000Z.sql.gz');
+        foreach ([self::SHA_A, self::SHA_B, self::SHA_C] as $sha) {
+            $this->assertDirectoryExists($laravel.'/releases/'.$sha.'/vendor/x');
+            foreach (['framework/views', 'framework/sessions', 'framework/cache/data', 'logs'] as $dir) {
+                $this->assertFileDoesNotExist($laravel.'/releases/'.$sha.'/storage/'.$dir.'/f');
+            }
+        }
+        $this->assertDirectoryExists($laravel.'/previous/vendor/y');
+        $this->assertTrue(is_link($laravel.'/current'));
+        foreach (['views', 'sessions', 'cache/data'] as $dir) {
+            $this->assertFileDoesNotExist($laravel.'/shared/storage/framework/'.$dir.'/f');
+        }
         $this->assertFileDoesNotExist($old);
         $this->assertFileExists($new);
+        $this->assertFileExists($laravel.'/shared/backups/20260101T000000Z.sql.gz');
     }
 
-    public function test_maintenance_prune_refuses_without_a_resolvable_current_and_deletes_nothing(): void
+    public function test_maintenance_breakdown_is_read_only_and_lists_top_paths_and_directory_totals(): void
     {
         $home = $this->home();
-        $laravel = $this->laravel($home);
-        mkdir($laravel.'/releases/'.self::SHA_A, 0777, true);
-        mkdir($laravel.'/releases/'.self::SHA_B, 0777, true);
-        mkdir($laravel.'/previous/keep', 0777, true);
+        mkdir($home.'/www/reserveworx.com/public_html/a', 0777, true);
+        file_put_contents($home.'/www/reserveworx.com/public_html/a/one', 'x');
+        file_put_contents($home.'/www/reserveworx.com/public_html/a/two', 'x');
+        $before = $this->sh('find '.escapeshellarg($home).' | sort | md5sum')['output'];
 
-        $ran = $this->lib($home, 'maintenance_prune');
+        $ran = $this->lib($home, 'maintenance_breakdown');
 
-        $this->assertNotSame(0, $ran['exit']);
-        $this->assertStringContainsString('maintenance_prune=refused', $ran['output']);
-        $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_A);
-        $this->assertDirectoryExists($laravel.'/releases/'.self::SHA_B);
-        $this->assertDirectoryExists($laravel.'/previous/keep');
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertMatchesRegularExpression('/\s2 www\/reserveworx\.com\/public_html/', $ran['output']);
+        $this->assertMatchesRegularExpression('/\d+\twww/', $ran['output']);
+        $this->assertSame($before, $this->sh('find '.escapeshellarg($home).' | sort | md5sum')['output']);
     }
 
     public function test_maintenance_report_counts_each_release_and_flags_a_real_previous_directory_and_secret_locations(): void
@@ -400,7 +410,7 @@ class InodeGuardTest extends TestCase
         $this->assertStringNotContainsString('SECRET-DO-NOT-PRINT', $ran['output']);
     }
 
-    public function test_maintenance_prune_moves_a_secret_file_out_of_the_web_root_without_reading_it(): void
+    public function test_maintenance_clean_moves_a_secret_file_out_of_the_web_root_without_reading_it(): void
     {
         $home = $this->home();
         $laravel = $this->laravel($home);
@@ -409,7 +419,7 @@ class InodeGuardTest extends TestCase
         mkdir($home.'/www/app.reserveworx.com/public_html', 0777, true);
         file_put_contents($home.'/www/app.reserveworx.com/public_html/demo-logins.txt', 'SECRET-DO-NOT-PRINT');
 
-        $ran = $this->lib($home, 'maintenance_prune');
+        $ran = $this->lib($home, 'maintenance_clean');
 
         $this->assertSame(0, $ran['exit'], $ran['output']);
         $this->assertFileDoesNotExist($home.'/www/app.reserveworx.com/public_html/demo-logins.txt');
@@ -424,14 +434,18 @@ class InodeGuardTest extends TestCase
         $script = (string) file_get_contents(base_path('scripts/remote-deploy.sh'));
 
         $this->assertStringContainsString('- maintenance', $workflow);
-        $this->assertStringContainsString('RW_MAINTENANCE_PRUNE', $workflow);
+        $this->assertStringContainsString('RW_MAINTENANCE_CLEAN', $workflow);
         $this->assertSame([], glob(base_path('.github/workflows/*maint*')) ?: []);
 
         $maintenance = strpos($script, 'if [[ "$ACTION" == "maintenance" ]]; then');
         $this->assertNotFalse($maintenance);
         $this->assertLessThan(strpos($script, 'find_php'.PHP_EOL, $maintenance) ?: PHP_INT_MAX, $maintenance);
-        $block = substr($script, $maintenance, 600);
+        $block = substr($script, $maintenance, strpos($script, 'exit 0', $maintenance) - $maintenance + 6);
         $this->assertStringNotContainsString('inode_guard', $block);
+        $this->assertStringContainsString('maintenance_inodes_before', $block);
+        $this->assertStringContainsString('maintenance_inodes_after', $block);
+        $this->assertStringNotContainsString('prune_releases', $block);
+        $this->assertStringNotContainsString('ln -sfn', substr($script, strpos($script, 'maintenance_clean() {'), 1800));
         $this->assertStringContainsString('exit 0', $block);
         foreach (['Install production dependencies', 'Pack one release archive', 'Upload release archive', 'Back up the application database'] as $step) {
             $this->assertMatchesRegularExpression('/- name: '.preg_quote($step, '/').'\n\s+(id: \w+\n\s+)?if: [^\n]*inputs\.action == \'deploy\'/', $workflow);

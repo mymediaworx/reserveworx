@@ -1314,67 +1314,46 @@ maintenance_report() {
   echo "maintenance_${label}_end"
 }
 
-# Keep the release current points at plus one rollback, delete the rest.
-# It never deletes what current resolves to or the rollback, and it stops
-# before deleting anything when current is not a symlink to a sha directory in
-# laravel/releases. A real directory named previous (not a symlink) is a stray
-# copy: it is removed, and the newest other release becomes the rollback.
-maintenance_prune() {
-  local cur prev releases_real stray newest dir file moved=0
-  releases_real="$(readlink -f "$releases")"
-  cur="$(release_path "$current")"
-  if [[ ! -L "$current" || -z "$cur" || ! -d "$cur" || "$cur" != "${releases_real}/"* || ! "$(basename "$cur")" =~ ^[0-9a-f]{40}$ ]]; then
-    echo "maintenance_prune=refused current does not resolve to a release directory" >&2
-    return 1
-  fi
+# Read-only. Where the account's inodes are, counted from the SSH home with
+# find (one filesystem, links not followed): the 40 biggest three-level paths by
+# file count, then a total per top-level directory. Nothing is changed, including
+# under www/reserveworx.com.
+maintenance_breakdown() {
+  local dir
+  echo "maintenance_breakdown_begin"
+  echo "maintenance_breakdown_top_paths (files, first three path levels under home)"
+  (cd "$HOME" && find . -xdev -type f 2>/dev/null | cut -d/ -f2-4 | sort | uniq -c | sort -rn | head -40) || true
+  echo "maintenance_breakdown_per_directory (inodes, du --inodes -s -x)"
+  for dir in "$HOME"/* "$HOME"/.[!.]*; do
+    [[ -d "$dir" && ! -L "$dir" ]] || continue
+    printf '%s\t%s\n' "$(du --inodes -s -x "$dir" 2>/dev/null | cut -f1)" "$(basename "$dir")"
+  done | sort -rn || true
+  echo "maintenance_breakdown_end"
+}
 
-  stray="$previous"
-  if [[ -d "$stray" && ! -L "$stray" ]]; then
-    case "$stray" in
-      */www/app.reserveworx.com/laravel/previous) ;;
-      *)
-        echo "maintenance_prune=refused unexpected previous path" >&2
-        return 1
-        ;;
-    esac
-    if [[ "$(readlink -f "$stray")" == "$cur" || "$cur" == "$(readlink -f "$stray")/"* ]]; then
-      echo "maintenance_prune=refused current is inside previous" >&2
-      return 1
-    fi
-    echo "maintenance_removed_stray_previous_dir=1 entries=$(count_entries "$stray")"
-    rm -rf -- "$stray"
-  fi
-
-  prev="$(release_path "$previous")"
-  if [[ -z "$prev" || ! -d "$prev" || "$prev" == "$cur" || "$prev" != "${releases_real}/"* || ! "$(basename "$prev")" =~ ^[0-9a-f]{40}$ ]]; then
-    [[ -L "$previous" ]] && rm -f "$previous"
-    newest=""
-    while IFS= read -r dir; do
-      [[ -n "$dir" ]] || continue
-      [[ "$(basename "$dir")" =~ ^[0-9a-f]{40}$ ]] || continue
-      [[ "$(readlink -f "$dir")" == "$cur" ]] && continue
-      newest="$dir"
-      break
-    done < <(find "$releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
-    if [[ -n "$newest" ]]; then
-      ln -sfn "$newest" "$previous"
-      echo "maintenance_rollback=linked $(basename "$newest")"
-    else
-      echo "maintenance_rollback=none available"
-    fi
-  else
-    echo "maintenance_rollback=kept $(basename "$prev")"
-  fi
-
-  prune_releases
+# Clean without touching any release. It never deletes, creates, links or
+# uploads a release. It clears regenerable files only: compiled views, file
+# cache and sessions in shared storage and in each release's own storage, logs
+# older than 7 days, stale archives in incoming, and dumps beyond two
+# (shared/backups stays). A secret hand-off file found under
+# app.reserveworx.com/public_html is moved into laravel/shared, never read.
+maintenance_clean() {
+  local dir file moved=0
+  shopt -s nullglob
+  for dir in "$shared/storage" "$releases"/*/storage; do
+    [[ -d "$dir" ]] || continue
+    prune_old_files "${dir}/framework/cache/data" 0 "cache_$(basename "$(dirname "$dir")")"
+    prune_old_files "${dir}/framework/views" 0 "views_$(basename "$(dirname "$dir")")"
+    prune_old_files "${dir}/framework/sessions" 0 "sessions_$(basename "$(dirname "$dir")")"
+    prune_old_files "${dir}/logs" "$log_retention_minutes" "logs_$(basename "$(dirname "$dir")")"
+  done
+  shopt -u nullglob
   inode_guard_cleanup
 
-  # A secret hand-off file under the web root is moved next to .env. Only inside
-  # app.reserveworx.com. Contents are not read.
   while IFS= read -r file; do
     [[ -n "$file" && ! -L "$file" ]] || continue
     case "$file" in
-      "${domain}"/*/public_html/*|"${domain}"/public_html/*)
+      "${domain}"/public_html/*)
         if [[ ! -e "${shared}/$(basename "$file")" ]]; then
           mv -n -- "$file" "${shared}/$(basename "$file")"
           chmod 600 "${shared}/$(basename "$file")"
@@ -1570,14 +1549,17 @@ if [[ "$ACTION" == "preflight" ]]; then
 fi
 
 if [[ "$ACTION" == "maintenance" ]]; then
-  # Report always. Prune only when the workflow input asks for it. This never
-  # runs the guard, never deploys, and never touches the database.
+  # Report always. Clean only when the workflow input asks for it. This never
+  # runs the guard, never creates, prunes or uploads a release, and never
+  # touches the database.
+  echo "maintenance_inodes_before=$(count_account_inodes)"
   maintenance_report before
-  if [[ "${RW_MAINTENANCE_PRUNE:-false}" == "true" ]]; then
-    maintenance_prune
-    maintenance_report after
+  maintenance_breakdown
+  if [[ "${RW_MAINTENANCE_CLEAN:-false}" == "true" ]]; then
+    maintenance_clean
+    echo "maintenance_inodes_after=$(count_account_inodes)"
   else
-    echo "maintenance_prune=not requested, report only"
+    echo "maintenance_clean=not requested, report only"
   fi
   exit 0
 fi

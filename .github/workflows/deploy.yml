@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy the current main commit, roll back to the previous release, or run maintenance (inode report, plus a prune when prune is true)
+        description: Deploy the current main commit, roll back to the previous release, or run maintenance (read-only inode report, plus a clean when clean is true)
         type: choice
         required: true
         options:
@@ -23,8 +23,8 @@ on:
           - rollback
           - maintenance
         default: deploy
-      prune:
-        description: Maintenance only. Delete old releases (keeps current plus one rollback), stale caches, logs older than 7 days and extra dumps. Off means report only.
+      clean:
+        description: Maintenance only. Clear regenerable files (views, file cache, sessions, logs older than 7 days, stale archives, dumps beyond two). Never deletes or creates a release. Off means report only.
         type: boolean
         required: true
         default: false
@@ -129,7 +129,7 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (prune: {0})', inputs.prune) || '' }}"
+            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (clean: {0})', inputs.clean) || '' }}"
             echo "- Commit: ${sha}"
             echo "- Migrations requested: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -317,7 +317,7 @@ jobs:
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
           RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
           RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
-          RW_MAINTENANCE_PRUNE: ${{ github.event_name == 'workflow_dispatch' && inputs.prune || 'false' }}
+          RW_MAINTENANCE_CLEAN: ${{ github.event_name == 'workflow_dispatch' && inputs.clean || 'false' }}
         run: |
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
@@ -342,8 +342,8 @@ jobs:
           }
           trap on_exit EXIT
           bootstrap="$(cat scripts/accept-mail-header.sh)"
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_PRUNE=%q bash -c %q' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_PRUNE" "$bootstrap")"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_CLEAN=%q bash -c %q' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_CLEAN" "$bootstrap")"
           {
             echo
             echo '```'
