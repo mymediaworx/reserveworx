@@ -19,6 +19,7 @@
                 <a href="/platform" wire:navigate @class(['is-active' => request()->is('platform', 'platform/tenants*')])><x-icon name="building" size="20" /> Workspaces</a>
                 <a href="/platform/fees" wire:navigate @class(['is-active' => request()->is('platform/fees')]) @if(request()->is('platform/fees')) aria-current="page" @endif><x-icon name="dollar" size="20" /> Fees</a>
                 <a href="/platform/help" wire:navigate @class(['is-active' => request()->is('platform/help')]) @if(request()->is('platform/help')) aria-current="page" @endif><x-icon name="book" size="20" /> Handbook</a>
+                <a href="/platform/administrators" wire:navigate @class(['is-active' => request()->is('platform/administrators')]) @if(request()->is('platform/administrators')) aria-current="page" @endif><x-icon name="users" size="20" /> Administrators</a>
                 <a href="/platform/readiness" wire:navigate @class(['is-active' => request()->is('platform/readiness')])><x-icon name="shield" size="20" /> Readiness</a>
                 <a href="/platform/upgrade" wire:navigate @class(['is-active' => request()->is('platform/upgrade')]) @if(request()->is('platform/upgrade')) aria-current="page" @endif><x-icon name="refresh" size="20" /> Upgrade</a>
                 <a href="/platform/demo" wire:navigate @class(['is-active' => request()->is('platform/demo')]) @if(request()->is('platform/demo')) aria-current="page" @endif><x-icon name="apps" size="20" /> Demo</a>

@@ -61,7 +61,7 @@ Platform administrators are not created by registration.
 php artisan reserveworx:grant-platform-admin person@example.com
 ```
 
-Without `--password-file`, the command does not create a user. The production deploy passes that option for `michael@brandworx.ai` and, when the account is new, appends the password to `laravel/shared/platform-admin.txt`. The password is not printed. Removal is a row delete from `platform_administrators` by someone who already has production database access. That delete is not an API yet.
+Without `--password-file`, the command does not create a user. The production deploy passes that option for `michael@brandworx.ai` and, when the account is new, appends the password to `laravel/shared/platform-admin.txt`. The password is not printed. A platform administrator removes someone else’s access at `/platform/administrators`, or with `DELETE /api/v1/platform/administrators` and `{ "email": "person@example.com" }`. `php artisan reserveworx:revoke-platform-admin person@example.com` does the same when nobody is signed in. It still refuses to remove the last administrator. The user row, password, and memberships stay. The command does not print a password and does not create a user.
 
 ## Customer record download and removal
 
@@ -73,7 +73,7 @@ Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each 
 
 ## Handbook
 
-Staff open `/staff/help` on the workspace host. A platform administrator opens `/platform/help` on the platform host. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
 
 ## Upgrade
 
