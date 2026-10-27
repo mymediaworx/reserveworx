@@ -34,6 +34,8 @@ class Menu extends Component
             'canImport' => $this->currentUser()->can('viewAny', CsvImport::class),
             'canPrivacy' => $this->allows('customers.privacy')
                 && ! app(StaffLocationAccess::class)->isRestricted($this->currentUser()),
+            'canAudit' => $this->allows('audit.view')
+                && ! app(StaffLocationAccess::class)->isRestricted($this->currentUser()),
         ]);
     }
 }

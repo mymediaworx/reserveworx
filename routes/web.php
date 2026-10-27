@@ -25,6 +25,7 @@ use App\Http\Controllers\Web\WaiverSigningController;
 use App\Http\Controllers\WidgetController;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
+use App\Livewire\Staff\ActivityLog;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
 use App\Livewire\Staff\Branding;
@@ -155,6 +156,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
             ->where('type', 'customers|inventory');
         Route::get('/import', Import::class);
         Route::get('/customers', Customers::class)->name('staff.customers');
+        Route::get('/audit', ActivityLog::class)->name('staff.audit');
         Route::get('/settings', Settings::class);
         Route::get('/team', Team::class)->name('staff.team');
         Route::get('/feedback', Feedback::class);

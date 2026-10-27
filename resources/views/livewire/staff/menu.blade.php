@@ -63,6 +63,15 @@
                     </a>
                 </li>
             @endif
+            @if ($canAudit)
+                <li>
+                    <a href="/staff/audit" wire:navigate>
+                        <span class="icon-circle tone-neutral"><x-icon name="history" size="20" /></span>
+                        <span class="menu-text">Audit log<small>Who changed what in this workspace</small></span>
+                        <x-icon name="chevron-right" size="20" />
+                    </a>
+                </li>
+            @endif
             <li>
                 <a href="/staff/settings" wire:navigate>
                     <span class="icon-circle tone-neutral"><x-icon name="settings" size="20" /></span>
