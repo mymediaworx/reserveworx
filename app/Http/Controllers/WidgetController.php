@@ -669,8 +669,16 @@ class WidgetController extends Controller
             ? $date
             : CarbonImmutable::now($zone)->toDateString();
         $clock = $input['start'] ?? null;
-        $clock = is_string($clock) && preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $clock) === 1 ? $clock : '12:00';
-        $on = CarbonImmutable::parse($date.' '.$clock, $zone);
+        $posted = is_string($clock) && preg_match(SlotFinder::START_PATTERN, $clock) === 1;
+        $chosen = $posted ? $this->slots->resolveStart($date, $clock, $zone) : null;
+
+        if ($posted && ! $chosen instanceof CarbonImmutable) {
+            return null;
+        }
+
+        $on = $chosen instanceof CarbonImmutable
+            ? $chosen
+            : CarbonImmutable::parse($date.' 12:00', $zone);
         $minutes = 60;
         $override = null;
 
@@ -798,8 +806,7 @@ class WidgetController extends Controller
             return null;
         }
 
-        $zone = $this->visibleZone($service->location);
-        $local = CarbonImmutable::createFromFormat('Y-m-d H:i', $date.' '.$start, $zone);
+        $local = $this->slots->resolveStart($date, $start, $this->visibleZone($service->location));
 
         return $local instanceof CarbonImmutable ? $local->utc() : null;
     }
@@ -833,7 +840,7 @@ class WidgetController extends Controller
             return 'Choose a valid date and time.';
         }
 
-        $local = CarbonImmutable::createFromFormat('Y-m-d H:i', $date.' '.$start, $zone);
+        $local = $this->slots->resolveStart($date, $start, $zone);
 
         if (! $local instanceof CarbonImmutable) {
             return 'Choose a valid date and time.';
@@ -920,7 +927,7 @@ class WidgetController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'date' => ['required', 'date_format:Y-m-d'],
-            'start' => ['required', 'date_format:H:i'],
+            'start' => ['required', 'regex:'.SlotFinder::START_PATTERN],
             'participants' => ['required', 'integer', 'min:1'],
             'customer_name' => ['required', 'string', 'max:120'],
             'customer_email' => ['required', 'email', 'max:255'],
@@ -1231,7 +1238,7 @@ class WidgetController extends Controller
             $when = $slot['starts_at']->timezone($zone);
             $quote = $this->quotedTotal($service, $setting, $participants, $minutes, $when, $override);
             $times[] = [
-                'value' => $when->format('H:i'),
+                'value' => $slot['value'],
                 'label' => $slot['label'],
                 'available' => $slot['available'],
                 'closed' => $slot['closed'],
