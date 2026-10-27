@@ -56,8 +56,8 @@ class WaitlistOpeningNoticeTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-07-01 15:00:00', 'UTC'));
         config(['mail.default' => 'smtp']);
         Notification::fake();
-        $alpha = $this->workspace('alpha.test');
-        $beta = $this->workspace('beta.test');
+        $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Feest Group']);
+        $beta = $this->workspace('beta.test', 'owner', ['name' => 'Beta Kayaks']);
         $booking = $this->heldBooking($alpha['tenant']->id, 'Ada Lovelace', 'ada@example.com', 'Kayak rental', 'America/New_York', '2026-07-04 14:00:00');
         $other = $this->heldBooking($beta['tenant']->id, 'Bea Other', 'bea@example.com', 'Other rental', 'America/New_York', '2026-07-04 14:00:00');
         $snapshot = $this->snapshot($booking);
@@ -74,18 +74,24 @@ class WaitlistOpeningNoticeTest extends TestCase
         Notification::assertSentOnDemand(
             BookingUpdateNotification::class,
             function (BookingUpdateNotification $mail, array $channels, AnonymousNotifiable $to) use ($booking, $other): bool {
+                $reference = 'Reference: '.strtoupper(substr($booking->id, -8)).'.';
+                $lines = [
+                    'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM – 11:00 AM EDT.',
+                    'The booking is held for you. Finish it from the booking page, or contact Feest Group.',
+                    $reference,
+                ];
                 $body = implode("\n", $mail->lines);
+                $pricing = str_replace([$reference, 'Feest Group'], '', $body);
 
                 return $to->routes['mail'] === 'ada@example.com'
-                    && $mail->subject === 'A spot opened with '.$mail->businessName
-                    && str_contains($body, 'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM – 11:00 AM EDT.')
-                    && str_contains($body, 'The booking is held for you.')
-                    && str_contains($body, 'Reference: '.strtoupper(substr($booking->id, -8)).'.')
-                    && ! str_contains($body, '$')
-                    && ! str_contains($body, '50.00')
-                    && ! str_contains(strtolower($body), 'fee')
-                    && ! str_contains(strtolower($body), 'tax')
-                    && ! str_contains(strtolower($body), 'refund')
+                    && $mail->subject === 'A spot opened with Feest Group'
+                    && $mail->businessName === 'Feest Group'
+                    && $mail->lines === $lines
+                    && ! str_contains($pricing, '$')
+                    && ! str_contains($pricing, '50.00')
+                    && ! str_contains(strtolower($pricing), 'fee')
+                    && ! str_contains(strtolower($pricing), 'tax')
+                    && ! str_contains(strtolower($pricing), 'refund')
                     && ! str_contains($body, $other->id)
                     && ! str_contains($body, 'bea@example.com');
             },
@@ -185,8 +191,8 @@ class WaitlistOpeningNoticeTest extends TestCase
         Bus::fake([SyncBookingToGoHighLevel::class]);
         config(['mail.default' => 'smtp']);
         Notification::fake();
-        $alpha = $this->workspace('alpha.test');
-        $beta = $this->workspace('beta.test');
+        $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Feest Group']);
+        $beta = $this->workspace('beta.test', 'owner', ['name' => 'Beta Kayaks']);
         $alphaToken = 'pit-alpha-DO-NOT-LEAK-9f3c2a7b1e04';
         $betaToken = 'pit-beta-DO-NOT-LEAK-1188aa44cc00';
         $booking = $this->heldBooking($alpha['tenant']->id, 'Ada Lovelace', 'ada@example.com', 'Kayak rental', 'America/New_York', '2026-06-16 15:00:00');
@@ -216,20 +222,24 @@ class WaitlistOpeningNoticeTest extends TestCase
 
         Http::assertSent(function (Request $request) use ($alphaToken, $booking): bool {
             $message = (string) ($request->data()['message'] ?? '');
+            $reference = 'Booking '.$booking->id;
+            $pricing = str_replace($reference, '', $message);
 
             return $request->url() === 'https://services.leadconnectorhq.com/conversations/messages'
                 && $request->hasHeader('Authorization', 'Bearer '.$alphaToken)
                 && $request->data()['type'] === 'Email'
                 && $request->data()['emailTo'] === 'ada@example.com'
                 && $request->data()['subject'] === 'Waitlist opening: Kayak rental'
-                && str_contains($message, 'A spot opened for Kayak rental on Jun 16, 2026 11:00 AM EDT.')
-                && str_contains($message, 'The booking is held for you.')
-                && str_contains($message, 'Booking '.$booking->id)
-                && ! str_contains($message, '$')
-                && ! str_contains($message, '50.00')
-                && ! str_contains(strtolower($message), 'fee')
-                && ! str_contains(strtolower($message), 'tax')
-                && ! str_contains(strtolower($message), 'refund')
+                && $message === implode("\n", [
+                    'A spot opened for Kayak rental on Jun 16, 2026 11:00 AM EDT.',
+                    'The booking is held for you. Finish it from the booking page.',
+                    $reference,
+                ])
+                && ! str_contains($pricing, '$')
+                && ! str_contains($pricing, '50.00')
+                && ! str_contains(strtolower($pricing), 'fee')
+                && ! str_contains(strtolower($pricing), 'tax')
+                && ! str_contains(strtolower($pricing), 'refund')
                 && ! str_contains($message, $alphaToken);
         });
         Http::assertNotSent(function (Request $request) use ($betaToken, $other): bool {
