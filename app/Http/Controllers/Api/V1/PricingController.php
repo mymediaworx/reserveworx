@@ -13,6 +13,7 @@ use App\Models\PromoCode;
 use App\Models\Service;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Services\Booking\BookingMutationIdempotency;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Pricing\BookingPricer;
 use Illuminate\Http\JsonResponse;
@@ -27,6 +28,7 @@ class PricingController extends Controller
         private readonly BookingPricer $pricer,
         private readonly AuditLogger $audit,
         private readonly BookingAddOnLines $addOnLines,
+        private readonly BookingMutationIdempotency $mutations,
     ) {}
 
     public function storeRule(Request $request, Service $service): JsonResponse
@@ -170,34 +172,70 @@ class PricingController extends Controller
             ? FeeChannel::from($validated['channel'])
             : FeeChannel::Direct;
         $requestedAddOns = $validated['add_ons'] ?? [];
+        $taxBasisPoints = (int) ($validated['tax_basis_points'] ?? 0);
+        $promoCode = $validated['promo_code'] ?? null;
+        $depositPercent = (int) ($validated['deposit_percent'] ?? 100);
 
-        if ($request->exists('add_ons') && is_array($requestedAddOns) && ! PricingSnapshot::query()->where('booking_id', $booking->id)->exists()) {
-            $this->addOnLines->replace(
-                $booking,
-                $this->addOnLines->price($booking->participants, $requestedAddOns),
-            );
+        return $this->mutations->once($request, $booking, 'pricing', [
+            'channel' => $channel->value,
+            'tax_basis_points' => $taxBasisPoints,
+            'promo_code' => is_string($promoCode) ? $promoCode : null,
+            'deposit_percent' => $depositPercent,
+            'add_ons' => $this->addOnPayload($requestedAddOns),
+        ], function () use ($request, $booking, $tenant, $channel, $requestedAddOns, $taxBasisPoints, $promoCode, $depositPercent): JsonResponse {
+            if ($request->exists('add_ons') && is_array($requestedAddOns) && ! PricingSnapshot::query()->where('booking_id', $booking->id)->exists()) {
+                $this->addOnLines->replace(
+                    $booking,
+                    $this->addOnLines->price($booking->participants, $requestedAddOns),
+                );
+            }
+
+            try {
+                $snapshot = $this->pricer->quote(
+                    $booking->load('location'),
+                    $tenant,
+                    $channel,
+                    $taxBasisPoints,
+                    is_string($promoCode) ? $promoCode : null,
+                    $depositPercent,
+                );
+            } catch (InvalidArgumentException $exception) {
+                return response()->json(['message' => $exception->getMessage()], 422);
+            }
+
+            return response()->json(['data' => [
+                'id' => $snapshot->id,
+                'currency' => $snapshot->currency,
+                'rules_version' => $snapshot->rules_version,
+                'disclosure_version_id' => $snapshot->disclosure_version_id,
+                'payload' => $snapshot->payload,
+            ]]);
+        });
+    }
+
+    /**
+     * @param  array<mixed>  $addOns
+     * @return list<array{id: string, quantity?: int}>
+     */
+    private function addOnPayload(array $addOns): array
+    {
+        $payload = [];
+
+        foreach ($addOns as $line) {
+            if (! is_array($line) || ! is_string($line['id'] ?? null)) {
+                continue;
+            }
+
+            $item = ['id' => $line['id']];
+
+            if (array_key_exists('quantity', $line)) {
+                $item['quantity'] = (int) $line['quantity'];
+            }
+
+            $payload[] = $item;
         }
 
-        try {
-            $snapshot = $this->pricer->quote(
-                $booking->load('location'),
-                $tenant,
-                $channel,
-                (int) ($validated['tax_basis_points'] ?? 0),
-                $validated['promo_code'] ?? null,
-                (int) ($validated['deposit_percent'] ?? 100),
-            );
-        } catch (InvalidArgumentException $exception) {
-            return response()->json(['message' => $exception->getMessage()], 422);
-        }
-
-        return response()->json(['data' => [
-            'id' => $snapshot->id,
-            'currency' => $snapshot->currency,
-            'rules_version' => $snapshot->rules_version,
-            'disclosure_version_id' => $snapshot->disclosure_version_id,
-            'payload' => $snapshot->payload,
-        ]]);
+        return $payload;
     }
 
     /**

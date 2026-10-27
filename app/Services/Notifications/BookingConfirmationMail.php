@@ -10,6 +10,7 @@ use App\Models\TenantNotificationSetting;
 use App\Notifications\BookingConfirmedNotification;
 use App\Services\CheckIn\CheckInPass;
 use App\Services\CheckIn\QrSvg;
+use App\Services\Customers\CustomerReceipts;
 use App\Services\Waivers\WaiverLinks;
 use App\Support\BookingReference;
 use App\Support\Display;
@@ -33,6 +34,7 @@ final class BookingConfirmationMail
         private readonly TransactionalEmailPreferences $preferences,
         private readonly TenantManager $tenants,
         private readonly WaiverLinks $waivers,
+        private readonly CustomerReceipts $receipts,
     ) {}
 
     public function send(Booking $booking): void
@@ -94,8 +96,11 @@ final class BookingConfirmationMail
 
         $when = Display::rangeWithZone($booking->starts_at, $booking->ends_at, DisplayZone::forLocation($booking->location));
         $reference = BookingReference::short($booking->id);
+        $receipt = $this->receipts->forBooking($booking);
+        $receiptHtml = is_string($receipt['html'] ?? null) && $receipt['html'] !== '' ? $receipt['html'] : null;
+        $receiptText = is_string($receipt['text'] ?? null) && $receipt['text'] !== '' ? $receipt['text'] : null;
 
-        DB::transaction(function () use ($booking, $email, $serviceName, $url, $svg, $replyTo, $when, $reference): void {
+        DB::transaction(function () use ($booking, $email, $serviceName, $url, $svg, $replyTo, $when, $reference, $receiptHtml, $receiptText): void {
             $hook = NotificationHook::query()
                 ->where('dedupe_key', 'booking.confirmed:'.$booking->id)
                 ->lockForUpdate()
@@ -113,6 +118,8 @@ final class BookingConfirmationMail
                 $when,
                 $reference,
                 $this->waivers->urlIfNeeded($booking),
+                $receiptHtml,
+                $receiptText,
             ));
 
             $hook->delivery_status = 'sent';
