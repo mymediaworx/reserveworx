@@ -83,11 +83,14 @@ class StaffAuthController extends Controller
     public function logout(Request $request): RedirectResponse
     {
         $user = $request->user();
+        $tenant = $this->tenant($request);
+
         Auth::guard('web')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        if ($user instanceof User) {
+        // A session that was signed in elsewhere must not land in this workspace's audit log.
+        if ($user instanceof User && $this->access->hasActiveMembership($user, $tenant->id)) {
             $this->audit->log(
                 action: 'auth.logout',
                 subject: $user,
