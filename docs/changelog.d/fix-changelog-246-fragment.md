@@ -1,0 +1,1 @@
+- The guest-departure timezone note from #246 is kept as a changelog fragment so later pull requests do not need to edit the Unreleased section of `docs/CHANGELOG.md`. That section is left unchanged. Spec Section 2.4.
