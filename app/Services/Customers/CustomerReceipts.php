@@ -32,7 +32,8 @@ final class CustomerReceipts
      *     refunded_cents: int|null,
      *     refunded_booking_fee_cents: int|null,
      *     payments: list<array{id: string, method: string, kind: string, status: string, amount_cents: int}>,
-     *     html: string|null
+     *     html: string|null,
+     *     text: string|null
      * }
      */
     public function forBooking(Booking $booking): array
@@ -69,7 +70,7 @@ final class CustomerReceipts
         $refunded = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_refund_cents');
         $refundedFee = (int) Refund::query()->where('booking_id', $booking->id)->sum('customer_fee_refund_cents');
         $terms = $this->terms($snapshot);
-        $html = $this->html($subtotal, $operatorFees, $bookingFee, $tax, $taxLines, $lateFee, $damage, $total, $paid, $refunded, $refundedFee, $currency, $terms);
+        $rendered = $this->rendered($subtotal, $operatorFees, $bookingFee, $tax, $taxLines, $lateFee, $damage, $total, $paid, $refunded, $refundedFee, $currency, $terms);
         $ends = $booking->ends_at;
 
         return [
@@ -92,7 +93,8 @@ final class CustomerReceipts
             'refunded_cents' => $refunded > 0 ? $refunded : null,
             'refunded_booking_fee_cents' => $refunded > 0 ? $refundedFee : null,
             'payments' => $payments,
-            'html' => $html,
+            'html' => $rendered['html'],
+            'text' => $rendered['text'],
         ];
     }
 
@@ -220,8 +222,9 @@ final class CustomerReceipts
     /**
      * @param  list<array{name: string, total_cents: int}>  $operatorFees
      * @param  list<array{name: string, cents: int}>  $taxLines
+     * @return array{html: string|null, text: string|null}
      */
-    private function html(
+    private function rendered(
         int $subtotal,
         array $operatorFees,
         ?int $bookingFee,
@@ -235,12 +238,12 @@ final class CustomerReceipts
         int $refundedFee,
         string $currency,
         ?DisclosureVersion $terms,
-    ): ?string {
+    ): array {
         if ($bookingFee !== null && ! $terms instanceof DisclosureVersion) {
-            return null;
+            return ['html' => null, 'text' => null];
         }
 
-        return view('disclosures.receipt', [
+        $data = [
             'subtotalCents' => $subtotal,
             'operatorFees' => $operatorFees,
             'bookingFeeCents' => $bookingFee,
@@ -254,7 +257,13 @@ final class CustomerReceipts
             'refundedBookingFeeCents' => $refunded > 0 ? $refundedFee : null,
             'currency' => $currency,
             'refundTerms' => $terms,
-        ])->render();
+        ];
+        $text = trim(view('disclosures.receipt-text', $data)->render());
+
+        return [
+            'html' => view('disclosures.receipt', $data)->render(),
+            'text' => $text !== '' ? $text : null,
+        ];
     }
 
     private function iso(mixed $value): ?string
