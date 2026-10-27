@@ -15,6 +15,7 @@ use App\Services\Operations\IncidentAssets;
 use App\Services\Operations\IncidentPhotos;
 use App\Services\Operations\IncidentReport;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
@@ -391,8 +392,6 @@ class FileIncident extends Component
 
     private function zone(Booking $booking): string
     {
-        $zone = $booking->location?->timezone;
-
-        return is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        return DisplayZone::forLocation($booking->location);
     }
 }

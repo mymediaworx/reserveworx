@@ -16,6 +16,7 @@ use App\Models\PriceRule;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\ServiceDuration;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -88,7 +89,7 @@ class ServiceDetail extends Component
         $this->minParticipants = $model->min_participants;
         $this->maxParticipants = $model->max_participants;
         $this->waitlist = $model->waitlist_enabled;
-        $this->departureDate = CarbonImmutable::now($model->location->timezone ?? 'UTC')->addDay()->toDateString();
+        $this->departureDate = CarbonImmutable::now(DisplayZone::forLocation($model->location))->addDay()->toDateString();
     }
 
     public function saveSettings(): void
@@ -276,7 +277,7 @@ class ServiceDetail extends Component
             'departureSeats' => $this->departurePrivate ? ['nullable', 'integer', 'min:1'] : ['required', 'integer', 'min:1'],
             'departurePrivate' => ['boolean'],
         ]);
-        $zone = $service->location->timezone ?? 'UTC';
+        $zone = DisplayZone::forLocation($service->location);
         $start = CarbonImmutable::createFromFormat('Y-m-d H:i', $this->departureDate.' '.$this->departureTime, $zone)->utc();
 
         $departure = Departure::query()->create([
@@ -299,7 +300,7 @@ class ServiceDetail extends Component
     public function render(): View
     {
         $service = $this->service($this->serviceId)->load(['location', 'durations', 'requirements']);
-        $zone = $service->location->timezone ?? 'UTC';
+        $zone = DisplayZone::forLocation($service->location);
 
         return view('livewire.staff.setup.service-detail', [
             'service' => $service,

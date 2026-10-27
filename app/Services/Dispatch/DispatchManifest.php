@@ -14,6 +14,7 @@ use App\Models\WaiverVersion;
 use App\Services\CheckIn\BalanceDue;
 use App\Services\CheckIn\WaiverGate;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use InvalidArgumentException;
@@ -299,9 +300,7 @@ final class DispatchManifest
 
     private function zone(Location $location): string
     {
-        $zone = $location->timezone;
-
-        return in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        return DisplayZone::forLocation($location);
     }
 
     /**

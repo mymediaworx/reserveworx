@@ -13,6 +13,7 @@ use App\Notifications\BookingReminderNotification;
 use App\Services\Integrations\GhlMessages;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Notifications\TransactionalEmailPreferences;
+use App\Support\DisplayZone;
 use App\Tenancy\TenantContextException;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
@@ -172,12 +173,6 @@ class SendBookingReminder implements ShouldQueue
 
     private function timezone(Booking $booking): string
     {
-        $zone = $booking->location?->timezone;
-
-        if (is_string($zone) && $zone !== '' && in_array($zone, timezone_identifiers_list(), true)) {
-            return $zone;
-        }
-
-        return 'UTC';
+        return DisplayZone::forLocation($booking->location);
     }
 }

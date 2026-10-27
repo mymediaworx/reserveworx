@@ -2,7 +2,7 @@
     <header class="page-head">
         <div>
             <h1>Locations</h1>
-            <p class="lede">Where customers pick up gear or meet a tour. Times are shown in each location’s own time zone.</p>
+            <p class="lede">Where customers pick up gear or meet a tour. Times are shown in each location’s own time zone. A new location starts in the business time zone.</p>
         </div>
     </header>
 

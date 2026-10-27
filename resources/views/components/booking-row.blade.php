@@ -1,6 +1,8 @@
-@props(['booking', 'customer' => null, 'zone' => 'UTC', 'showDate' => false])
+@props(['booking', 'customer' => null, 'zone' => null, 'showDate' => false])
 @php
     use App\Support\Display;
+    use App\Support\DisplayZone;
+    $zone = DisplayZone::resolve($zone ?? ($booking->location->timezone ?? null));
     $status = $booking->status->value;
     $who = $customer?->name ?: ($customer?->email ?: 'Walk-in');
 @endphp

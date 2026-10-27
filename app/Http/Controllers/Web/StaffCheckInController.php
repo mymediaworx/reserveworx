@@ -10,6 +10,7 @@ use App\Models\Pool;
 use App\Services\CheckIn\ArrivalCheckIn;
 use App\Services\CheckIn\CheckInArrival;
 use App\Services\Waivers\WaiverLinks;
+use App\Support\DisplayZone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -68,7 +69,7 @@ class StaffCheckInController extends Controller
 
         return $this->staffPage('Check in', 'staff.check-in-arrive', [
             'arrival' => $arrival,
-            'zone' => $booking->location?->timezone ?: 'UTC',
+            'zone' => DisplayZone::forLocation($booking->location),
             'customerName' => $booking->customer?->name ?: 'Walk-in',
             'resources' => $resources,
             'waiverUrl' => $arrival->waivers->complete ? null : app(WaiverLinks::class)->url($arrival->booking),

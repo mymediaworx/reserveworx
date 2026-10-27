@@ -83,7 +83,7 @@
                             @foreach ($inspections as $row)
                                 @php
                                     $schedule = $row['schedule'];
-                                    $zone = $schedule->asset?->location?->timezone ?? 'UTC';
+                                    $zone = \App\Support\DisplayZone::forLocation($schedule->asset?->location);
                                 @endphp
                                 <li class="row inspection-row" wire:key="inspection-{{ $schedule->id }}">
                                     <div>
@@ -131,7 +131,7 @@
                     @else
                         <ul class="rows compact">
                             @foreach ($past as $window)
-                                @php $zone = ($window->asset ?? $window->pool)?->location?->timezone ?? 'UTC'; @endphp
+                                @php $zone = \App\Support\DisplayZone::forLocation(($window->asset ?? $window->pool)?->location); @endphp
                                 <li class="row" wire:key="past-{{ $window->id }}">
                                     <span class="grow">
                                         <strong>{{ ($window->asset ?? $window->pool)?->name }}</strong>

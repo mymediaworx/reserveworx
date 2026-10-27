@@ -10,6 +10,7 @@ use App\Http\Resources\LocationResource;
 use App\Models\Location;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Support\DisplayZone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -30,10 +31,11 @@ class LocationController extends Controller
         $tenant = $request->attributes->get('tenant');
         abort_unless($tenant instanceof Tenant, 403);
 
+        $posted = $request->validated('timezone');
         $location = Location::query()->create([
             'tenant_id' => $tenant->id,
             'name' => $request->string('name')->toString(),
-            'timezone' => $request->string('timezone')->toString(),
+            'timezone' => is_string($posted) && $posted !== '' ? $posted : DisplayZone::forTenant($tenant),
             'status' => $request->enum('status', LocationStatus::class) ?? LocationStatus::Active,
         ]);
 

@@ -10,7 +10,7 @@ If a simpler mechanism is later shown to be equally correct, propose it in [`DEC
 - **Pool:** a quantity of interchangeable units (20 single kayaks). Capacity is `pools.quantity`, read under the lock. Do not copy capacity onto the ledger and then trust the copy.
 - **Service requirements** name the assets and pool units a booking needs. Tours and rentals draw from the same rows.
 
-Locations own the timezone. Tenants do not. Timestamps are stored in UTC.
+Locations own the timezone for that place. A workspace also stores a business timezone, used when a location has none. Timestamps are stored in UTC.
 
 ## Intervals
 

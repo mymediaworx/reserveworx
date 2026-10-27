@@ -47,6 +47,7 @@ use App\Services\Pricing\BookingPricer;
 use App\Services\Waivers\WaiverForm;
 use App\Services\Waivers\WaiverLinks;
 use App\Services\Widget\WidgetTokens;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -583,7 +584,7 @@ class WidgetController extends Controller
     {
         $firstDuration = $service->durations->first();
         $minutes = $firstDuration instanceof ServiceDuration ? $firstDuration->duration_minutes : 60;
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
 
         try {
             return $this->previewAt($service, $setting, max(1, (int) ($service->min_participants ?? 1)), $minutes, CarbonImmutable::now($zone));
@@ -644,7 +645,7 @@ class WidgetController extends Controller
         }
 
         $service->loadMissing(['location', 'durations']);
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
         $date = $input['date'] ?? null;
         $date = is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1
             ? $date
@@ -763,7 +764,7 @@ class WidgetController extends Controller
             return null;
         }
 
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
         $local = CarbonImmutable::createFromFormat('Y-m-d H:i', $date.' '.$start, $zone);
 
         return $local instanceof CarbonImmutable ? $local->utc() : null;
@@ -779,7 +780,7 @@ class WidgetController extends Controller
         $endsAt = $validated['ends_at'] ?? null;
         $minutes = $validated['minutes'] ?? null;
         $departureId = $validated['departure_id'] ?? null;
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
 
         if ($startsAt instanceof CarbonImmutable && $endsAt instanceof CarbonImmutable && is_int($minutes)) {
             return [
@@ -824,7 +825,7 @@ class WidgetController extends Controller
 
         $departures = $this->slots->upcoming($service);
         $counts = Departure::headcountsFor($departures);
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
         $choices = [];
 
         foreach ($departures as $departure) {
@@ -1008,7 +1009,7 @@ class WidgetController extends Controller
         }
 
         $participants = is_numeric($input['participants'] ?? null) ? max(1, (int) $input['participants']) : 1;
-        $zone = $service->location->timezone;
+        $zone = $this->visibleZone($service->location);
         $times = [];
 
         foreach ($this->slots->rentalSlots($service, $date, $minutes, $participants, CarbonImmutable::now()) as $slot) {
@@ -1023,9 +1024,14 @@ class WidgetController extends Controller
         return $times;
     }
 
+    private function visibleZone(?Location $location): string
+    {
+        return DisplayZone::forLocation($location);
+    }
+
     private function localToday(Service $service): string
     {
-        $zone = $service->location?->timezone ?: 'UTC';
+        $zone = $this->visibleZone($service->location);
 
         return CarbonImmutable::now($zone)->toDateString();
     }
@@ -1071,7 +1077,7 @@ class WidgetController extends Controller
             return [];
         }
 
-        $zone = $service->location instanceof Location ? $service->location->timezone : 'UTC';
+        $zone = $this->visibleZone($service->location);
         $lines = [];
 
         foreach ($offers['times'] ?? [] as $time) {

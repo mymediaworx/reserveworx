@@ -23,6 +23,7 @@ use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
 use App\Support\BookingReference;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -175,7 +176,7 @@ class GuestBookingController extends Controller
 
         $service = $booking->service;
         $location = $service instanceof Service ? $service->location : null;
-        $zone = $location instanceof Location ? $location->timezone : 'UTC';
+        $zone = DisplayZone::forLocation($location instanceof Location ? $location : null);
         $starts = CarbonImmutable::createFromFormat('Y-m-d H:i', $data['date'].' '.$data['start'], $zone);
 
         if (! $starts instanceof CarbonImmutable) {
@@ -409,7 +410,7 @@ class GuestBookingController extends Controller
             ? $booking->location
             : $booking->service?->location;
 
-        return $location instanceof Location ? $location->timezone : 'UTC';
+        return DisplayZone::forLocation($location instanceof Location ? $location : null);
     }
 
     /**

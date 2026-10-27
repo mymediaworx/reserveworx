@@ -72,8 +72,7 @@
             @foreach ($checkouts as $checkout)
                 @php
                     $booking = $checkout->booking;
-                    $zoneName = $booking?->location?->timezone;
-                    $zone = is_string($zoneName) && in_array($zoneName, timezone_identifiers_list(), true) ? $zoneName : 'UTC';
+                    $zone = \App\Support\DisplayZone::forLocation($booking?->location);
                     $due = $checkout->due_at;
                     $overdue = $due !== null && Lateness::overdue($due, $now);
                     $minutes = $due !== null ? Lateness::minutes($due, $now) : 0;

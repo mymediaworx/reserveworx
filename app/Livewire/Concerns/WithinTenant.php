@@ -7,6 +7,7 @@ use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\AuditLogger;
+use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use App\Tenancy\TenantManager;
 use Illuminate\Database\Eloquent\Model;
@@ -58,7 +59,7 @@ trait WithinTenant
     {
         $zone = Location::query()->orderBy('created_at')->value('timezone');
 
-        return is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        return DisplayZone::resolve($zone, $this->tenant());
     }
 
     /**

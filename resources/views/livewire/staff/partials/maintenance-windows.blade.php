@@ -6,7 +6,7 @@
         @foreach ($windows as $window)
             @php
                 $item = $window->asset ?? $window->pool;
-                $zone = $item?->location?->timezone ?? 'UTC';
+                $zone = \App\Support\DisplayZone::forLocation($item?->location);
                 $hits = $affected[$window->id] ?? collect();
             @endphp
             <li @class(['window-card', 'is-live' => $live]) wire:key="window-{{ $window->id }}">

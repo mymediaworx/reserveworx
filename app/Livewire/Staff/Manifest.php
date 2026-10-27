@@ -8,6 +8,7 @@ use App\Models\Departure;
 use App\Models\Location;
 use App\Services\Dispatch\DispatchManifest;
 use App\Services\Scheduling\TourMinimum;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -182,9 +183,7 @@ class Manifest extends Component
 
     private function zone(?Location $location): string
     {
-        $zone = $location?->timezone;
-
-        return is_string($zone) && in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        return DisplayZone::forLocation($location);
     }
 
     private function booking(string $id): Booking

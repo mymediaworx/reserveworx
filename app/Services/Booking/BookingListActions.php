@@ -12,6 +12,7 @@ use App\Services\Allocation\Allocator;
 use App\Services\AuditLogger;
 use App\Services\CheckIn\ArrivalCheckIn;
 use App\Services\Staff\StaffUndo;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Gate;
 use RuntimeException;
@@ -210,9 +211,7 @@ final class BookingListActions
 
         foreach ($bookings as $booking) {
             Gate::forUser($actor)->authorize('view', $booking);
-            $zone = is_string($booking->location?->timezone) && $booking->location->timezone !== ''
-                ? $booking->location->timezone
-                : 'UTC';
+            $zone = DisplayZone::forLocation($booking->location);
 
             fputcsv($handle, [
                 $booking->id,

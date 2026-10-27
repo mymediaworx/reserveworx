@@ -15,6 +15,7 @@ use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Booking\CancellationPolicies;
 use App\Services\Onboarding\SetupGuide;
+use App\Support\DisplayZone;
 use App\Tenancy\Access;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -33,6 +34,8 @@ class Settings extends Component
     public string $feePayer = 'customer_paid';
 
     public int $holdMinutes = 15;
+
+    public string $timezone = TenantSetting::DEFAULT_TIMEZONE;
 
     public string $stripeName = '';
 
@@ -55,6 +58,7 @@ class Settings extends Component
         $this->authorize('view', $setting);
         $this->feePayer = $setting->fee_payer->value;
         $this->holdMinutes = $setting->hold_minutes;
+        $this->timezone = DisplayZone::named($setting->timezone) ?? TenantSetting::DEFAULT_TIMEZONE;
         $this->stripeName = $this->tenant()->name;
         $this->stripeEmail = (string) auth()->user()?->email;
         $this->loadPolicy($policies);
@@ -77,6 +81,24 @@ class Settings extends Component
             'after' => ['fee_payer' => $setting->fee_payer->value, 'hold_minutes' => $setting->hold_minutes],
         ]);
         $this->flash = 'Settings saved. A change to who pays the booking fee applies to new bookings only.';
+        $this->problem = null;
+    }
+
+    public function saveTimezone(): void
+    {
+        $setting = $this->setting();
+        $this->authorize('update', $setting);
+        $this->validate([
+            'timezone' => ['required', 'string', Rule::in(timezone_identifiers_list())],
+        ]);
+        $before = $setting->timezone;
+        $setting->timezone = $this->timezone;
+        $setting->save();
+        $this->audit('settings.updated', $setting, [
+            'before' => ['timezone' => $before],
+            'after' => ['timezone' => $setting->timezone],
+        ]);
+        $this->flash = 'Business time zone saved. New locations start in this zone. A location that already has its own zone keeps that zone.';
         $this->problem = null;
     }
 
@@ -203,6 +225,7 @@ class Settings extends Component
             'directRate' => FeeRate::fromTenantSetting($setting, FeeChannel::Direct),
             'account' => $account,
             'canUpdate' => $this->allows('settings.update'),
+            'timezones' => timezone_identifiers_list(),
             'canSeeSetupGuide' => $this->ownerOrManager(),
             'setupGuideHidden' => app(SetupGuide::class)->isHidden($this->tenant()),
         ]);

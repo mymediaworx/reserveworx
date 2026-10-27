@@ -28,6 +28,7 @@ use App\Services\Booking\GuideRoster;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -719,9 +720,8 @@ trait BooksFromSchedule
     private function bookZone(Asset|Pool $resource): string
     {
         $resource->loadMissing('location');
-        $zone = $resource->location?->timezone;
 
-        return is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        return DisplayZone::forLocation($resource->location);
     }
 
     /**

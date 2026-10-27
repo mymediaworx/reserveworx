@@ -8,6 +8,7 @@ use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\Location;
 use App\Services\CheckIn\CheckInLink;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
@@ -59,7 +60,7 @@ class CheckIn extends Component
             'links' => $bookings->mapWithKeys(fn (Booking $booking): array => [
                 $booking->id => $links->url($booking),
             ]),
-            'zone' => $selected instanceof Location ? $this->zone($selected) : 'UTC',
+            'zone' => $selected instanceof Location ? $this->zone($selected) : $this->defaultTimezone(),
         ]);
     }
 
@@ -99,9 +100,7 @@ class CheckIn extends Component
 
     private function zone(Location $location): string
     {
-        $zone = $location->timezone;
-
-        return in_array($zone, timezone_identifiers_list(), true) ? $zone : 'UTC';
+        return DisplayZone::forLocation($location);
     }
 
     private function likeContains(string $term): string

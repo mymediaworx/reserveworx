@@ -30,6 +30,7 @@ class TenantSettingFactory extends Factory
             'third_party_fee_minimum_cents' => null,
             'currency' => 'USD',
             'pay_at_pickup' => false,
+            'timezone' => 'America/New_York',
         ];
     }
 }

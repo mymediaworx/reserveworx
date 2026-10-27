@@ -15,7 +15,7 @@
     </style>
 
     <h1>Sign your waiver</h1>
-    <p>{{ $businessName }} · {{ $booking->service?->name }} · {{ Display::dateTime($booking->starts_at, $booking->location?->timezone ?: 'UTC') }}</p>
+    <p>{{ $businessName }} · {{ $booking->service?->name }} · {{ Display::dateTime($booking->starts_at, \App\Support\DisplayZone::forLocation($booking->location)) }}</p>
 
     @if (session('status'))
         <p class="ok" role="status">{{ session('status') }}</p>

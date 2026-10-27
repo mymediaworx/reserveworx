@@ -10,6 +10,7 @@ use App\Models\Hold;
 use App\Models\Location;
 use App\Models\LocationFleetReserve;
 use App\Services\Allocation\AllocationUnavailableException;
+use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -251,7 +252,7 @@ final class FleetCapacity
 
         return [
             'location_id' => $location->id,
-            'timezone' => $location->timezone,
+            'timezone' => DisplayZone::resolve($location->timezone),
             'quantity' => $quantity,
             'counter_sale' => (bool) $booking->counter_sale,
             'starts_at' => CarbonImmutable::parse($startsAt)->utc(),

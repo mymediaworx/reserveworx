@@ -160,7 +160,7 @@
                                             <li>
                                                 <a href="/staff/bookings/{{ $booking->id }}" wire:navigate>
                                                     {{ $booking->customer?->name ?: 'Booking' }}
-                                                    · {{ \App\Support\Display::dateTime($booking->starts_at, $closure->location?->timezone ?? 'UTC') }}
+                                                    · {{ \App\Support\Display::dateTime($booking->starts_at, \App\Support\DisplayZone::forLocation($closure->location)) }}
                                                 </a>
                                             </li>
                                         @endforeach

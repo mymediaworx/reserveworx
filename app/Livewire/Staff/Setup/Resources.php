@@ -22,6 +22,7 @@ use App\Services\Operations\AssetRetirement;
 use App\Services\Staff\StaffUndo;
 use App\Support\BookingReference;
 use App\Support\Display;
+use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationAccess;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\View\View;
@@ -409,8 +410,7 @@ class Resources extends Component
         }
 
         $bookings = Booking::query()->with('customer')->whereIn('id', array_column($offers, 'booking_id'))->get()->keyBy('id');
-        $zone = $asset->location?->timezone;
-        $zone = is_string($zone) && $zone !== '' ? $zone : 'UTC';
+        $zone = DisplayZone::forLocation($asset->location);
         $toName = $asset->replacement instanceof Asset ? $asset->replacement->name : 'the replacement';
         $rows = [];
 
