@@ -231,35 +231,37 @@ img { max-width: 100%; }
 }
 .fab:hover { background: var(--brand-strong); color: var(--brand-ink); }
 
-/* The floating action sits above the tab bar. Stop the scrolling column
-   above that button so page controls, including a full-width Apply, stay
-   clear of it. From 1024px the button is hidden and this does not apply. */
+/* Below 1024px the shell used to pin the document and end the scrolling
+   column above the floating action. On a short screen — a phone, or Chrome
+   zoomed until the CSS width is about 430px — that column only fit the app
+   bar, the location tabs, and a title. Let every staff page grow with the
+   document. The header scrolls away. The tab bar stays fixed, and the
+   content padding keeps the last controls above that bar and the button.
+   From 1024px the tab bar and button are hidden and this does not apply. */
 @media (max-width: 1023px) {
-    body.app:has(.fab) {
-        height: 100vh;
-        height: 100dvh;
-        overflow: hidden;
+    body.app:has(.tab-bar) .app-bar {
+        position: static;
     }
-    body.app:has(.fab) .app-shell {
-        height: 100%;
+    body.app:has(.tab-bar) {
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+    }
+    body.app:has(.tab-bar) .app-shell,
+    body.app:has(.tab-bar) .app-main {
+        height: auto;
+        max-height: none;
         min-height: 0;
+        overflow: visible;
     }
-    body.app:has(.fab) .app-main {
-        max-height: calc(100vh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem);
-        max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem);
-        min-height: 0;
-        overflow-y: auto;
-    }
-    body.app:has(.fab) .app-content {
-        padding-bottom: 1.25rem;
+    body.app:has(.tab-bar) .app-content {
+        padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 5.5rem);
     }
 }
 
-/* A short viewport (a phone, or a desktop window zoomed until it is about
-   360–430px wide) makes the scrolling column above shorter than the app bar,
-   location tabs, and title. Gear on Boats & gear then sits in the overflow
-   while the page itself cannot scroll. Let that page grow, and keep its last
-   controls clear of the floating action and the tab bar. */
+/* Boats & gear keeps that same document scroll at 360–430px, where its own
+   layout also stacks the minute fields. The shell rule above already covers
+   every staff page below 1024px. */
 @media (max-width: 430px) {
     body.app:has(.fab):has(.resources-page) {
         height: auto;
@@ -1184,7 +1186,9 @@ button.schedule-block:focus-visible,
     font: inherit;
     font-size: 0.85rem;
 }
-body:has(.staff-search-layer) { overflow: hidden; }
+/* Equally specific to the narrow-screen document scroll, and later in the
+   file, so an open search still locks the page on a short screen. */
+body.app:has(.staff-search-layer) { overflow: hidden; }
 @media (min-width: 720px) {
     .staff-search-backdrop { background: rgba(16, 24, 40, 0.45); }
     .staff-search {

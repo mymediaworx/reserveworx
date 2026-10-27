@@ -179,4 +179,78 @@ class StaffPagesTest extends TestCase
         $this->assertSame('cancelled', Booking::query()->find($booking->id)?->status->value);
         app(TenantManager::class)->forget();
     }
+
+    public function test_a_narrow_screen_scrolls_every_staff_page_past_the_tab_bar(): void
+    {
+        $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Alpha Kayaks']);
+        $this->rentalShop($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+
+        foreach ([
+            '/staff' => 'Today’s schedule',
+            '/staff/menu' => 'Set up your business',
+            '/staff/settings' => 'Who pays the booking fee',
+            '/staff/calendar' => 'Calendar',
+        ] as $path => $text) {
+            $html = (string) $this->get($this->tenantUrl('alpha.test', $path))
+                ->assertOk()
+                ->assertSee($text, false)
+                ->assertSee('class="app-bar"', false)
+                ->assertSee('class="location-switcher"', false)
+                ->assertSee('class="app-main"', false)
+                ->assertSee('class="app-content"', false)
+                ->assertSee('class="tab-bar"', false)
+                ->assertSee('class="fab"', false)
+                ->getContent();
+
+            $this->assertStringNotContainsString('resources-page', $html);
+            $this->assertStringNotContainsString('addons-page', $html);
+        }
+
+        $newBooking = (string) $this->get($this->tenantUrl('alpha.test', '/staff/bookings/new'))
+            ->assertOk()
+            ->assertSee('New booking', false)
+            ->assertSee('class="app-bar"', false)
+            ->assertSee('class="tab-bar"', false)
+            ->getContent();
+        $this->assertStringNotContainsString('class="fab"', $newBooking);
+
+        $css = (string) file_get_contents(resource_path('ui/app.css'));
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 1023px\) \{\s*body\.app:has\(\.tab-bar\) \.app-bar \{\s*position: static;\s*\}.*?body\.app:has\(\.tab-bar\) \{\s*height: auto;[^}]*overflow: visible;/s',
+            $css,
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 1023px\) \{.*?body\.app:has\(\.tab-bar\) \.app-main \{[^}]*max-height: none;[^}]*overflow: visible;/s',
+            $css,
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 1023px\) \{.*?body\.app:has\(\.tab-bar\) \.app-content \{\s*padding-bottom: calc\(var\(--tabbar\) \+ var\(--safe-bottom\) \+ 5\.5rem\);/s',
+            $css,
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            '/@media \(max-width: 1023px\) \{[^@]*resources-page/s',
+            $css,
+        );
+        $this->assertMatchesRegularExpression('/\.tab-bar \{\s*position: fixed;/s', $css);
+        $this->assertMatchesRegularExpression('/\.fab \{\s*position: fixed;/s', $css);
+        $this->assertDoesNotMatchRegularExpression(
+            '/\.location-switcher\s*\{[^}]*position:\s*(fixed|sticky)/s',
+            $css,
+        );
+        $this->assertStringNotContainsString(
+            'max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem)',
+            $css,
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width: 1024px\) \{.*\.tab-bar, \.fab \{ display: none; \}/s',
+            $css,
+        );
+
+        $scroll = strpos($css, 'body.app:has(.tab-bar)');
+        $search = strpos($css, 'body.app:has(.staff-search-layer) { overflow: hidden; }');
+        $this->assertNotFalse($scroll);
+        $this->assertNotFalse($search);
+        $this->assertLessThan($search, $scroll);
+    }
 }

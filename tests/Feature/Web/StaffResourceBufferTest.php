@@ -294,7 +294,11 @@ class StaffResourceBufferTest extends TestCase
             '/@media \(max-width: 430px\) \{.*?body\.app:has\(\.fab\):has\(\.resources-page\) \{[^}]*overflow: visible;/s',
             $css,
         );
-        $this->assertStringContainsString(
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 1023px\) \{.*?body\.app:has\(\.tab-bar\) \{[^}]*height: auto;[^}]*overflow: visible;/s',
+            $css,
+        );
+        $this->assertStringNotContainsString(
             'max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem)',
             $css,
         );
