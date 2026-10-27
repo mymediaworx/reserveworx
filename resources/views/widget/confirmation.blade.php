@@ -33,14 +33,36 @@
         <p>{{ $copy['pickupFeeNote'] }}</p>
     @endif
     @php
+        $storedReceipt = is_string($receiptHtml ?? null) && $receiptHtml !== '' ? $receiptHtml : null;
         $shownTaxes = [];
 
-        foreach ((isset($taxLines) && is_array($taxLines) ? $taxLines : []) as $taxLine) {
-            if (is_array($taxLine) && is_string($taxLine['name'] ?? null) && is_numeric($taxLine['cents'] ?? null)) {
-                $shownTaxes[] = $taxLine;
+        if ($storedReceipt === null) {
+            foreach ((isset($taxLines) && is_array($taxLines) ? $taxLines : []) as $taxLine) {
+                if (is_array($taxLine) && is_string($taxLine['name'] ?? null) && is_numeric($taxLine['cents'] ?? null)) {
+                    $shownTaxes[] = $taxLine;
+                }
             }
         }
     @endphp
+    @if ($storedReceipt !== null)
+        <div class="receipt-wrap" data-confirmation-receipt>
+            {!! $storedReceipt !!}
+        </div>
+        <style>
+            .receipt-wrap, .receipt-summary, .receipt-summary .line dt, .receipt-summary .line dd, .booking-fee-refund-terms, .booking-fee-refund-terms li {
+                max-width: 100%;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+            @media (max-width: 390px) {
+                .receipt-wrap, .receipt-summary, .booking-fee-refund-terms, .booking-fee-refund-terms li {
+                    max-width: 100%;
+                    min-width: 0;
+                    overflow-wrap: anywhere;
+                }
+            }
+        </style>
+    @endif
     @if ($shownTaxes !== [])
         <h2>Taxes</h2>
         <section class="checkout-summary">

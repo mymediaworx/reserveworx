@@ -7,11 +7,13 @@ use App\Domain\Payments\StripeNotConfiguredException;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
 use App\Models\User;
+use App\Services\Allocation\IdempotencyConflictException;
 use App\Services\Payments\RefundException;
 use App\Services\Payments\RefundService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class RefundController extends Controller
@@ -25,11 +27,13 @@ class RefundController extends Controller
             'reason' => ['required', 'string', Rule::in(array_column(RefundReason::cases(), 'value'))],
             'refund_subtotal_cents' => ['sometimes', 'integer', 'min:0'],
             'refund_tax_cents' => ['sometimes', 'integer', 'min:0'],
-            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
+            'idempotency_key' => ['sometimes', 'nullable', 'string'],
         ]);
         $user = $request->user();
-        $key = $validated['idempotency_key'] ?? null;
+        $key = $this->idempotencyKey($request, $validated['idempotency_key'] ?? null);
         $reason = RefundReason::from($validated['reason']);
+        $subtotal = (int) ($validated['refund_subtotal_cents'] ?? 0);
+        $tax = (int) ($validated['refund_tax_cents'] ?? 0);
 
         if ($reason->recordedByStripe()) {
             return response()->json([
@@ -38,15 +42,16 @@ class RefundController extends Controller
         }
 
         try {
+            $this->refunds->rejectDifferentRequest($booking, $reason, $subtotal, $tax, $key);
             $refund = $this->refunds->issue(
                 $booking,
                 $reason,
-                (int) ($validated['refund_subtotal_cents'] ?? 0),
-                (int) ($validated['refund_tax_cents'] ?? 0),
-                is_string($key) ? $key : null,
+                $subtotal,
+                $tax,
+                $key,
                 $user instanceof User ? $user : null,
             );
-        } catch (StripeNotConfiguredException|RefundException $exception) {
+        } catch (IdempotencyConflictException|StripeNotConfiguredException|RefundException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         } catch (InvalidArgumentException $exception) {
             return response()->json(['message' => $exception->getMessage()], 422);
@@ -63,5 +68,23 @@ class RefundController extends Controller
             'stripe_fee_refund_id' => $refund->stripe_fee_refund_id,
             'payment_status' => $fresh instanceof Booking ? $fresh->payment_status->value : $booking->payment_status->value,
         ]], 201);
+    }
+
+    private function idempotencyKey(Request $request, mixed $body): ?string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+        $key = is_string($header) && $header !== '' ? $header : (is_string($body) && $body !== '' ? $body : null);
+
+        if ($key === null) {
+            return null;
+        }
+
+        if (strlen($key) > 80) {
+            throw ValidationException::withMessages([
+                'idempotency_key' => 'An idempotency key must be 80 characters or fewer.',
+            ]);
+        }
+
+        return $key;
     }
 }
