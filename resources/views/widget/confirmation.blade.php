@@ -9,6 +9,9 @@
     <h1>Booking {{ \App\Support\BookingReference::short($booking->id) }}</h1>
     <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
     <p>{{ $booking->service?->name }}</p>
+    @if (is_string($booking->customer?->phone) && $booking->customer->phone !== '')
+        <p data-customer-phone="1">Phone <a href="tel:{{ $booking->customer->phone }}">{{ $booking->customer->phone }}</a></p>
+    @endif
     <p>Status: {{ $copy['status'] }}. {{ $copy['payment'] }}.</p>
     @include('widget.partials.priced-lines', [
         'serviceName' => $booking->service?->name,

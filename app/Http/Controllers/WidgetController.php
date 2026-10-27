@@ -129,6 +129,7 @@ class WidgetController extends Controller
     {
         $tenant = $this->tenant($request);
         $this->activeToken($token);
+        $this->trimPostedPhone($request);
         $service->load(['location', 'durations']);
         $validated = $service->kind === ServiceKind::Tour
             ? $this->validateTour($request, $service)
@@ -162,6 +163,7 @@ class WidgetController extends Controller
                 $validated['customer_name'],
                 $validated['customer_email'],
                 $interval['departure_id'],
+                customerPhone: $this->postedPhone($validated),
                 addOns: $addOns,
             ));
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
@@ -699,7 +701,7 @@ class WidgetController extends Controller
      * A tour joins the scheduled departure at the chosen start. The departure's
      * own length is the booking length; a free duration does not apply.
      *
-     * @return array{participants: int, customer_name: string, customer_email: string, idempotency_key: string, minutes: int, starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string}|string
+     * @return array{participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int, starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string}|string
      */
     private function validateTour(Request $request, Service $service): array|string
     {
@@ -710,6 +712,7 @@ class WidgetController extends Controller
             'participants' => ['required', 'integer', 'min:1'],
             'customer_name' => ['required', 'string', 'max:120'],
             'customer_email' => ['required', 'email', 'max:255'],
+            'customer_phone' => ['nullable', 'string', 'max:255'],
             'idempotency_key' => ['required', 'string', 'max:80'],
         ]);
 
@@ -717,7 +720,7 @@ class WidgetController extends Controller
             return (string) $validator->errors()->first();
         }
 
-        /** @var array{departure_id?: string|null, date?: string|null, start?: string|null, participants: int|string, customer_name: string, customer_email: string, idempotency_key: string} $data */
+        /** @var array{departure_id?: string|null, date?: string|null, start?: string|null, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string} $data */
         $data = $validator->validated();
         $participants = (int) $data['participants'];
         $max = $service->max_participants;
@@ -750,6 +753,7 @@ class WidgetController extends Controller
             'participants' => $participants,
             'customer_name' => $data['customer_name'],
             'customer_email' => $data['customer_email'],
+            'customer_phone' => $this->blankPhone($data['customer_phone'] ?? null),
             'idempotency_key' => $data['idempotency_key'],
             'minutes' => $minutes,
             'starts_at' => $starts,
@@ -849,7 +853,7 @@ class WidgetController extends Controller
     }
 
     /**
-     * @return array{date: string, start: string, participants: int, customer_name: string, customer_email: string, idempotency_key: string, minutes: int}|string
+     * @return array{date: string, start: string, participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int}|string
      */
     private function validateBooking(Request $request, Service $service): array|string
     {
@@ -859,6 +863,7 @@ class WidgetController extends Controller
             'participants' => ['required', 'integer', 'min:1'],
             'customer_name' => ['required', 'string', 'max:120'],
             'customer_email' => ['required', 'email', 'max:255'],
+            'customer_phone' => ['nullable', 'string', 'max:255'],
             'idempotency_key' => ['required', 'string', 'max:80'],
             'duration_id' => ['nullable', 'string'],
             'duration_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
@@ -868,7 +873,7 @@ class WidgetController extends Controller
             return (string) $validator->errors()->first();
         }
 
-        /** @var array{date: string, start: string, participants: int|string, customer_name: string, customer_email: string, idempotency_key: string, duration_id?: string|null, duration_minutes?: int|null} $data */
+        /** @var array{date: string, start: string, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string, duration_id?: string|null, duration_minutes?: int|null} $data */
         $data = $validator->validated();
         $participants = (int) $data['participants'];
         $max = $service->max_participants;
@@ -889,6 +894,7 @@ class WidgetController extends Controller
             'participants' => $participants,
             'customer_name' => $data['customer_name'],
             'customer_email' => $data['customer_email'],
+            'customer_phone' => $this->blankPhone($data['customer_phone'] ?? null),
             'idempotency_key' => $data['idempotency_key'],
             'minutes' => $minutes,
         ];
@@ -1210,7 +1216,7 @@ class WidgetController extends Controller
         ?string $waiverError = null,
         array $waiverOld = [],
     ): View {
-        $booking->load(['service', 'namedParticipants']);
+        $booking->load(['service', 'namedParticipants', 'customer']);
         $presented = $this->waivers->present($booking);
         $unsigned = $hold instanceof Hold && $presented['required'] && ! $presented['complete'];
         $lockedPay = $unsigned && $payUrl !== null;
@@ -1334,7 +1340,7 @@ class WidgetController extends Controller
         ?string $partyError = null,
         array $partyOld = [],
     ): View {
-        $booking->load(['service', 'namedParticipants']);
+        $booking->load(['service', 'namedParticipants', 'customer']);
 
         return view('widget.confirmation', [
             'booking' => $booking,
@@ -1623,5 +1629,27 @@ class WidgetController extends Controller
         return $setting instanceof TenantSetting && $setting->currency !== ''
             ? $setting->currency
             : 'USD';
+    }
+
+    private function trimPostedPhone(Request $request): void
+    {
+        $phone = $request->input('customer_phone');
+
+        if (is_string($phone)) {
+            $request->merge(['customer_phone' => trim($phone)]);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function postedPhone(array $validated): ?string
+    {
+        return $this->blankPhone($validated['customer_phone'] ?? null);
+    }
+
+    private function blankPhone(mixed $phone): ?string
+    {
+        return is_string($phone) && $phone !== '' ? $phone : null;
     }
 }
