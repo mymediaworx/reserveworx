@@ -14,6 +14,8 @@ enum GhlMessageKind: string
     case Reminder = 'booking.reminder';
     case Cancelled = 'booking.cancelled';
     case GuestCancelled = 'booking.guest_cancelled';
+    case Rescheduled = 'booking.guest_rescheduled';
+    case PaymentFailed = 'payment.failed';
     case RefundIssued = 'refund.issued';
     case Overdue = 'rental.overdue';
 
@@ -25,6 +27,8 @@ enum GhlMessageKind: string
             self::Reminder => TransactionalEmail::BookingReminder->value,
             self::Cancelled => TransactionalEmail::BookingCancelled->value,
             self::GuestCancelled => TransactionalEmail::BookingGuestCancelled->value,
+            self::Rescheduled => TransactionalEmail::BookingGuestRescheduled->value,
+            self::PaymentFailed => TransactionalEmail::PaymentFailed->value,
             self::RefundIssued => TransactionalEmail::RefundIssued->value,
             self::Overdue => TransactionalEmail::RentalOverdue->value,
         };
@@ -37,6 +41,8 @@ enum GhlMessageKind: string
             self::Receipt => 'Receipt',
             self::Reminder => 'Reminder',
             self::Cancelled, self::GuestCancelled => 'Cancellation',
+            self::Rescheduled => 'New time',
+            self::PaymentFailed => 'Payment failed',
             self::RefundIssued => 'Refund',
             self::Overdue => 'Overdue rental',
         };

@@ -44,6 +44,8 @@ final class GhlBookingNotice
             GhlMessageKind::Receipt => $this->receipt($channel, $service, $reference, $payment, $snapshot),
             GhlMessageKind::Reminder => $this->reminder($channel, $service, $reference, $when, $offsetMinutes),
             GhlMessageKind::Cancelled, GhlMessageKind::GuestCancelled => $this->cancelled($channel, $service, $reference, $when),
+            GhlMessageKind::Rescheduled => $this->rescheduled($channel, $service, $reference, $when),
+            GhlMessageKind::PaymentFailed => $this->paymentFailed($channel, $service, $reference, $when),
             GhlMessageKind::RefundIssued => $this->refund($channel, $service, $reference, $refund),
             GhlMessageKind::Overdue => $this->overdue($channel, $service, $reference, $checkout, $timezone),
         };
@@ -134,6 +136,32 @@ final class GhlBookingNotice
             'Your '.$service.' booking was cancelled.',
             $reference,
             'Starts '.$when,
+        ]);
+    }
+
+    private function rescheduled(string $channel, string $service, string $reference, string $when): string
+    {
+        if ($channel === 'sms') {
+            return 'New time: '.$service.' at '.$when.'. '.$reference.'.';
+        }
+
+        return implode("\n", [
+            'Your '.$service.' booking is now on '.$when.'.',
+            $reference,
+            'Your check-in code has not changed.',
+        ]);
+    }
+
+    private function paymentFailed(string $channel, string $service, string $reference, string $when): string
+    {
+        if ($channel === 'sms') {
+            return 'Payment failed for '.$service.' at '.$when.'. '.$reference.'.';
+        }
+
+        return implode("\n", [
+            'Your payment for '.$service.' on '.$when.' did not go through, so the booking is not confirmed yet.',
+            'Please try again from the booking page.',
+            $reference,
         ]);
     }
 
