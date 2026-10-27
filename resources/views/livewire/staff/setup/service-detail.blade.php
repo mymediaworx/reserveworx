@@ -136,9 +136,12 @@
             @else
                 <ul class="rows compact">
                     @foreach ($service->requirements as $req)
-                        <li class="row">
+                        <li class="row" data-gear="{{ $req->id }}">
                             <span class="grow">{{ $resourceNames[$req->resource_id] ?? 'Gear' }}</span>
                             <span class="muted">{{ $req->quantity }}{{ $req->per_participants ? ' for every '.$req->per_participants.' '.($req->per_participants === 1 ? 'person' : 'people') : ' per booking' }}</span>
+                            @if ($canManage)
+                                <button type="button" class="button small" wire:click="removeRequirement('{{ $req->id }}')" aria-label="Remove {{ $resourceNames[$req->resource_id] ?? 'gear' }}">Remove</button>
+                            @endif
                         </li>
                     @endforeach
                 </ul>

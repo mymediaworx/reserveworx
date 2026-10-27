@@ -20,6 +20,7 @@ use App\Models\Service;
 use App\Models\ServiceDuration;
 use App\Models\ServiceVariant;
 use App\Models\WaitlistEntry;
+use App\Services\Catalog\ServiceGear;
 use App\Services\Catalog\VariantResourceWriter;
 use App\Services\Inventory\ClosureCalendar;
 use App\Support\DisplayZone;
@@ -225,6 +226,18 @@ class ServiceDetail extends Component
         ]);
         $this->reset('requirementQuantity', 'requirementPer');
         $this->flash = 'Gear linked.';
+    }
+
+    public function removeRequirement(string $id): void
+    {
+        $service = $this->editable();
+        $requirement = ResourceRequirement::query()->find($id);
+        abort_unless(
+            $requirement instanceof ResourceRequirement && $requirement->service_id === $service->id,
+            404,
+        );
+        app(ServiceGear::class)->remove($service, $requirement, request());
+        $this->flash = 'Gear removed. Bookings already held stay as they are.';
     }
 
     public function saveVariant(): void
