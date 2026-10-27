@@ -226,9 +226,13 @@ class StaffAssetTypeTest extends TestCase
 
         Livewire::test(Resources::class)
             ->call('setCategory', 'pool', $shop['pool']->id, $foreignCategory->id)
-            ->assertHasErrors('pool-'.$shop['pool']->id.'-category')
+            ->assertHasErrors('pool-'.$shop['pool']->id.'-category');
+
+        Livewire::test(Resources::class)
             ->call('setCategory', 'pool', $foreignPool->id, $foreignCategory->id)
-            ->assertNotFound()
+            ->assertNotFound();
+
+        Livewire::test(Resources::class)
             ->set('kind', 'pool')
             ->set('locationId', $shop['location']->id)
             ->set('name', 'Borrowed')
