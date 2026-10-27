@@ -25,6 +25,7 @@ use App\Models\User;
 use App\Models\WebhookEvent;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
+use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -998,11 +999,206 @@ class PricingCheckoutTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_a_fee_refund_that_arrives_before_the_fee_id_is_stored_when_the_id_is_linked(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $this->app->instance(StripeGateway::class, new FakeStripeGateway);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service, '-fee-order');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        $snapshot = PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail();
+        $customerTotal = $snapshot->payload['customer_total_cents'];
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+
+        $session = [
+            'id' => 'cs_fee_order',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_fee_order',
+            'metadata' => [
+                'booking_id' => $bookingId,
+                'tenant_id' => $workspace['tenant']->id,
+            ],
+        ];
+        $this->postWebhook('evt_fee_order_paid', 'checkout.session.completed', $session, 'acct_test_123')->assertOk();
+
+        $other = $this->otherFee();
+
+        $this->postWebhook('evt_fee_order_refund_first', 'application_fee.refunded', [
+            'id' => 'fee_order_123',
+            'amount_refunded' => 150,
+        ])->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $fee = PlatformFee::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertNull($fee->stripe_fee_id);
+        $this->assertSame(0, $fee->refunded_cents);
+        $this->assertSame(0, Refund::query()->count());
+        app(TenantManager::class)->forget();
+
+        $this->postWebhook('evt_fee_order_created', 'application_fee.created', [
+            'id' => 'fee_order_123',
+            'amount' => 300,
+            'account' => 'acct_test_123',
+        ], 'acct_test_123')->assertOk();
+
+        $this->postWebhook('evt_fee_order_refund_older', 'application_fee.refunded', [
+            'id' => 'fee_order_123',
+            'amount_refunded' => 40,
+        ])->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $fee = PlatformFee::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertSame('fee_order_123', $fee->stripe_fee_id);
+        $this->assertSame(300, $fee->amount_cents);
+        $this->assertSame(150, $fee->refunded_cents);
+        $this->assertSame(10_300, Payment::query()->where('booking_id', $bookingId)->firstOrFail()->amount_cents);
+        $fresh = PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertSame($customerTotal, $fresh->payload['customer_total_cents']);
+        $this->assertSame(0, Refund::query()->count());
+        app(TenantManager::class)->forget();
+
+        $freshOther = PlatformFee::withoutGlobalScope(TenantScope::class)->findOrFail($other->id);
+        $this->assertNull($freshOther->stripe_fee_id);
+        $this->assertSame(0, $freshOther->refunded_cents);
+        $this->assertSame(300, $freshOther->amount_cents);
+    }
+
+    public function test_a_fee_refund_that_arrives_before_the_payment_is_applied_when_the_fee_is_recorded(): void
+    {
+        Http::fake();
+        Mail::fake();
+        $this->app->instance(StripeGateway::class, new FakeStripeGateway);
+
+        [$workspace, $service] = $this->rental();
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->hold($service, '-fee-early');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/services/'.$service->id.'/prices'), [
+            'name' => 'Base',
+            'kind' => 'base',
+            'amount_cents' => 10_000,
+        ])->assertCreated();
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/pricing'))->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        StripeAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'stripe_account_id' => 'acct_test_123',
+            'card_payments_status' => 'active',
+            'livemode' => false,
+        ]);
+        app(TenantManager::class)->forget();
+
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId.'/checkout-session'), [
+            'success_url' => 'https://dock.test/paid',
+            'cancel_url' => 'https://dock.test/cancel',
+        ])->assertOk();
+
+        $this->postWebhook('evt_fee_early_created', 'application_fee.created', [
+            'id' => 'fee_early_123',
+            'amount' => 300,
+            'account' => 'acct_test_123',
+        ], 'acct_test_123')->assertOk();
+        $this->postWebhook('evt_fee_early_refund', 'application_fee.refunded', [
+            'id' => 'fee_early_123',
+            'amount_refunded' => 150,
+        ])->assertOk();
+
+        $session = [
+            'id' => 'cs_fee_early',
+            'payment_status' => 'paid',
+            'amount_total' => 10_300,
+            'payment_intent' => 'pi_fee_early',
+            'metadata' => [
+                'booking_id' => $bookingId,
+                'tenant_id' => $workspace['tenant']->id,
+            ],
+        ];
+        $this->postWebhook('evt_fee_early_paid', 'checkout.session.completed', $session, 'acct_test_123')->assertOk();
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $fee = PlatformFee::query()->where('booking_id', $bookingId)->firstOrFail();
+        $this->assertSame('fee_early_123', $fee->stripe_fee_id);
+        $this->assertSame(150, $fee->refunded_cents);
+        $this->assertSame(0, Refund::query()->count());
+        $this->assertSame(10_300, (int) PricingSnapshot::query()->where('booking_id', $bookingId)->firstOrFail()->payload['customer_total_cents']);
+        app(TenantManager::class)->forget();
+    }
+
     public function test_an_unconfigured_webhook_is_rejected(): void
     {
         $this->postJson('http://localhost/api/v1/stripe/webhook', ['id' => 'evt_x'], [
             'Stripe-Signature' => 'test-signature',
         ])->assertStatus(400)->assertJsonPath('message', 'Invalid Stripe signature.');
+    }
+
+    private function otherFee(): PlatformFee
+    {
+        $other = $this->workspace('pier.test');
+        app(TenantManager::class)->set($other['tenant']);
+        $location = Location::factory()->create([
+            'tenant_id' => $other['tenant']->id,
+            'timezone' => 'UTC',
+        ]);
+        $service = Service::query()->create([
+            'tenant_id' => $other['tenant']->id,
+            'location_id' => $location->id,
+            'name' => 'Other boat',
+            'kind' => 'rental',
+        ]);
+        $booking = Booking::query()->create([
+            'tenant_id' => $other['tenant']->id,
+            'location_id' => $location->id,
+            'service_id' => $service->id,
+            'status' => BookingStatus::Confirmed,
+            'payment_status' => PaymentStatus::Paid,
+            'operational_status' => OperationalStatus::NotArrived,
+            'starts_at' => '2026-06-15 15:00:00',
+            'ends_at' => '2026-06-15 16:00:00',
+            'participants' => 1,
+            'payload_hash' => hash('sha256', 'other-fee'),
+        ]);
+        $payment = Payment::query()->create([
+            'tenant_id' => $other['tenant']->id,
+            'booking_id' => $booking->id,
+            'method' => 'stripe',
+            'kind' => 'first_stripe_payment',
+            'status' => 'paid',
+            'amount_cents' => 10_300,
+            'fee_cents' => 300,
+        ]);
+        $fee = PlatformFee::query()->create([
+            'tenant_id' => $other['tenant']->id,
+            'booking_id' => $booking->id,
+            'payment_id' => $payment->id,
+            'amount_cents' => 300,
+            'refunded_cents' => 0,
+            'channel' => 'direct',
+        ]);
+        app(TenantManager::class)->forget();
+
+        return $fee;
     }
 
     /**
