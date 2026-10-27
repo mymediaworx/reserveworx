@@ -499,7 +499,7 @@ class BookingShow extends Component
             }
         }
 
-        $heldOpen = $booking->status === BookingStatus::Held
+        $heldOpen = $booking->status->isOpenHold()
             && $booking->holds->contains(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
 
         return view('livewire.staff.booking-show', [

@@ -14,6 +14,7 @@ use App\Models\Payment;
 use App\Models\PricingSnapshot;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
+use App\Models\TenantSetting;
 use App\Notifications\CustomerSignInLink;
 use App\Services\Customers\CustomerAccounts;
 use App\Support\BookingReference;
@@ -204,8 +205,10 @@ class CustomerAccountPageTest extends TestCase
             ->assertSee('data-when="upcoming"', false)
             ->assertSee('data-booking="'.$past->id.'"', false)
             ->assertSee('data-when="past"', false)
-            ->assertSee('Tue, Dec 1, 2026 10:00 AM')
-            ->assertSee('Tue, Jun 16, 2026 11:00 AM')
+            ->assertSee('data-visit', false)
+            ->assertSee('Tue, Dec 1, 10:00 AM – 11:00 AM EST')
+            ->assertSee('Tue, Jun 16, 11:00 AM – 12:00 PM EDT')
+            ->assertDontSee('Tue, Dec 1, 2026 10:00 AM')
             ->assertSee('$25.00')
             ->assertSee('data-receipt="'.$upcoming->id.'"', false)
             ->assertDontSee('Canoe')
@@ -266,6 +269,65 @@ class CustomerAccountPageTest extends TestCase
         $encoded = (string) json_encode(DB::table('audit_logs')->get());
         $this->assertStringNotContainsString(self::PASSWORD, $encoded);
         $this->assertStringNotContainsString(self::NEXT_PASSWORD, $encoded);
+    }
+
+    public function test_the_account_names_the_location_zone_including_a_daylight_saving_span(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-15 12:00:00', 'UTC'));
+        $workspace = $this->workspace('dock.test', 'owner', ['name' => 'Harbor Demo']);
+        $other = $this->workspace('creek.test', 'owner', ['name' => 'Creek']);
+        TenantSetting::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $workspace['tenant']->id)
+            ->update(['timezone' => 'America/Chicago']);
+        $spring = $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-03-07 15:00:00', '2026-03-09 15:00:00');
+        $fall = $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-10-31 14:00:00', '2026-11-02 14:00:00');
+        $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-06-16 15:00:00', '2026-06-16 16:00:00', 'UTC');
+        $this->booking($workspace['tenant']->id, 'Kayak', 'Ada Kayak', 'ada@example.com', '2026-06-16 15:00:00', '2026-06-16 16:00:00', 'Not/AZone');
+        $account = CustomerAccount::query()->create([
+            'tenant_id' => $workspace['tenant']->id,
+            'email' => 'ada@example.com',
+            'name' => 'Ada Kayak',
+        ]);
+        $account->forceFill(['email_verified_at' => now()])->save();
+        Customer::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $workspace['tenant']->id)
+            ->where('email', 'ada@example.com')
+            ->update(['customer_account_id' => $account->id]);
+
+        $payments = Payment::withoutGlobalScope(TenantScope::class)->count();
+        $snapshots = PricingSnapshot::withoutGlobalScope(TenantScope::class)->count();
+
+        $page = $this->actingAs($account, 'customer_web')
+            ->get($this->tenantUrl('dock.test', '/account'));
+
+        $page->assertOk()
+            ->assertSee('Sat, Mar 7, 10:00 AM EST – Mon, Mar 9, 11:00 AM EDT')
+            ->assertSee('Sat, Oct 31, 10:00 AM EDT – Mon, Nov 2, 9:00 AM EST')
+            ->assertSee('Tue, Jun 16, 3:00 PM – 4:00 PM UTC')
+            ->assertSee('Tue, Jun 16, 10:00 AM – 11:00 AM CDT')
+            ->assertSee('data-visit', false)
+            ->assertSee('@media (max-width: 390px)', false)
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertDontSee('9:00 AM CDT')
+            ->assertDontSee('8:00 AM CST')
+            ->assertDontSee('America/Chicago');
+
+        $this->get($this->tenantUrl('creek.test', '/account'))
+            ->assertOk()
+            ->assertSee('Email me a sign-in link')
+            ->assertDontSee($spring->id)
+            ->assertDontSee('10:00 AM EST')
+            ->assertDontSee('3:00 PM');
+
+        $this->assertSame($payments, Payment::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame($snapshots, PricingSnapshot::withoutGlobalScope(TenantScope::class)->count());
+        $storedSpring = Booking::withoutGlobalScope(TenantScope::class)->findOrFail($spring->id);
+        $storedFall = Booking::withoutGlobalScope(TenantScope::class)->findOrFail($fall->id);
+        $this->assertSame('2026-03-07 15:00:00', $storedSpring->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-03-09 15:00:00', $storedSpring->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-10-31 14:00:00', $storedFall->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-02 14:00:00', $storedFall->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertNotSame($workspace['tenant']->id, $other['tenant']->id);
     }
 
     public function test_a_json_sign_in_returns_a_bearer_token_without_signing_in_the_browser(): void
@@ -378,12 +440,12 @@ class CustomerAccountPageTest extends TestCase
         return $matches[1];
     }
 
-    private function booking(string $tenantId, string $serviceName, string $name, string $email, string $startsAt, string $endsAt): Booking
+    private function booking(string $tenantId, string $serviceName, string $name, string $email, string $startsAt, string $endsAt, string $timezone = 'America/New_York'): Booking
     {
         $location = Location::factory()->create([
             'tenant_id' => $tenantId,
             'name' => 'Harbor',
-            'timezone' => 'America/New_York',
+            'timezone' => $timezone,
         ]);
         $service = Service::query()->create([
             'tenant_id' => $tenantId,
