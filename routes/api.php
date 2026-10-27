@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\V1\Platform\FeeRevenueController;
 use App\Http\Controllers\Api\V1\Platform\FeeSettingsController;
 use App\Http\Controllers\Api\V1\Platform\GhlConnectionController;
 use App\Http\Controllers\Api\V1\Platform\ManualFeeRefundController;
+use App\Http\Controllers\Api\V1\Platform\PlatformAdministratorController;
 use App\Http\Controllers\Api\V1\Platform\TenantController as PlatformTenantController;
 use App\Http\Controllers\Api\V1\Platform\TenantExportController;
 use App\Http\Controllers\Api\V1\PoolController;
@@ -62,6 +63,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/me', [AuthController::class, 'me']);
 
         Route::middleware('platform.admin')->prefix('platform')->group(function (): void {
+            Route::get('/administrators', [PlatformAdministratorController::class, 'index']);
+            Route::delete('/administrators', [PlatformAdministratorController::class, 'destroy']);
             Route::get('/tenants', [PlatformTenantController::class, 'index']);
             Route::post('/tenants', [PlatformTenantController::class, 'store']);
             Route::get('/tenants/{tenant}', [PlatformTenantController::class, 'show']);
