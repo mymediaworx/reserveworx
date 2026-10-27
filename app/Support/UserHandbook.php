@@ -115,7 +115,7 @@ final class UserHandbook
                     $this->topic('Closures', 'A closed day or a closed part of the day. Bookings that overlap stay booked.', '/staff/closures', 'settings.view'),
                     $this->topic('Waivers', 'The current waiver text. A signed copy downloads from the booking.', '/staff/waivers', 'settings.view'),
                     $this->topic($catalog, 'Prep time, return time, and what is available to rent.', '/staff/setup/resources', 'inventory.view'),
-                    $this->topic('Services', 'Services, lengths, options, and departures. An empty departure can be cancelled. One that still has a booking stays scheduled. Prices stay on the service page.', '/staff/setup/services', 'inventory.view'),
+                    $this->topic('Services', 'Services, lengths, options, and departures. An empty departure can be cancelled. One that still has a booking stays scheduled. Linked gear can be removed. A booking that already took it stays booked. Prices stay on the service page.', '/staff/setup/services', 'inventory.view'),
                     $this->topic('Promo codes', 'Codes guests can enter on the review page.', '/staff/promo-codes', 'inventory.view'),
                     $this->topic('Add-ons', 'Optional equipment and extras on the booking page.', '/staff/add-ons', 'inventory.view'),
                     $this->topic('Corporate accounts', 'Named accounts for a staff booking or a quote.', '/staff/corporate-accounts', 'inventory.view'),
