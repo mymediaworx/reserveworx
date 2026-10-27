@@ -119,8 +119,8 @@ class WidgetController extends Controller
             'old' => $chosen,
             'suggestions' => [],
             'offerWaitlist' => false,
-            'departureChoices' => $this->departureChoices($service),
-            'slots' => $this->openTimes($service, $chosen),
+            'departureChoices' => $this->departureChoices($service, $chosen, $setting),
+            'slots' => $this->openTimes($service, $chosen, $setting),
             'today' => $this->localToday($service),
             'timeZoneNote' => $this->timeZoneNote($service),
             'addOns' => $this->catalogAddOns(),
@@ -849,17 +849,24 @@ class WidgetController extends Controller
     }
 
     /**
+     * A tour with options keeps the all-in price on those options. A tour with
+     * none shows the existing quote on each departure, for the party on the
+     * form. This does not write a quote.
+     *
+     * @param  array<string, mixed>  $input
      * @return list<array{id: string, label: string}>
      */
-    private function departureChoices(Service $service): array
+    private function departureChoices(Service $service, array $input = [], ?TenantSetting $setting = null): array
     {
         if ($service->kind !== ServiceKind::Tour) {
             return [];
         }
 
+        $service->loadMissing('variants');
         $departures = $this->slots->upcoming($service);
         $counts = Departure::headcountsFor($departures);
         $zone = $this->visibleZone($service->location);
+        $participants = is_numeric($input['participants'] ?? null) ? max(1, (int) $input['participants']) : 1;
         $choices = [];
 
         foreach ($departures as $departure) {
@@ -873,6 +880,10 @@ class WidgetController extends Controller
                 $label .= ' · '.$left.' seats left';
             }
 
+            if ($service->variants->isEmpty()) {
+                $label .= $this->departurePriceLabel($service, $setting, $participants, $departure, $when);
+            }
+
             $choices[] = [
                 'id' => $departure->id,
                 'label' => $label,
@@ -880,6 +891,26 @@ class WidgetController extends Controller
         }
 
         return $choices;
+    }
+
+    private function departurePriceLabel(Service $service, ?TenantSetting $setting, int $participants, Departure $departure, CarbonImmutable $when): string
+    {
+        $starts = CarbonImmutable::instance($departure->starts_at);
+        $ends = CarbonImmutable::instance($departure->ends_at);
+        $minutes = max(1, (int) $starts->diffInMinutes($ends, true));
+        $quote = $this->quotedTotal($service, $setting, $participants, $minutes, $when, null);
+
+        if ($quote['total_cents'] === null) {
+            return '';
+        }
+
+        $label = ' · '.Money::format($quote['total_cents'], $quote['currency']);
+
+        if ($quote['fee_included']) {
+            $label .= ' · Booking fee included';
+        }
+
+        return $label;
     }
 
     /**
@@ -1135,23 +1166,26 @@ class WidgetController extends Controller
      */
     private function formResponse(string $token, Service $service, string $error, Request $request, int $status, array $offers = [], bool $offerWaitlist = false): Response
     {
+        $setting = $this->setting($this->tenant($request));
+        $input = $request->all();
+
         return response()->view('widget.form', [
             'token' => $token,
             'service' => $service,
             'error' => $error,
-            'old' => $request->all(),
+            'old' => $input,
             'suggestions' => $this->suggestionLines($service, $offers),
             'offerWaitlist' => $offerWaitlist && $service->waitlist_enabled,
-            'departureChoices' => $this->departureChoices($service),
-            'slots' => $this->openTimes($service, $request->all()),
+            'departureChoices' => $this->departureChoices($service, $input, $setting),
+            'slots' => $this->openTimes($service, $input, $setting),
             'today' => $this->localToday($service),
             'timeZoneNote' => $this->timeZoneNote($service),
             'addOns' => $this->catalogAddOns(),
             'currency' => $this->currency(),
-            'groupPrice' => $this->groupPrice($service, $request->all(), $this->setting($this->tenant($request))),
+            'groupPrice' => $this->groupPrice($service, $input, $setting),
             'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
-            'options' => $this->optionChoices($service, $this->setting($this->tenant($request))),
-            'lengthChoices' => $this->lengthChoices($service, $this->setting($this->tenant($request))),
+            'options' => $this->optionChoices($service, $setting),
+            'lengthChoices' => $this->lengthChoices($service, $setting),
         ], $status);
     }
 
@@ -1161,9 +1195,9 @@ class WidgetController extends Controller
      * still only a hint; the hold rechecks it under lock (#135).
      *
      * @param  array<string, mixed>  $input
-     * @return list<array{value: string, label: string, available: bool, closed: bool}>|null
+     * @return list<array{value: string, label: string, available: bool, closed: bool, total_cents: int|null, currency: string, fee_included: bool}>|null
      */
-    private function openTimes(Service $service, array $input): ?array
+    private function openTimes(Service $service, array $input, ?TenantSetting $setting = null): ?array
     {
         if ($service->kind === ServiceKind::Tour || ! $service->location instanceof Location) {
             return null;
@@ -1190,18 +1224,50 @@ class WidgetController extends Controller
 
         $participants = is_numeric($input['participants'] ?? null) ? max(1, (int) $input['participants']) : 1;
         $zone = $this->visibleZone($service->location);
+        $override = $this->optionOverride($service, $variantId);
         $times = [];
 
         foreach ($this->slots->rentalSlots($service, $date, $minutes, $participants, CarbonImmutable::now(), false, is_string($variantId) && $variantId !== '' ? $variantId : null) as $slot) {
+            $when = $slot['starts_at']->timezone($zone);
+            $quote = $this->quotedTotal($service, $setting, $participants, $minutes, $when, $override);
             $times[] = [
-                'value' => $slot['starts_at']->timezone($zone)->format('H:i'),
+                'value' => $when->format('H:i'),
                 'label' => $slot['label'],
                 'available' => $slot['available'],
                 'closed' => $slot['closed'],
+                'total_cents' => $quote['total_cents'],
+                'currency' => $quote['currency'],
+                'fee_included' => $quote['fee_included'],
             ];
         }
 
         return $times;
+    }
+
+    /**
+     * The quote already calculated for this start. Nothing is stored.
+     *
+     * @return array{total_cents: int|null, fee_included: bool, currency: string}
+     */
+    private function quotedTotal(Service $service, ?TenantSetting $setting, int $participants, int $minutes, CarbonImmutable $on, ?int $baseOverrideCents): array
+    {
+        $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
+
+        try {
+            $preview = $this->previewAt($service, $setting, $participants, $minutes, $on, $baseOverrideCents);
+
+            return [
+                'total_cents' => $preview['total_cents'],
+                'fee_included' => $preview['fee_included'],
+                'currency' => $preview['currency'],
+            ];
+        } catch (InvalidArgumentException) {
+            return [
+                'total_cents' => null,
+                'fee_included' => false,
+                'currency' => $currency,
+            ];
+        }
     }
 
     private function visibleZone(?Location $location): string
