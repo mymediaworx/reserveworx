@@ -61,7 +61,7 @@ composer audit
 | [`docs/FEES.md`](docs/FEES.md) | Fee rules. The calculator is not implemented |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | How production deploys and rollbacks work |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | What to do when something fails |
-| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Release notes |
+| [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Release notes. A pull request adds a file in [`docs/changelog.d/`](docs/changelog.d/README.md) instead of editing Unreleased |
 
 ## Hosting check and deploy
 

@@ -156,6 +156,7 @@ jobs:
             --exclude 'node_modules' \
             --exclude 'tests' \
             --exclude '.github' \
+            --exclude '.cursor' \
             --exclude 'docs' \
             --exclude 'phpunit.xml' \
             --exclude 'phpstan.neon' \
