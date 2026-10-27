@@ -67,6 +67,23 @@
         </form>
     </section>
 
+    <section class="panel" id="capacity-ledger">
+        <h2>Shared gear lock</h2>
+        <p>Pools of interchangeable gear are locked in blocks of this many minutes. The usual length is 15. The next booking uses the length you save. A booking that is already held keeps the blocks it used. Saving does not change a price, a payment, a tax, a fee, or a refund.</p>
+        <form wire:submit="saveLedgerBucket" class="stack">
+            <label class="field compact">
+                <span>Block length</span>
+                <select wire:model="ledgerBucketMinutes" @disabled(! $canUpdate)>
+                    @foreach ($ledgerBucketChoices as $minutes)
+                        <option value="{{ $minutes }}">{{ $minutes }} minutes</option>
+                    @endforeach
+                </select>
+            </label>
+            @error('ledgerBucketMinutes')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdate)<button type="submit" class="button primary">Save block length</button>@endif
+        </form>
+    </section>
+
     <section class="panel">
         <h2>Cancellation and refunds</h2>
         <p>These windows decide the card refund when a customer cancels, and the refund when a booking is marked as a no-show. Until you save a window, a customer cancellation does not refund a card.</p>
