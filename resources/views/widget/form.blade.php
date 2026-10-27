@@ -172,6 +172,9 @@
                             <label @class(['is-full' => ! $slot['available']])>
                                 <input type="radio" name="start" value="{{ $slot['value'] }}" required @disabled(! $slot['available']) @checked(($old['start'] ?? '') === $slot['value'] && $slot['available'])>
                                 <span>{{ $slot['label'] }}</span>
+                                @if (($slot['total_cents'] ?? null) !== null)
+                                    <span class="slot-price">{{ \App\Domain\Fees\Disclosures\Money::format($slot['total_cents'], $slot['currency']) }}@if ($slot['fee_included']) <span class="optional">Booking fee included</span>@endif</span>
+                                @endif
                                 @unless ($slot['available'])
                                     <span class="slot-note">{{ $slot['closed'] ? 'Closed' : 'Booked' }}</span>
                                 @endunless
