@@ -74,11 +74,10 @@ class RemoveServiceGearTest extends TestCase
         ])->assertCreated()->json('data.id');
         $this->postJson($this->tenantUrl('alpha.test', '/api/v1/bookings/'.$bookingId.'/confirm'))->assertOk();
 
+        $this->useTenant($workspace['tenant']);
         $this->assertSame($this->sortedIds([$jackets->id, $shop['pool']->id]), $this->allocatedPools($bookingId));
 
-        app(TenantManager::class)->set($workspace['tenant']);
         $this->actingAs($workspace['user']);
-
         $this->get($this->tenantUrl('alpha.test', '/staff/setup/services/'.$shop['service']->id))
             ->assertOk()
             ->assertSee('data-gear="'.$jacketLink->id.'"', false)
@@ -86,12 +85,14 @@ class RemoveServiceGearTest extends TestCase
             ->assertSee('@media (max-width: 390px)', false)
             ->assertSee('.service-detail .row .button { min-height: 44px; white-space: normal; }', false);
 
+        $this->useTenant($workspace['tenant']);
         Livewire::test(ServiceDetail::class, ['service' => $shop['service']->id])
             ->call('removeRequirement', $jacketLink->id)
             ->assertHasNoErrors()
             ->assertSee('Gear removed. Bookings already held stay as they are.')
             ->assertSee('Single kayak')
-            ->assertDontSee('Life jacket')
+            ->assertSee('data-gear="'.$kayakLink->id.'"', false)
+            ->assertDontSee('data-gear="'.$jacketLink->id.'"', false)
             ->assertSee('removeRequirement', false);
 
         $this->assertNull(ResourceRequirement::query()->find($jacketLink->id));
@@ -110,6 +111,7 @@ class RemoveServiceGearTest extends TestCase
             'idempotency_key' => 'kayak-only',
         ])->assertCreated()->json('data.id');
 
+        $this->useTenant($workspace['tenant']);
         $this->assertSame([$shop['pool']->id], Hold::query()->where('booking_id', $nextId)->pluck('pool_id')->all());
         $this->assertSame(0, Hold::query()->where('booking_id', $nextId)->where('pool_id', $jackets->id)->count());
 
@@ -125,7 +127,7 @@ class RemoveServiceGearTest extends TestCase
             'idempotency_key' => 'no-gear',
         ])->assertStatus(409)->assertJsonPath('message', 'This service has no resources.');
 
-        app(TenantManager::class)->set($workspace['tenant']);
+        $this->useTenant($workspace['tenant']);
         $this->assertSame(2, Booking::query()->count());
         $this->assertSame(BookingStatus::Confirmed, Booking::query()->findOrFail($bookingId)->status);
         $this->assertSame($this->sortedIds([$jackets->id, $shop['pool']->id]), $this->allocatedPools($bookingId));
@@ -170,6 +172,7 @@ class RemoveServiceGearTest extends TestCase
         Sanctum::actingAs($staff);
         $this->deleteJson($this->tenantUrl('alpha.test', '/api/v1/services/'.$shop['service']->id.'/requirements/'.$link->id))
             ->assertForbidden();
+        $this->useTenant($workspace['tenant']);
         $this->assertNotNull(ResourceRequirement::query()->find($link->id));
 
         $this->actingAs($workspace['user']);
@@ -192,12 +195,13 @@ class RemoveServiceGearTest extends TestCase
         Sanctum::actingAs($workspace['user']);
         $this->deleteJson($this->tenantUrl('alpha.test', '/api/v1/services/'.$shop['service']->id.'/requirements/'.$link->id))
             ->assertNotFound();
+        $this->useTenant($workspace['tenant']);
         $this->assertNotNull(ResourceRequirement::query()->find($link->id));
 
         $workspace['membership']->locations_restricted = false;
         $workspace['membership']->save();
         app(StaffLocationAccess::class)->forget();
-        app(TenantManager::class)->set($workspace['tenant']);
+        $this->useTenant($workspace['tenant']);
         $this->actingAs($workspace['user']);
 
         Livewire::test(ServiceDetail::class, ['service' => $shop['service']->id])
@@ -209,6 +213,7 @@ class RemoveServiceGearTest extends TestCase
         Sanctum::actingAs($workspace['user']);
         $this->deleteJson($this->tenantUrl('alpha.test', '/api/v1/services/'.$shop['service']->id.'/requirements/'.$otherLink->id))
             ->assertNotFound();
+        $this->useTenant($workspace['tenant']);
         $this->assertNotNull(ResourceRequirement::query()->find($otherLink->id));
 
         $beta = $this->workspace('beta.test');
@@ -218,18 +223,23 @@ class RemoveServiceGearTest extends TestCase
         $this->deleteJson($this->tenantUrl('beta.test', '/api/v1/services/'.$shop['service']->id.'/requirements/'.$link->id))
             ->assertNotFound();
 
-        app(TenantManager::class)->set($beta['tenant']);
+        $this->useTenant($beta['tenant']);
         $this->actingAs($beta['user']);
         Livewire::test(ServiceDetail::class, ['service' => $shop['service']->id])
             ->assertNotFound();
 
-        app(TenantManager::class)->set($workspace['tenant']);
+        $this->useTenant($workspace['tenant']);
         $this->assertNotNull(ResourceRequirement::query()->find($link->id));
         $this->assertSame(0, AuditLog::query()->where('action', 'service.requirement_removed')->count());
         $this->assertSame(0, Payment::query()->count());
         $this->assertSame(0, Refund::query()->count());
         $this->assertSame(0, PlatformFee::query()->count());
         $this->assertSame(0, PlatformFeeRefund::query()->count());
+    }
+
+    private function useTenant(Tenant $tenant): void
+    {
+        app(TenantManager::class)->set($tenant);
     }
 
     /**
