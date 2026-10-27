@@ -8,9 +8,10 @@ use App\Models\Booking;
 use App\Models\Departure;
 use App\Models\Location;
 use App\Models\Service;
+use App\Support\Display;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
-use DateTimeZone;
 
 /**
  * Seat cap, seats booked, and seats attended for each tour departure in a
@@ -37,6 +38,7 @@ final class TourAttendance
      *     location: string,
      *     timezone: string,
      *     starts_at: string,
+     *     when: string,
      *     capacity: int,
      *     seats_booked: int,
      *     seats_attended: int,
@@ -96,6 +98,7 @@ final class TourAttendance
                 'location' => $location instanceof Location ? $location->name : 'Location',
                 'timezone' => $zone,
                 'starts_at' => $local->format('Y-m-d\TH:i:s'),
+                'when' => $this->when($departure, $zone),
                 'capacity' => $capacity,
                 'seats_booked' => $booked,
                 'seats_attended' => $attended,
@@ -132,6 +135,7 @@ final class TourAttendance
                 $row['no_show_seats'],
                 $row['fill_rate_bps'],
                 $row['attendance_rate_bps'],
+                $row['when'],
             ];
         }
 
@@ -149,6 +153,7 @@ final class TourAttendance
             'no_show_seats',
             'fill_rate_bps',
             'attendance_rate_bps',
+            'when',
         ], $rows);
     }
 
@@ -224,9 +229,27 @@ final class TourAttendance
 
     private function zone(mixed $location): string
     {
-        $timezone = $location instanceof Location ? $location->timezone : 'UTC';
+        if ($location instanceof Location) {
+            return DisplayZone::forLocation($location);
+        }
 
-        return in_array($timezone, DateTimeZone::listIdentifiers(), true) ? $timezone : 'UTC';
+        return DisplayZone::forTenant(null);
+    }
+
+    private function when(Departure $departure, string $zone): string
+    {
+        $start = $departure->starts_at;
+        $end = $departure->ends_at;
+
+        if (! $start instanceof DateTimeInterface) {
+            return '';
+        }
+
+        if (! $end instanceof DateTimeInterface) {
+            return Display::dateTimeWithZone($start, $zone);
+        }
+
+        return Display::rangeWithZone($start, $end, $zone);
     }
 
     private function localStart(mixed $instant, string $zone): ?CarbonImmutable
