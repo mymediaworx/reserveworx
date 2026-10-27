@@ -73,7 +73,7 @@ erDiagram
   }
 ```
 
-`users.id` is a ULID. `sessions.user_id` and Sanctum's `personal_access_tokens.tokenable` use ULIDs as well. `audit_logs.tenant_id` is nullable because platform actions are not tenant-owned. Roles and permissions are system rows, not per tenant.
+`users.id` is a ULID. `sessions.user_id` and Sanctum's `personal_access_tokens.tokenable` use ULIDs as well. `audit_logs.tenant_id` is nullable because platform actions are not tenant-owned. Roles and permissions are system rows, not per tenant. `/staff/audit` lists the latest 50 rows for an owner or manager with `audit.view` who is not limited to specific locations. The action filter is an exact match. The page does not write a row. Another workspace's rows are not listed. Staff cannot open it.
 
 `tenants.industry` is one of the eighteen industry keys, default `boat_rentals`. It chooses staff vocabulary. It does not change inventory, pricing, or fees. Migration `database/migrations/2026_10_25_000438_add_industry_to_tenants_table.php`.
 

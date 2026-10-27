@@ -59,6 +59,7 @@ class StaffPagesTest extends TestCase
             '/staff/add-ons' => 'No add-ons yet.',
             '/staff/import' => 'Upload a CSV',
             '/staff/customers' => 'Customer records',
+            '/staff/audit' => 'Audit log',
             '/staff/setup/services/'.$shop['service']->id => 'Per paddler',
             '/staff/settings' => 'Who pays the booking fee',
             '/staff/team' => 'Invite by email',
