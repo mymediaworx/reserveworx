@@ -78,7 +78,7 @@ class WaitlistOpeningNoticeTest extends TestCase
 
                 return $to->routes['mail'] === 'ada@example.com'
                     && $mail->subject === 'A spot opened with '.$mail->businessName
-                    && str_contains($body, 'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM.')
+                    && str_contains($body, 'A spot opened for Kayak rental on Sat, Jul 4, 10:00 AM – 11:00 AM EDT.')
                     && str_contains($body, 'The booking is held for you.')
                     && str_contains($body, 'Reference: '.strtoupper(substr($booking->id, -8)).'.')
                     && ! str_contains($body, '$')
