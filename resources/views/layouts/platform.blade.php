@@ -17,6 +17,7 @@
             </a>
             <nav class="side-nav" aria-label="Main">
                 <a href="/platform" wire:navigate @class(['is-active' => request()->is('platform', 'platform/tenants*')])><x-icon name="building" size="20" /> Workspaces</a>
+                <a href="/platform/readiness" wire:navigate @class(['is-active' => request()->is('platform/readiness')])><x-icon name="shield" size="20" /> Readiness</a>
             </nav>
             <div class="side-user">
                 <span>{{ auth()->user()?->name }}</span>
