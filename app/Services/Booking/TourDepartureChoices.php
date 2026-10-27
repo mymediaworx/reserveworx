@@ -54,7 +54,7 @@ final class TourDepartureChoices
                 $note = 'Full';
             }
 
-            $label = Display::range(
+            $label = Display::rangeWithZone(
                 $departure->starts_at,
                 $departure->ends_at,
                 DisplayZone::forLocation($departure->location),

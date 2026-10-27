@@ -20,6 +20,7 @@
                 <a href="/platform/help" wire:navigate @class(['is-active' => request()->is('platform/help')]) @if(request()->is('platform/help')) aria-current="page" @endif><x-icon name="book" size="20" /> Handbook</a>
                 <a href="/platform/readiness" wire:navigate @class(['is-active' => request()->is('platform/readiness')])><x-icon name="shield" size="20" /> Readiness</a>
                 <a href="/platform/upgrade" wire:navigate @class(['is-active' => request()->is('platform/upgrade')]) @if(request()->is('platform/upgrade')) aria-current="page" @endif><x-icon name="refresh" size="20" /> Upgrade</a>
+                <a href="/platform/demo" wire:navigate @class(['is-active' => request()->is('platform/demo')]) @if(request()->is('platform/demo')) aria-current="page" @endif><x-icon name="apps" size="20" /> Demo</a>
             </nav>
             <div class="side-user">
                 <span>{{ auth()->user()?->name }}</span>

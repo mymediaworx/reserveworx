@@ -427,11 +427,17 @@ class GuestBookingController extends Controller
                 continue;
             }
 
-            $start = CarbonImmutable::parse($time['starts_at'])->timezone($zone);
+            $start = CarbonImmutable::parse($time['starts_at']);
+            $local = $start->timezone($zone);
+            $end = is_string($time['ends_at'] ?? null) && $time['ends_at'] !== ''
+                ? CarbonImmutable::parse($time['ends_at'])
+                : null;
             $listed[] = [
-                'date' => $start->format('Y-m-d'),
-                'start' => $start->format('H:i'),
-                'label' => Display::dateTime($start, $zone),
+                'date' => $local->format('Y-m-d'),
+                'start' => $local->format('H:i'),
+                'label' => $end instanceof CarbonImmutable
+                    ? Display::rangeWithZone($start, $end, $zone)
+                    : Display::dateTimeWithZone($start, $zone),
             ];
         }
 
