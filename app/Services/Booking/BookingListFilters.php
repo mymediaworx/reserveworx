@@ -24,6 +24,11 @@ final class BookingListFilters
     public const NEEDS_ATTENTION = 'attention';
 
     /**
+     * Not a booking status: a hold, or a hold whose card checkout has started.
+     */
+    public const WAITING = 'waiting';
+
+    /**
      * @param  Builder<Booking>  $query
      * @return Builder<Booking>
      */
@@ -32,7 +37,7 @@ final class BookingListFilters
         return $query->where(function (Builder $inner): void {
             $inner->where(function (Builder $flagged): void {
                 $flagged->whereNotNull('attention_reason')
-                    ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value]);
+                    ->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value, BookingStatus::Confirmed->value]);
             })->orWhere('status', BookingStatus::PaymentException->value);
         });
     }
@@ -109,7 +114,7 @@ final class BookingListFilters
             : '';
 
         return [
-            'status' => in_array($this->status, [...$statuses, self::NEEDS_ATTENTION], true) ? $this->status : '',
+            'status' => in_array($this->status, [...$statuses, self::NEEDS_ATTENTION, self::WAITING], true) ? $this->status : '',
             'from' => $this->blocked ? '' : $this->from,
             'to' => $this->blocked ? '' : $this->to,
             'location' => $location,
@@ -133,6 +138,8 @@ final class BookingListFilters
 
         if (in_array($this->status, $statuses, true)) {
             $query->where('status', $this->status);
+        } elseif ($this->status === self::WAITING) {
+            $query->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value]);
         } elseif ($this->status === self::NEEDS_ATTENTION) {
             self::needsAttention($query);
         }

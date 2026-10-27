@@ -138,7 +138,7 @@ final class WebhookProcessor
 
             $fresh = Booking::query()->findOrFail($booking->id);
 
-            if ($fresh->status->value === 'held') {
+            if ($fresh->status->isOpenHold()) {
                 $fresh = $this->allocator->confirm($fresh);
             }
 

@@ -182,7 +182,7 @@ class PricingCheckoutTest extends TestCase
         $this->assertArrayNotHasKey('payment_method_types', $fake->sessions[0]['params']);
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
             ->assertOk()
-            ->assertJsonPath('data.status', 'held');
+            ->assertJsonPath('data.status', 'pending_payment');
 
         $this->postJson('http://localhost/api/v1/stripe/webhook', [
             'id' => 'evt_paid',
@@ -305,7 +305,7 @@ class PricingCheckoutTest extends TestCase
 
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
             ->assertOk()
-            ->assertJsonPath('data.status', 'held');
+            ->assertJsonPath('data.status', 'pending_payment');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame('pending', Payment::query()->firstOrFail()->status);
@@ -454,7 +454,7 @@ class PricingCheckoutTest extends TestCase
 
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$bookingId))
             ->assertOk()
-            ->assertJsonPath('data.status', 'held');
+            ->assertJsonPath('data.status', 'pending_payment');
 
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame('pending', Payment::query()->firstOrFail()->status);

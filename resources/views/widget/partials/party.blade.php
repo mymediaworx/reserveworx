@@ -1,6 +1,6 @@
 @php
     $named = $booking->namedParticipants;
-    $canName = in_array($booking->status->value, ['held', 'confirmed'], true);
+    $canName = in_array($booking->status->value, ['held', 'pending_payment', 'confirmed'], true);
     $room = $named->count() < $booking->participants;
     $partyOld = $partyOld ?? ['name' => '', 'is_minor' => false, 'guardian_name' => ''];
 @endphp
