@@ -343,9 +343,15 @@ final class WebhookProcessor
             ->first();
 
         if ($row instanceof PlatformFee) {
+            $refunded = max((int) $row->refunded_cents, $this->storedFeeRefundCents($feeId));
+
             PlatformFee::withoutGlobalScope(TenantScope::class)
                 ->where('id', $row->id)
-                ->update(['stripe_fee_id' => $feeId]);
+                ->whereNull('stripe_fee_id')
+                ->update([
+                    'stripe_fee_id' => $feeId,
+                    'refunded_cents' => $refunded,
+                ]);
         }
     }
 
@@ -383,10 +389,38 @@ final class WebhookProcessor
             }
 
             $fee->stripe_fee_id = $feeId;
+            $fee->refunded_cents = max((int) $fee->refunded_cents, $this->storedFeeRefundCents($feeId));
             $fee->save();
 
             return;
         }
+    }
+
+    /**
+     * Stripe reports amount_refunded as a running total. The refund event can
+     * arrive before the fee id is stored, and an older total can arrive later.
+     */
+    private function storedFeeRefundCents(string $feeId): int
+    {
+        $amount = 0;
+
+        foreach (WebhookEvent::query()->where('type', 'application_fee.refunded')->orderBy('id')->get() as $event) {
+            $payload = $event->payload;
+            $id = $payload['id'] ?? null;
+            $refunded = $payload['amount_refunded'] ?? null;
+
+            if ($id !== $feeId || ! is_numeric($refunded)) {
+                continue;
+            }
+
+            $cents = (int) $refunded;
+
+            if ($cents > $amount) {
+                $amount = $cents;
+            }
+        }
+
+        return $amount;
     }
 
     /**
@@ -401,8 +435,14 @@ final class WebhookProcessor
         }
 
         $amount = is_numeric($fee['amount_refunded'] ?? null) ? (int) $fee['amount_refunded'] : 0;
+
+        if ($amount < 1) {
+            return;
+        }
+
         PlatformFee::withoutGlobalScope(TenantScope::class)
             ->where('stripe_fee_id', $feeId)
+            ->where('refunded_cents', '<', $amount)
             ->update(['refunded_cents' => $amount]);
     }
 
