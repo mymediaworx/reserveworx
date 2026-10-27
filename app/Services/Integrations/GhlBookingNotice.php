@@ -48,6 +48,7 @@ final class GhlBookingNotice
             GhlMessageKind::PaymentFailed => $this->paymentFailed($channel, $service, $reference, $when),
             GhlMessageKind::RefundIssued => $this->refund($channel, $service, $reference, $refund),
             GhlMessageKind::Overdue => $this->overdue($channel, $service, $reference, $checkout, $timezone),
+            GhlMessageKind::WaitlistPromoted => $this->waitlistOpened($channel, $service, $reference, $when),
         };
 
         return [
@@ -149,6 +150,19 @@ final class GhlBookingNotice
             'Your '.$service.' booking is now on '.$when.'.',
             $reference,
             'Your check-in code has not changed.',
+        ]);
+    }
+
+    private function waitlistOpened(string $channel, string $service, string $reference, string $when): string
+    {
+        if ($channel === 'sms') {
+            return 'A spot opened for '.$service.' at '.$when.'. '.$reference.'.';
+        }
+
+        return implode("\n", [
+            'A spot opened for '.$service.' on '.$when.'.',
+            'The booking is held for you. Finish it from the booking page.',
+            $reference,
         ]);
     }
 
