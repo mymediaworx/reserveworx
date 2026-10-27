@@ -165,7 +165,7 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 ## Tenant data exports
 
-`tenant_data_exports` records a private JSON file for one workspace. `path` is on the local disk, which is not public. `row_counts` is the number of rows written per table. Termination is refused while no completed file for that tenant is still on disk. The file omits passwords and the GoHighLevel private integration token. It does not delete the workspace.
+`tenant_data_exports` records a private JSON file for one workspace. `path` is on the local disk, which is not public. `row_counts` is the number of rows written per table. Termination is refused while no completed file for that tenant is still on disk. The file omits passwords, the GoHighLevel private integration token, webhook signing secrets, and `url_hash`. It includes closures, fleet items, location fleet reserves, saved booking-list views, the setup guide, customer export and deletion rows, feedback, report summaries, and webhook endpoints, deliveries, and attempts. It does not include `customer_sign_in_tokens`, `staff_search_tokens`, or `staff_undo_actions`. It does not delete the workspace and it does not write a price, a payment, a tax, a fee, or a refund.
 
 ## Customer data export and deletion
 
