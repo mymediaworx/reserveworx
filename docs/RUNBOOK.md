@@ -67,6 +67,10 @@ Without `--password-file`, the command does not create a user. The production de
 
 An owner or manager opens `/staff/customers` on the workspace host. Search finds this workspace’s customers by name, email, or phone. **Download their record** queues the same private zip as the customer export API. The file stays on the local disk. The page shows a signed link that lasts 30 minutes. **Remove personal details** anonymizes that customer. It is refused until a download file is on disk, unless the person checks the box to remove details anyway. Bookings, payments, and signed waivers stay. How long a signed waiver is kept is still open question 3. Staff, and a member limited to some locations, cannot open the page.
 
+## Audit log
+
+An owner or manager opens `/staff/audit` on the workspace host. The page lists the latest 50 changes. Staff, and a member limited to some locations, cannot open it. The filter has to match the stored action, such as `booking.cancelled`. The page does not write a row. `GET /api/v1/audit-logs` is the same read.
+
 ## Queue looks stuck
 
 One Site Tools cron job calls `schedule:run`, which runs `queue:work database --stop-when-empty`. A worker stops after `QUEUE_WORK_MAX_TIME` (default 20 seconds). The reported GoGeek caps are 4,000 CPU-seconds per hour and 4,000 executions per hour. Sixty workers at 20 seconds use 1,200 CPU-seconds. Do not add a second cron and do not raise the max time without recounting that budget in [`DEPLOY.md`](DEPLOY.md).
