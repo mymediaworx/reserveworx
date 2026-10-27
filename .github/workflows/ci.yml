@@ -86,6 +86,34 @@ jobs:
 
       - run: composer audit
 
+  changelog:
+    name: Changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refuse edits to the Unreleased section
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base="${BASE_SHA}"
+          else
+            base="${BEFORE_SHA}"
+          fi
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            echo "No base commit to compare. Skipping."
+            exit 0
+          fi
+          git show "${base}:docs/CHANGELOG.md" > /tmp/changelog-base.md
+          bash .github/scripts/check-changelog-unreleased.sh /tmp/changelog-base.md docs/CHANGELOG.md
+
   tests:
     name: Tests (${{ matrix.name }})
     runs-on: ubuntu-latest
