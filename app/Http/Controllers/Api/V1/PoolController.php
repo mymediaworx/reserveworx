@@ -10,13 +10,17 @@ use App\Http\Resources\PoolResource;
 use App\Models\Pool;
 use App\Models\Tenant;
 use App\Services\AuditLogger;
+use App\Services\Operations\AffectedBookings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class PoolController extends Controller
 {
-    public function __construct(private readonly AuditLogger $audit) {}
+    public function __construct(
+        private readonly AuditLogger $audit,
+        private readonly AffectedBookings $affected,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -59,6 +63,7 @@ class PoolController extends Controller
 
     public function update(UpdatePoolRequest $request, Pool $pool): PoolResource
     {
+        $previous = $pool->status;
         $pool->fill($request->safe()->only([
             'location_id',
             'resource_category_id',
@@ -70,6 +75,7 @@ class PoolController extends Controller
             'turnaround_minutes',
         ]));
         $pool->save();
+        $this->affected->flagPoolStatus($pool, $previous);
 
         $this->audit->log('pool.updated', $pool, ['quantity' => $pool->quantity], request: $request);
 
