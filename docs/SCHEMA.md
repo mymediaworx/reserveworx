@@ -181,7 +181,7 @@ The client calls `https://services.leadconnectorhq.com` with `Authorization: Bea
 
 `ghl_mappings` stores that contact id. One row is unique on `(tenant_id, customer_id, location_id)`. `location_id` is the linked sub-account, the same value as `ghl_connections.location_id`. `contact_id` is the HighLevel contact id. A 404, or an update whose contact reports a different location, deletes that row and upserts again. Another workspace cannot read the row. The workspace export includes it. The customer export does not. Anonymizing the customer deletes it. Migration `2026_10_26_085822` adds the table.
 
-`ghl_message_logs` is one row per booking communication sent through GoHighLevel: `booking.confirmed`, `payment.receipt`, `booking.reminder`, `booking.cancelled`, `booking.guest_cancelled`, `refund.issued`, and `rental.overdue`. `dedupe_key` is unique per workspace. `status` is `queued`, `succeeded`, `failed`, or `skipped`. `attempts`, `http_status`, `error`, `location_id`, `channel`, and `ghl_message_id` record the try. The message body is not stored. Nothing is queued when the workspace has no link. The customer export does not include this table.
+`ghl_message_logs` is one row per booking communication sent through GoHighLevel: `booking.confirmed`, `payment.receipt`, `booking.reminder`, `booking.cancelled`, `booking.guest_cancelled`, `booking.guest_rescheduled`, `payment.failed`, `refund.issued`, and `rental.overdue`. `dedupe_key` is unique per workspace. `status` is `queued`, `succeeded`, `failed`, or `skipped`. `attempts`, `http_status`, `error`, `location_id`, `channel`, and `ghl_message_id` record the try. The message body is not stored. Nothing is queued when the workspace has no link. The customer export does not include this table.
 
 ## Booking mutation retries
 
@@ -198,7 +198,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - service-level tax rows beyond the snapshot's tax basis points, and discount tables beyond `promo_codes`
 - a waiver retention job. Signed waivers can be downloaded as PDF from the booking page and from the API. How long they are kept is still open
 - a mail transport. Outbound webhook endpoints are migrated
-- inbound HighLevel webhooks. Check-in, return, and payment failed are still not sent as messages. Reminders, confirmations, receipts, cancellations, refunds, and overdue rentals are `ghl_message_logs`
+- inbound HighLevel webhooks. Check-in and return are still contact tags, not customer messages. A new time and a failed payment are `ghl_message_logs`, with reminders, confirmations, receipts, cancellations, refunds, and overdue rentals
 
 Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
 
