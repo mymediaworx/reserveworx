@@ -1,0 +1,1 @@
+- A pull request records its note as `docs/changelog.d/<branch-or-slug>.md` and leaves the Unreleased section of `docs/CHANGELOG.md` unchanged. CI fails when that section changes. The deploy archive still excludes `docs` and `.cursor`, and a leftover `docs` or `.cursor` directory in a release is still removed, so the note and the Cursor rule add no inodes to a release.
