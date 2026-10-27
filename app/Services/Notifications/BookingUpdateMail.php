@@ -18,8 +18,10 @@ use Throwable;
  * Words for the customer emails that notification hooks used to skip (#136).
  * Confirmation and reminder emails have their own senders and are not here.
  * A payment receipt uses the amounts already stored on the booking. It does
- * not recalculate a price, a tax, a booking fee, or a refund. A waitlist
- * opening names the visit and does not read those amounts.
+ * not recalculate a price, a tax, a booking fee, or a refund. A refund notice
+ * lists the booking-fee amount already stored on that hook and does not
+ * calculate a new fee. A waitlist opening names the visit and does not read
+ * those amounts.
  */
 final class BookingUpdateMail
 {
@@ -125,15 +127,43 @@ final class BookingUpdateMail
 
         $snapshot = PricingSnapshot::query()->where('booking_id', $booking->id)->first();
         $currency = $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD';
+        $lines = [
+            $businessName.' refunded '.Display::money($cents, $currency).' for '.$service.' on '.$when.'.',
+        ];
+        $feeLine = $this->storedFeeRefundLine($payload, $currency);
+
+        if ($feeLine !== null) {
+            $lines[] = $feeLine;
+        }
+
+        $lines[] = 'Card refunds usually reach your account in 5 to 10 business days.';
+        $lines[] = $reference;
 
         return [
             'subject' => $businessName.' refunded '.Display::money($cents, $currency),
-            'lines' => [
-                $businessName.' refunded '.Display::money($cents, $currency).' for '.$service.' on '.$when.'.',
-                'Card refunds usually reach your account in 5 to 10 business days.',
-                $reference,
-            ],
+            'lines' => $lines,
         ];
+    }
+
+    /**
+     * The booking-fee portion already stored on this hook. A missing, negative,
+     * or non-numeric value is left out. The charged fee on the snapshot is not read.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function storedFeeRefundLine(array $payload, string $currency): ?string
+    {
+        if (! array_key_exists('customer_fee_refund_cents', $payload) || ! is_numeric($payload['customer_fee_refund_cents'])) {
+            return null;
+        }
+
+        $fee = (int) $payload['customer_fee_refund_cents'];
+
+        if ($fee < 0) {
+            return null;
+        }
+
+        return BookingFeeRefundTerms::LABEL.' refunded: '.Display::money($fee, $currency).'.';
     }
 
     /**
