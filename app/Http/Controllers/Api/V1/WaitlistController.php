@@ -11,6 +11,7 @@ use App\Models\Tenant;
 use App\Models\WaitlistEntry;
 use App\Services\AuditLogger;
 use App\Services\Booking\Waitlist;
+use App\Services\Booking\WaitlistMutationIdempotency;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class WaitlistController extends Controller
     public function __construct(
         private readonly Waitlist $waitlist,
         private readonly AuditLogger $audit,
+        private readonly WaitlistMutationIdempotency $mutations,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -102,11 +104,14 @@ class WaitlistController extends Controller
     public function cancel(Request $request, WaitlistEntry $waitlistEntry): JsonResponse
     {
         $this->authorize('update', $waitlistEntry);
-        $waitlistEntry->status = WaitlistStatus::Cancelled;
-        $waitlistEntry->save();
-        $this->audit->log('waitlist.cancelled', $waitlistEntry, [], request: $request);
 
-        return response()->json(['data' => $this->payload($waitlistEntry)]);
+        return $this->mutations->once($request, $waitlistEntry, 'cancel', [], function () use ($request, $waitlistEntry): JsonResponse {
+            $waitlistEntry->status = WaitlistStatus::Cancelled;
+            $waitlistEntry->save();
+            $this->audit->log('waitlist.cancelled', $waitlistEntry, [], request: $request);
+
+            return response()->json(['data' => $this->payload($waitlistEntry)]);
+        });
     }
 
     /**
