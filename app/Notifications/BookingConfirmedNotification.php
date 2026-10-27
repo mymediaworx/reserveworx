@@ -15,6 +15,8 @@ class BookingConfirmedNotification extends Notification
         public string $checkInUrl,
         public string $checkInSvg,
         public ?string $replyTo,
+        public string $when,
+        public string $reference,
         public ?string $waiverUrl = null,
     ) {}
 
@@ -30,6 +32,8 @@ class BookingConfirmedNotification extends Notification
     {
         $data = [
             'serviceName' => $this->serviceName,
+            'when' => $this->when,
+            'reference' => $this->reference,
             'checkInUrl' => $this->checkInUrl,
             'checkInSvg' => $this->checkInSvg,
             'waiverUrl' => $this->waiverUrl,
