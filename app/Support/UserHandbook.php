@@ -64,6 +64,11 @@ final class UserHandbook
                         'href' => '/platform',
                     ],
                     [
+                        'title' => 'Administrators',
+                        'body' => 'Remove someone else’s platform access. Their account, password, and workspace memberships stay. The last administrator cannot be removed, and you cannot remove yourself while another administrator remains. Opening the page does not write a row.',
+                        'href' => '/platform/administrators',
+                    ],
+                    [
                         'title' => 'Readiness',
                         'body' => 'Whether this server passes the local checks. The same lines are printed by reserveworx:readiness. It does not call Stripe.',
                         'href' => '/platform/readiness',
