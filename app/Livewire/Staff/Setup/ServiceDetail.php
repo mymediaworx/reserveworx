@@ -23,6 +23,7 @@ use App\Models\WaitlistEntry;
 use App\Services\Catalog\VariantResourceWriter;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -474,6 +475,36 @@ class ServiceDetail extends Component
         $this->flash = 'Departure scheduled.';
     }
 
+    public function cancelDeparture(string $departureId): void
+    {
+        $service = $this->editable();
+        $this->resetErrorBag('departure');
+        abort_unless($service->kind === ServiceKind::Tour, 422);
+
+        $departure = Departure::query()->where('service_id', $service->id)->find($departureId);
+        abort_unless($departure instanceof Departure, 404);
+        $this->authorize('update', $departure);
+
+        if ($departure->status === DepartureStatus::Cancelled) {
+            $this->addError('departure', 'That departure is already cancelled.');
+
+            return;
+        }
+
+        if ($departure->headcount() > 0) {
+            $this->addError('departure', 'Cancel the bookings on this departure first.');
+
+            return;
+        }
+
+        $departure->status = DepartureStatus::Cancelled;
+        $departure->save();
+        $this->audit('departure.cancelled', $departure, [
+            'service_id' => $service->id,
+        ]);
+        $this->flash = 'Departure cancelled.';
+    }
+
     public function render(): View
     {
         $service = $this->service($this->serviceId)->load(['location', 'durations', 'requirements']);
@@ -481,6 +512,11 @@ class ServiceDetail extends Component
 
         $pools = Pool::query()->where('location_id', $service->location_id)->orderBy('name')->get();
         $assets = Asset::query()->where('location_id', $service->location_id)->orderBy('name')->get();
+        $departures = new Collection;
+
+        if ($service->kind === ServiceKind::Tour) {
+            $departures = Departure::query()->where('service_id', $service->id)->where('starts_at', '>=', now()->subDay())->orderBy('starts_at')->limit(30)->get();
+        }
 
         return view('livewire.staff.setup.service-detail', [
             'service' => $service,
@@ -502,9 +538,8 @@ class ServiceDetail extends Component
             'resourceNames' => Pool::query()->pluck('name', 'id')
                 ->union(Asset::query()->pluck('name', 'id'))
                 ->union(FleetItem::query()->pluck('name', 'id')),
-            'departures' => $service->kind === ServiceKind::Tour
-                ? Departure::query()->where('service_id', $service->id)->where('starts_at', '>=', now()->subDay())->orderBy('starts_at')->limit(30)->get()
-                : collect(),
+            'departures' => $departures,
+            'departureHeadcounts' => Departure::headcountsFor($departures),
             'canManage' => $this->allows('inventory.manage'),
         ])->title($service->name);
     }

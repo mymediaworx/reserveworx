@@ -92,6 +92,44 @@ Every minute the schedule also writes a heartbeat (`reserveworx:schedule:last-ru
 
 Do not raise `QUEUE_WORK_MAX_TIME`. A value outside 10–20 is clamped, and `reserveworx:limits` fails. Hold expiry still ignores expired holds at read time.
 
+## Upgrade
+
+An upgrade replaces the live release with a newer commit of this same application. It is not a first install. Reading this procedure does not run a deploy and does not write a booking, a price, a payment, a tax, a fee, or a refund.
+
+A first install is the local setup in [`README.md`](README.md), then the first deploy in [Trigger](#trigger) with migrations off. Backup is the private dump written before migrations. Recovery is action `rollback` for the code, and `php artisan reserveworx:restore-backup` for that dump. A restore has not been run on the live SiteGround database. Platform administrators read this same procedure at `/platform/upgrade`.
+
+### Wait for CI
+
+Deploy starts after CI passes for that commit, and only while that commit is still the tip of main. A failed CI run deploys nothing.
+
+### The server does not run Composer
+
+The runner installs dependencies. The server does not run Composer.
+
+### Back up before migrations
+
+Migrations run only after a verified private dump of this database. The file is mode 600 under laravel/shared/backups. If that dump is missing or does not verify, migrations do not run and the live release stays.
+
+### Cache the new release first
+
+Migrations, the role sync, and the config, route, and view caches run on the new release before it becomes current. If those steps fail, the live release stays.
+
+### Keep one rollback release
+
+The previous release stays on disk. Rollback swaps that code back and does not undo migrations.
+
+### Check the public health URL
+
+The health check requests https://app.reserveworx.com/up. A failed check swaps the code back once and does not roll migrations back.
+
+### Point cron at the current release
+
+Cron keeps calling laravel/current so the next minute uses the new release. Do not add a second cron.
+
+### Smoke and readiness
+
+After a healthy upgrade, reserveworx:smoke runs. Open /platform/readiness for the same local checks. Neither one writes a price, a tax, a fee, or a refund.
+
 ## Secrets
 
 Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`, and optional `MAIL_PASSWORD`. The workflow masks host, user, port, passphrase, and the mail password. It does not echo the private key or the mail password. An empty `MAIL_PASSWORD` leaves the log mailer in place and does not fail the job. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
