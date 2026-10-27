@@ -98,7 +98,7 @@
                     @if ($booking instanceof Booking)
                         <a href="/staff/bookings/{{ $booking->id }}">Open booking</a>
                     @endif
-                    <span>Due {{ $due ? Display::dateTime($due, $zone) : '—' }}</span>
+                    <span data-due>Due {{ $due ? Display::dateTimeWithZone($due, $zone) : '—' }}</span>
                     @if ($overdue && $due)
                         <span class="late">{{ Lateness::label($due, $now) }}</span>
                     @endif
