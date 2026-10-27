@@ -24,6 +24,7 @@ use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\Web\WaitlistLeaveController;
 use App\Http\Controllers\Web\WaiverSigningController;
 use App\Http\Controllers\WidgetController;
+use App\Livewire\Platform\Administrators;
 use App\Livewire\Platform\Demonstration;
 use App\Livewire\Platform\Handbook as PlatformHandbook;
 use App\Livewire\Platform\Performance;
@@ -110,6 +111,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
 
     Route::middleware(['auth', 'platform.admin'])->group(function (): void {
         Route::get('/', Tenants::class);
+        Route::get('/administrators', Administrators::class);
         Route::get('/help', PlatformHandbook::class);
         Route::get('/readiness', Readiness::class);
         Route::get('/performance', Performance::class);
