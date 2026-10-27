@@ -57,7 +57,7 @@ final class SetupGuide
                 $count('cancellation_policies')],
             ['waivers', 'shield', 'Waivers', 'Write the waiver guests sign before they pay.', '/staff/waivers', 'Open waivers', true,
                 WaiverVersion::withoutGlobalScope(TenantScope::class)->where('tenant_id', $id)->exists()],
-            ['addons', 'plus', 'Add-ons', 'Extras like dry bags or paddles. There is no staff screen for these yet.', null, 'Ask support', true,
+            ['addons', 'plus', 'Add-ons', 'Extras like dry bags or paddles guests can add when they book.', '/staff/add-ons', 'Open add-ons', true,
                 $count('add_ons')],
             ['deposit', 'wallet', 'Default deposit', 'A deposit for each service. There is no staff screen for this yet.', null, 'Ask support', false, false],
             ['staff', 'users', 'Staff', 'Invite your managers and guides.', '/staff/team', 'Open team', true,
