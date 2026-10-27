@@ -35,7 +35,7 @@
             @else
                 <p>The total is shown before payment.</p>
             @endif
-            <p><a href="{{ url('/book/'.$token.'/services/'.$row['service']->id) }}">Check times</a></p>
+            <p><a href="{{ url('/book/'.$token.'/services/'.$row['service']->id) }}">Check times for {{ $row['service']->name }}</a></p>
         </article>
     @empty
         <p>No services are available to book.</p>
