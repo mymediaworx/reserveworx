@@ -12,6 +12,7 @@ use App\Models\Pool;
 use App\Services\Operations\MaintenancePlanner;
 use App\Services\Operations\MaintenanceWindowAlreadyEndedException;
 use App\Support\DisplayZone;
+use App\Support\LocationClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -22,7 +23,6 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
-use Throwable;
 
 /**
  * Maintenance windows, temporary blocks, and recurring inspections for the
@@ -74,7 +74,7 @@ class Maintenance extends Component
         $this->windowEnds = $tomorrow->setTime(12, 0)->format('Y-m-d\TH:i');
     }
 
-    public function scheduleWindow(MaintenancePlanner $planner): void
+    public function scheduleWindow(MaintenancePlanner $planner, LocationClock $clock): void
     {
         $this->authorize('create', Asset::class);
         $this->reset('flash');
@@ -96,15 +96,29 @@ class Maintenance extends Component
             'windowReason' => trim($this->windowReason),
         ], [
             'windowKind' => ['required', Rule::enum(MaintenanceKind::class)],
-            'windowStarts' => ['required', 'date_format:Y-m-d\TH:i'],
-            'windowEnds' => ['required', 'date_format:Y-m-d\TH:i'],
+            'windowStarts' => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
+            'windowEnds' => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
             'windowReason' => ['required', 'string', 'max:160'],
         ], [
+            'windowStarts.regex' => 'Choose a real start.',
+            'windowEnds.regex' => 'Choose a real end.',
             'windowReason.required' => 'Add a short reason, like “Engine service”.',
         ])->validate();
 
-        $startsAt = $this->localTime($validated['windowStarts'], $zone);
-        $endsAt = $this->localTime($validated['windowEnds'], $zone);
+        $startsAt = $clock->parse($validated['windowStarts'], $zone, false);
+        $endsAt = $clock->parse($validated['windowEnds'], $zone, true);
+
+        if (! $startsAt instanceof CarbonImmutable) {
+            $this->addError('windowStarts', 'That time does not exist in this location.');
+
+            return;
+        }
+
+        if (! $endsAt instanceof CarbonImmutable) {
+            $this->addError('windowEnds', 'That time does not exist in this location.');
+
+            return;
+        }
 
         if (! $endsAt->greaterThan($startsAt)) {
             $this->addError('windowEnds', 'The end must be after the start.');
@@ -288,6 +302,7 @@ class Maintenance extends Component
         return view('livewire.staff.maintenance', [
             'locations' => $locations,
             'selected' => $selected,
+            'zoneName' => $this->zoneName($selected, $locations),
             'resources' => $resources,
             'inProgress' => $inProgress,
             'upcoming' => $upcoming,
@@ -437,12 +452,21 @@ class Maintenance extends Component
         return DisplayZone::forLocation($resource->location);
     }
 
-    private function localTime(string $value, string $zone): CarbonImmutable
+    /**
+     * @param  Collection<int, Location>  $locations
+     */
+    private function zoneName(?Location $selected, Collection $locations): ?string
     {
-        try {
-            return CarbonImmutable::createFromFormat('Y-m-d\TH:i', $value, $zone) ?: CarbonImmutable::now();
-        } catch (Throwable) {
-            return CarbonImmutable::now();
+        if ($selected instanceof Location) {
+            return DisplayZone::forLocation($selected);
         }
+
+        $zones = $locations
+            ->map(fn (Location $location): string => DisplayZone::forLocation($location))
+            ->unique()
+            ->values();
+        $zone = $zones->count() === 1 ? $zones->first() : null;
+
+        return is_string($zone) ? $zone : null;
     }
 }
