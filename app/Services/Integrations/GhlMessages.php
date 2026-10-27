@@ -85,14 +85,16 @@ final class GhlMessages
 
     /**
      * Queues the customer messages that are recorded as notification hooks
-     * and were not already queued by their own sender. A new time and a
-     * failed payment use the hook's dedupe key, so the same event is one message.
+     * and were not already queued by their own sender. A new time, a failed
+     * payment, and a waitlist opening use the hook's dedupe key, so the same
+     * event is one message.
      */
     public function queueFromHook(string $tenantId, ?string $bookingId, string $kind, string $dedupe): void
     {
         $messageKind = match ($kind) {
             GhlMessageKind::Rescheduled->value => GhlMessageKind::Rescheduled,
             GhlMessageKind::PaymentFailed->value => GhlMessageKind::PaymentFailed,
+            GhlMessageKind::WaitlistPromoted->value => GhlMessageKind::WaitlistPromoted,
             default => null,
         };
 
@@ -511,6 +513,7 @@ final class GhlMessages
             GhlMessageKind::Rescheduled => $booking->status === BookingStatus::Confirmed,
             GhlMessageKind::PaymentFailed, GhlMessageKind::Receipt, GhlMessageKind::RefundIssued => true,
             GhlMessageKind::Overdue => $checkout instanceof RentalCheckout && $checkout->returned_at === null,
+            GhlMessageKind::WaitlistPromoted => $booking->status === BookingStatus::Held,
         };
     }
 
