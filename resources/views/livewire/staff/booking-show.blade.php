@@ -14,7 +14,13 @@
     <header class="page-head">
         <div>
             <h1>{{ $booking->service?->name ?? 'Booking' }}</h1>
-            <p class="lede">{{ Display::range($booking->starts_at, $booking->ends_at, $zone) }}</p>
+            <p class="lede" data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</p>
+            <style>
+                p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
+                @media (max-width: 390px) {
+                    p[data-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+                }
+            </style>
         </div>
         <span class="badge large badge-{{ $status }}">{{ Display::status($status) }}</span>
     </header>
