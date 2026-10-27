@@ -73,7 +73,7 @@ Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each 
 
 ## Handbook
 
-Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the performance check and the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the performance check, the security check, and the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
 
 ## Upgrade
 
@@ -86,6 +86,11 @@ A platform administrator opens `/platform/readiness` on the platform host. `php 
 ## Performance check
 
 A platform administrator opens `/platform/performance` on the platform host. `php artisan reserveworx:performance` prints the same lines and exits 0 only when nothing fails. It renders the product page, signup, and one verified booking page, counts the queries, and rolls that work back. Durations are printed and are not pass or fail. It does not call the public internet and does not keep a price, a payment, a tax, a fee, or a refund. Run it on the SiteGround server to measure that machine. A tenant address does not serve the page.
+
+## Security check
+
+A platform administrator opens `/platform/security` on the platform host. `php artisan reserveworx:security` prints the same lines and exits 0 only when nothing fails. It writes one sample GoHighLevel token and one sample webhook secret, checks that the stored text is not that sample, and rolls both rows back. It does not print the sample, does not call Stripe, and does not keep a price, a payment, a tax, a fee, or a refund. A tenant address does not serve the page.
+
 ## Multi-tenant demonstration
 
 A platform administrator opens `/platform/demo` on the platform host. `php artisan reserveworx:demo` prints one line for Harbor Demo, one line for Inland Demo, and `shown=yes` only when both are loaded and neither lists the other's locations, services, or bookings. A missing demo workspace is not created. The command does not print a customer email. A tenant address does not serve the page.

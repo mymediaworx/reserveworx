@@ -29,6 +29,7 @@ use App\Livewire\Platform\Demonstration;
 use App\Livewire\Platform\Handbook as PlatformHandbook;
 use App\Livewire\Platform\Performance;
 use App\Livewire\Platform\Readiness;
+use App\Livewire\Platform\Security;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
 use App\Livewire\Platform\Upgrade;
@@ -115,6 +116,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
         Route::get('/help', PlatformHandbook::class);
         Route::get('/readiness', Readiness::class);
         Route::get('/performance', Performance::class);
+        Route::get('/security', Security::class);
         Route::get('/upgrade', Upgrade::class);
         Route::get('/demo', Demonstration::class);
         Route::get('/tenants/{tenant}', TenantDetail::class);

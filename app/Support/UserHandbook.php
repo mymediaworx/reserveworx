@@ -74,6 +74,11 @@ final class UserHandbook
                         'href' => '/platform/performance',
                     ],
                     [
+                        'title' => 'Security',
+                        'body' => 'Whether stored credentials are encrypted, card columns are absent, the session cookie is HTTP-only, and form posts use the CSRF check. The same lines are printed by reserveworx:security. A sample token is thrown away. It does not call Stripe and does not keep a row.',
+                        'href' => '/platform/security',
+                    ],
+                    [
                         'title' => 'Upgrade',
                         'body' => 'How a later release replaces the live one. The page does not run a deploy. Rollback swaps the previous release and does not undo migrations.',
                         'href' => '/platform/upgrade',
