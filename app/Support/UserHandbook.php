@@ -93,7 +93,7 @@ final class UserHandbook
                     $this->topic('Home', 'Today\'s bookings, what is checked out, and anything overdue.', '/staff', 'bookings.view'),
                     $this->topic('New booking', 'Hold a time for a customer. Pay at pickup and the card link stay on that booking.', '/staff/bookings/new', 'bookings.manage'),
                     $this->topic('Bookings', 'Filter the list and open one booking to check it in, return it, or cancel it.', '/staff/bookings', 'bookings.view'),
-                    $this->topic('Calendar', 'Day, week, month, and agenda. The page refreshes about once a minute while the tab is open.', '/staff/calendar', 'bookings.view'),
+                    $this->topic('Calendar', 'Day, week, month, and agenda. A visit stays on the date in its location’s time zone. The page refreshes about once a minute while the tab is open.', '/staff/calendar', 'bookings.view'),
                     $this->topic('Schedule', 'Each '.$unit.' for the day. Tap an empty hour to start a booking, or tap a booking to move it.', '/staff/schedule', 'bookings.view'),
                     $this->topic('Check in', 'Today\'s arrivals for one location.', '/staff/check-in', 'bookings.check_in'),
                     $this->topic('Returns', 'Rentals due back today, and anything still out.', '/staff/returns', 'bookings.check_in'),
