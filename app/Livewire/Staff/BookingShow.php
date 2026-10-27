@@ -470,6 +470,7 @@ class BookingShow extends Component
     {
         $booking = $this->booking($this->bookingId)->load([
             'service',
+            'variant',
             'location',
             'departure',
             'allocations',

@@ -7,6 +7,7 @@ use App\Domain\Fees\FeeChannel;
 use App\Domain\Fees\FeeRate;
 use App\Domain\Pricing\GroupPriceCopy;
 use App\Domain\Pricing\PricingEngine;
+use App\Domain\Pricing\VariantPrice;
 use App\Enums\AddOnKind;
 use App\Enums\BookingStatus;
 use App\Enums\FeePayer;
@@ -25,6 +26,7 @@ use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\Service;
 use App\Models\ServiceDuration;
+use App\Models\ServiceVariant;
 use App\Models\Tenant;
 use App\Models\TenantSetting;
 use App\Models\WidgetToken;
@@ -104,9 +106,9 @@ class WidgetController extends Controller
     public function create(Request $request, string $token, Service $service): View
     {
         $this->activeToken($token);
-        $service->load(['location', 'durations']);
+        $service->load(['location', 'durations', 'variants']);
 
-        $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants', 'start']);
+        $chosen = $request->only(['date', 'duration_id', 'duration_minutes', 'participants', 'start', 'variant_id']);
         $setting = $this->setting($this->tenant($request));
 
         return view('widget.form', [
@@ -124,6 +126,7 @@ class WidgetController extends Controller
             'currency' => $this->currency(),
             'groupPrice' => $this->groupPrice($service, $chosen, $setting),
             'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
+            'options' => $this->optionChoices($service, $setting),
         ]);
     }
 
@@ -154,7 +157,7 @@ class WidgetController extends Controller
         }
 
         try {
-            $this->previewAt($service, $this->setting($tenant), $validated['participants'], $interval['minutes'], $interval['local']);
+            $this->previewAt($service, $this->setting($tenant), $validated['participants'], $interval['minutes'], $interval['local'], $this->optionOverride($service, $validated['variant_id'] ?? null));
             $booking = $this->allocator->hold(new AllocationIntent(
                 $tenant->id,
                 $service->id,
@@ -167,6 +170,7 @@ class WidgetController extends Controller
                 $interval['departure_id'],
                 customerPhone: $this->postedPhone($validated),
                 addOns: $addOns,
+                variantId: $this->chosenVariantId($validated),
             ));
             $this->pricer->quote($booking->load('location'), $tenant, FeeChannel::Direct, 0, null, 100);
         } catch (InvalidArgumentException|IdempotencyConflictException|AllocationUnavailableException $exception) {
@@ -239,6 +243,7 @@ class WidgetController extends Controller
             $validated['customer_name'],
             $validated['customer_email'],
             $interval['departure_id'],
+            variantId: $this->chosenVariantId($validated),
         ));
 
         if ($hint['available']) {
@@ -258,7 +263,7 @@ class WidgetController extends Controller
             $validated['customer_email'],
             null,
             $validated['idempotency_key'],
-            null,
+            $this->chosenVariantId($validated),
             is_string($phone) ? $phone : null,
         );
 
@@ -604,14 +609,14 @@ class WidgetController extends Controller
     /**
      * @return array{total_cents: int, fee_included: bool, currency: string, party_bands: list<array<string, mixed>>}
      */
-    private function previewAt(Service $service, ?TenantSetting $setting, int $participants, int $minutes, CarbonImmutable $on): array
+    private function previewAt(Service $service, ?TenantSetting $setting, int $participants, int $minutes, CarbonImmutable $on, ?int $baseOverrideCents = null): array
     {
         $channel = FeeChannel::Direct;
         $rate = $setting instanceof TenantSetting
             ? FeeRate::fromTenantSetting($setting, $channel)
             : FeeRate::defaultFor($channel);
         $payer = $setting instanceof TenantSetting ? $setting->fee_payer : FeePayer::CustomerPaid;
-        $rules = PriceRule::inputsFor($service->id);
+        $rules = VariantPrice::overrideBase(PriceRule::inputsFor($service->id), $baseOverrideCents);
         $priced = $this->pricing->price(
             $channel,
             $rate,
@@ -658,19 +663,25 @@ class WidgetController extends Controller
         $clock = is_string($clock) && preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $clock) === 1 ? $clock : '12:00';
         $on = CarbonImmutable::parse($date.' '.$clock, $zone);
         $minutes = 60;
+        $override = null;
 
         if ($service->kind !== ServiceKind::Tour) {
+            $option = $this->selectedOption($service, $input['variant_id'] ?? null);
             $fallback = $service->durations->first();
-            $resolved = $this->minutes(
-                $service,
-                $input['duration_id'] ?? null,
-                $input['duration_minutes'] ?? ($fallback instanceof ServiceDuration ? $fallback->duration_minutes : 60),
-            );
+            $resolved = $option instanceof ServiceVariant
+                ? $option->duration_minutes
+                : $this->minutes(
+                    $service,
+                    $input['duration_id'] ?? null,
+                    $input['duration_minutes'] ?? ($fallback instanceof ServiceDuration ? $fallback->duration_minutes : 60),
+                    $input['variant_id'] ?? null,
+                );
             $minutes = is_int($resolved) ? $resolved : ($fallback instanceof ServiceDuration ? $fallback->duration_minutes : 60);
+            $override = $option instanceof ServiceVariant ? $option->price_override_cents : null;
         }
 
         try {
-            $preview = $this->previewAt($service, $setting, (int) $input['participants'], $minutes, $on);
+            $preview = $this->previewAt($service, $setting, (int) $input['participants'], $minutes, $on, $override);
         } catch (InvalidArgumentException) {
             return null;
         }
@@ -703,7 +714,7 @@ class WidgetController extends Controller
      * A tour joins the scheduled departure at the chosen start. The departure's
      * own length is the booking length; a free duration does not apply.
      *
-     * @return array{participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int, starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string}|string
+     * @return array{participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int, starts_at: CarbonImmutable, ends_at: CarbonImmutable, departure_id: string, variant_id: ?string}|string
      */
     private function validateTour(Request $request, Service $service): array|string
     {
@@ -716,19 +727,26 @@ class WidgetController extends Controller
             'customer_email' => ['required', 'email', 'max:255'],
             'customer_phone' => ['nullable', 'string', 'max:255'],
             'idempotency_key' => ['required', 'string', 'max:80'],
+            'variant_id' => ['nullable', 'string'],
         ]);
 
         if ($validator->fails()) {
             return (string) $validator->errors()->first();
         }
 
-        /** @var array{departure_id?: string|null, date?: string|null, start?: string|null, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string} $data */
+        /** @var array{departure_id?: string|null, date?: string|null, start?: string|null, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string, variant_id?: string|null} $data */
         $data = $validator->validated();
         $participants = (int) $data['participants'];
         $max = $service->max_participants;
 
         if ($max !== null && $participants > $max) {
             return 'That party is larger than this service allows.';
+        }
+
+        $option = $this->selectedOption($service, $data['variant_id'] ?? null);
+
+        if (is_string($option)) {
+            return $option;
         }
 
         $postedId = $data['departure_id'] ?? null;
@@ -761,6 +779,7 @@ class WidgetController extends Controller
             'starts_at' => $starts,
             'ends_at' => $ends,
             'departure_id' => $departure->id,
+            'variant_id' => $option instanceof ServiceVariant ? $option->id : null,
         ];
     }
 
@@ -855,7 +874,7 @@ class WidgetController extends Controller
     }
 
     /**
-     * @return array{date: string, start: string, participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int}|string
+     * @return array{date: string, start: string, participants: int, customer_name: string, customer_email: string, customer_phone: ?string, idempotency_key: string, minutes: int, variant_id: ?string}|string
      */
     private function validateBooking(Request $request, Service $service): array|string
     {
@@ -869,13 +888,14 @@ class WidgetController extends Controller
             'idempotency_key' => ['required', 'string', 'max:80'],
             'duration_id' => ['nullable', 'string'],
             'duration_minutes' => ['nullable', 'integer', 'min:1', 'max:1440'],
+            'variant_id' => ['nullable', 'string'],
         ]);
 
         if ($validator->fails()) {
             return (string) $validator->errors()->first();
         }
 
-        /** @var array{date: string, start: string, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string, duration_id?: string|null, duration_minutes?: int|null} $data */
+        /** @var array{date: string, start: string, participants: int|string, customer_name: string, customer_email: string, customer_phone?: string|null, idempotency_key: string, duration_id?: string|null, duration_minutes?: int|null, variant_id?: string|null} $data */
         $data = $validator->validated();
         $participants = (int) $data['participants'];
         $max = $service->max_participants;
@@ -884,7 +904,8 @@ class WidgetController extends Controller
             return 'That party is larger than this service allows.';
         }
 
-        $minutes = $this->minutes($service, $data['duration_id'] ?? null, $data['duration_minutes'] ?? null);
+        $option = $this->selectedOption($service, $data['variant_id'] ?? null);
+        $minutes = $this->minutes($service, $data['duration_id'] ?? null, $data['duration_minutes'] ?? null, $data['variant_id'] ?? null);
 
         if (is_string($minutes)) {
             return $minutes;
@@ -899,11 +920,26 @@ class WidgetController extends Controller
             'customer_phone' => $this->blankPhone($data['customer_phone'] ?? null),
             'idempotency_key' => $data['idempotency_key'],
             'minutes' => $minutes,
+            'variant_id' => $option instanceof ServiceVariant ? $option->id : null,
         ];
     }
 
-    private function minutes(Service $service, mixed $durationId, mixed $durationMinutes): int|string
+    /**
+     * A service with options uses the chosen option's length. A service without
+     * one still uses a named rental length, or the posted minutes.
+     */
+    private function minutes(Service $service, mixed $durationId, mixed $durationMinutes, mixed $variantId = null): int|string
     {
+        $option = $this->selectedOption($service, $variantId);
+
+        if (is_string($option)) {
+            return $option;
+        }
+
+        if ($option instanceof ServiceVariant) {
+            return $option->duration_minutes;
+        }
+
         if ($service->durations->isNotEmpty()) {
             $chosen = $service->durations->first(function (ServiceDuration $duration) use ($durationId): bool {
                 return is_string($durationId) && $duration->id === $durationId;
@@ -921,6 +957,88 @@ class WidgetController extends Controller
         }
 
         return (int) $durationMinutes;
+    }
+
+    /**
+     * Null when this service has no options. An error string when the guest
+     * has to choose one and the posted id is missing or belongs elsewhere.
+     */
+    private function selectedOption(Service $service, mixed $variantId): ServiceVariant|string|null
+    {
+        $service->loadMissing('variants');
+
+        if ($service->variants->isEmpty()) {
+            return null;
+        }
+
+        if (! is_string($variantId) || $variantId === '') {
+            return 'Choose an option.';
+        }
+
+        $chosen = $service->variants->first(fn (ServiceVariant $variant): bool => $variant->id === $variantId);
+
+        return $chosen instanceof ServiceVariant ? $chosen : 'That option is not on this service.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function chosenVariantId(array $validated): ?string
+    {
+        $id = $validated['variant_id'] ?? null;
+
+        return is_string($id) && $id !== '' ? $id : null;
+    }
+
+    private function optionOverride(Service $service, mixed $variantId): ?int
+    {
+        $option = $this->selectedOption($service, $variantId);
+
+        return $option instanceof ServiceVariant ? $option->price_override_cents : null;
+    }
+
+    /**
+     * @return list<array{id: string, name: string, duration_minutes: int, total_cents: int|null, fee_included: bool, currency: string}>
+     */
+    private function optionChoices(Service $service, ?TenantSetting $setting): array
+    {
+        $service->loadMissing('variants');
+        $choices = [];
+        $currency = $setting instanceof TenantSetting ? $setting->currency : 'USD';
+
+        foreach ($service->variants->sortBy('name') as $variant) {
+            $total = null;
+            $feeIncluded = false;
+
+            if ($service->kind !== ServiceKind::Tour) {
+                try {
+                    $preview = $this->previewAt(
+                        $service,
+                        $setting,
+                        max(1, (int) ($service->min_participants ?? 1)),
+                        $variant->duration_minutes,
+                        CarbonImmutable::now($this->visibleZone($service->location)),
+                        $variant->price_override_cents,
+                    );
+                    $total = $preview['total_cents'];
+                    $feeIncluded = $preview['fee_included'];
+                    $currency = $preview['currency'];
+                } catch (InvalidArgumentException) {
+                    $total = null;
+                }
+            }
+
+            $choices[] = [
+                'id' => $variant->id,
+                'name' => $variant->name,
+                'duration_minutes' => $variant->duration_minutes,
+                'total_cents' => $total,
+                'fee_included' => $feeIncluded,
+                'currency' => $currency,
+            ];
+        }
+
+        return $choices;
     }
 
     private function signatureExpiry(Booking $booking): CarbonImmutable
@@ -982,6 +1100,7 @@ class WidgetController extends Controller
             'currency' => $this->currency(),
             'groupPrice' => $this->groupPrice($service, $request->all(), $this->setting($this->tenant($request))),
             'hasPublicGroupTier' => $this->hasPublicGroupTier($service),
+            'options' => $this->optionChoices($service, $this->setting($this->tenant($request))),
         ], $status);
     }
 
@@ -1011,7 +1130,8 @@ class WidgetController extends Controller
             return [];
         }
 
-        $minutes = $this->minutes($service, $input['duration_id'] ?? null, $input['duration_minutes'] ?? null);
+        $variantId = $input['variant_id'] ?? null;
+        $minutes = $this->minutes($service, $input['duration_id'] ?? null, $input['duration_minutes'] ?? null, $variantId);
 
         if (is_string($minutes)) {
             return null;
@@ -1021,7 +1141,7 @@ class WidgetController extends Controller
         $zone = $this->visibleZone($service->location);
         $times = [];
 
-        foreach ($this->slots->rentalSlots($service, $date, $minutes, $participants, CarbonImmutable::now()) as $slot) {
+        foreach ($this->slots->rentalSlots($service, $date, $minutes, $participants, CarbonImmutable::now(), false, is_string($variantId) && $variantId !== '' ? $variantId : null) as $slot) {
             $times[] = [
                 'value' => $slot['starts_at']->timezone($zone)->format('H:i'),
                 'label' => $slot['label'],
@@ -1235,7 +1355,7 @@ class WidgetController extends Controller
         ?string $waiverError = null,
         array $waiverOld = [],
     ): View {
-        $booking->load(['service', 'namedParticipants', 'customer']);
+        $booking->load(['service', 'variant', 'namedParticipants', 'customer']);
         $presented = $this->waivers->present($booking);
         $unsigned = $hold instanceof Hold && $presented['required'] && ! $presented['complete'];
         $lockedPay = $unsigned && $payUrl !== null;
@@ -1360,7 +1480,7 @@ class WidgetController extends Controller
         ?string $partyError = null,
         array $partyOld = [],
     ): View {
-        $booking->load(['service', 'namedParticipants', 'customer']);
+        $booking->load(['service', 'variant', 'namedParticipants', 'customer']);
 
         return view('widget.confirmation', [
             'booking' => $booking,

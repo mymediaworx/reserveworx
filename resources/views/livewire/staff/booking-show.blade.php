@@ -56,6 +56,9 @@
                 <dl class="facts">
                     <div><dt>Customer</dt><dd>{{ $customer?->name ?: 'Walk-in' }}@if($customer?->email)<br><a href="mailto:{{ $customer->email }}">{{ $customer->email }}</a>@endif@if($customer?->phone)<br><a href="tel:{{ $customer->phone }}" data-customer-phone="1">{{ $customer->phone }}</a>@endif</dd></div>
                     <div><dt>Party</dt><dd>{{ $booking->participants }} {{ $booking->participants === 1 ? 'person' : 'people' }}</dd></div>
+                    @if ($booking->variant)
+                        <div><dt>Option</dt><dd data-service-option="{{ $booking->variant->id }}">{{ $booking->variant->name }}</dd></div>
+                    @endif
                     @if ($booking->corporateAccount)
                         <div><dt>Corporate account</dt><dd>{{ $booking->corporateAccount->name }}</dd></div>
                     @endif

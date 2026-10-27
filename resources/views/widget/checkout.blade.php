@@ -4,6 +4,9 @@
 @section('content')
     <h1>Review before payment</h1>
     <p>{{ $booking->service?->name }} · reference {{ \App\Support\BookingReference::short($booking->id) }}</p>
+    @if ($booking->variant)
+        <p data-service-option="{{ $booking->variant->id }}">{{ $booking->variant->name }}</p>
+    @endif
     <p data-when>{{ $whenLabel }}</p>
     <style>
         p[data-when] { max-width: 100%; overflow-wrap: anywhere; }

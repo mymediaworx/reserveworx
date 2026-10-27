@@ -9,6 +9,9 @@
     <h1>Booking {{ \App\Support\BookingReference::short($booking->id) }}</h1>
     <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
     <p>{{ $booking->service?->name }}</p>
+    @if ($booking->variant)
+        <p data-service-option="{{ $booking->variant->id }}">{{ $booking->variant->name }}</p>
+    @endif
     <p data-when>{{ $whenLabel }}</p>
     <style>
         p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
