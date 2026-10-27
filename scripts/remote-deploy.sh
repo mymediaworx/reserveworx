@@ -10,6 +10,12 @@
 # Rollback never runs migrate:rollback. The previous release stays on disk
 # until the next deploy replaces that one rollback slot.
 #
+# Inode guard: ACTION=preflight (run by the Deploy workflow before the release
+# upload) and the deploy itself count the whole account with
+# du --inodes -s -x "$HOME", add RW_INODE_EXTERNAL (usage outside this SSH
+# account, set as a repo variable), warn at 450000 and abort at 540000 of the
+# 600000 cap. Rollback and backup never run the guard.
+#
 # Inode budget: at most the current release tree and one previous release tree.
 # The upload archive is deleted after extract. Vendor lives only inside those
 # release trees. Composer is not run on the server. Database dumps are at most
@@ -18,8 +24,8 @@ set -euo pipefail
 
 : "${ACTION:?ACTION is required}"
 
-if [[ "$ACTION" != "deploy" && "$ACTION" != "rollback" && "$ACTION" != "backup" ]]; then
-  echo "ACTION must be deploy, rollback, or backup." >&2
+if [[ "$ACTION" != "deploy" && "$ACTION" != "rollback" && "$ACTION" != "backup" && "$ACTION" != "preflight" && "$ACTION" != "maintenance" ]]; then
+  echo "ACTION must be deploy, rollback, backup, preflight, or maintenance." >&2
   exit 1
 fi
 
@@ -45,6 +51,8 @@ current="${laravel}/current"
 previous="${laravel}/previous"
 docroot="${domain}/public_html"
 archive=""
+# Daily logs older than this are deleted: seven days.
+log_retention_minutes=10080
 
 if [[ -n "${RELEASE:-}" ]]; then
   archive="${incoming}/${RELEASE}.tar.gz"
@@ -74,7 +82,25 @@ cleanup_mail_password_file() {
   esac
   rm -f "$password_file" "${password_file}.tmp"
 }
-trap cleanup_mail_password_file EXIT
+# Any failed deploy leaves no uploaded archive behind, whichever step failed.
+remove_incoming_archives() {
+  case "$incoming" in
+    */www/app.reserveworx.com/laravel/incoming) ;;
+    *) return 0 ;;
+  esac
+  [[ -d "$incoming" && ! -L "$incoming" ]] || return 0
+  find "$incoming" -maxdepth 1 -type f -name '*.tar.gz' -delete 2>/dev/null || true
+}
+
+on_exit() {
+  local status=$?
+  cleanup_mail_password_file
+  if [[ "$status" -ne 0 && "$ACTION" == "deploy" ]]; then
+    remove_incoming_archives
+  fi
+  return "$status"
+}
+trap on_exit EXIT
 
 find_php() {
   local candidate version major minor
@@ -118,24 +144,42 @@ release_path() {
   fi
 }
 
+# Delete release directories other than current and the one rollback. It
+# refuses to delete anything when current cannot be resolved to a release
+# directory, only removes real directories named with a 40-character commit
+# sha directly under laravel/releases, and leaves anything else for review.
 prune_releases() {
-  local keep_current keep_previous dir full
+  local keep_current keep_previous dir full name releases_real
+  releases_real="$(readlink -f "$releases")"
+  if [[ -z "$releases_real" || -L "$releases" || "$releases_real" != */www/app.reserveworx.com/laravel/releases ]]; then
+    echo "prune_releases=skipped releases path is not a plain directory" >&2
+    return 0
+  fi
   keep_current="$(release_path "$current")"
   keep_previous="$(release_path "$previous")"
+  if [[ -z "$keep_current" || ! -d "$keep_current" || "$keep_current" != "${releases_real}/"* ]]; then
+    echo "prune_releases=skipped current release could not be resolved" >&2
+    return 0
+  fi
 
   shopt -s nullglob
   for dir in "$releases"/*; do
-    [[ -d "$dir" ]] || continue
+    [[ -d "$dir" && ! -L "$dir" ]] || continue
+    name="$(basename "$dir")"
     full="$(readlink -f "$dir")"
     if [[ "$full" == "$keep_current" || "$full" == "$keep_previous" ]]; then
       continue
     fi
-    rm -rf "$dir"
+    if [[ ! "$name" =~ ^[0-9a-f]{40}$ || "$full" != "${releases_real}/${name}" ]]; then
+      echo "prune_skipped_unrecognized=${name}"
+      continue
+    fi
+    rm -rf -- "$dir"
     echo "pruned=${dir}"
   done
   shopt -u nullglob
 
-  rm -f "$incoming"/*.tar.gz
+  remove_incoming_archives
   echo "archives=deleted"
 }
 
@@ -143,8 +187,8 @@ drop_old_rollback() {
   local prev curr
   prev="$(release_path "$previous")"
   curr="$(release_path "$current")"
-  if [[ -n "$prev" && "$prev" != "$curr" && "$prev" == "$releases/"* ]]; then
-    rm -rf "$prev"
+  if [[ -n "$curr" && -d "$curr" && -n "$prev" && "$prev" != "$curr" && "$prev" == "$releases/"* && "$(basename "$prev")" =~ ^[0-9a-f]{40}$ ]]; then
+    rm -rf -- "$prev"
     echo "removed_old_rollback=${prev}"
   fi
   rm -f "$previous"
@@ -753,19 +797,7 @@ try {
   echo "backup_path=${outfile}"
   echo "dump_client=${dump_bin}"
 
-  # This host has no /dev/fd, so the file list cannot use process substitution.
-  local count=0 file list
-  list="$(mktemp)"
-  find "$backups" -maxdepth 1 -type f -name '*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
-  while IFS= read -r file; do
-    [[ -n "$file" ]] || continue
-    count=$((count + 1))
-    if [[ "$count" -gt 2 ]]; then
-      rm -f "$file"
-      echo "backup_pruned=1"
-    fi
-  done < "$list"
-  rm -f "$list"
+  prune_db_dumps
 }
 
 harbor_docroot_verified() {
@@ -969,7 +1001,11 @@ harbor_home_check() {
 note_laravel_log() {
   local log
   log="${shared}/storage/logs/laravel.log"
-  if [[ -f "$log" ]]; then
+  if [[ ! -f "$log" ]]; then
+    # The daily channel writes laravel-YYYY-MM-DD.log, newest name last.
+    log="$(ls -1 "${shared}/storage/logs"/laravel-*.log 2>/dev/null | tail -n 1 || true)"
+  fi
+  if [[ -n "$log" && -f "$log" ]]; then
     echo "laravel_log_tail_begin" >&2
     tail -n 40 "$log" >&2 || true
     echo "laravel_log_tail_end" >&2
@@ -1079,6 +1115,278 @@ prune_old_files() {
   find "$dir" -xdev -mindepth 1 -type d -empty -delete 2>/dev/null || true
   after="$(count_files "$dir")"
   echo "inode_cleanup_${name}_removed=$((before - after)) remaining=${after}"
+}
+
+# Keep at most two database dumps, newest first, and drop any client or
+# database-name temp file a killed backup left behind (it holds DB settings).
+# Runs after every backup and from inode_cleanup, so the cap holds even when a
+# backup is skipped.
+prune_db_dumps() {
+  local backups="${shared}/backups" keep=2 count=0 file list
+  [[ -d "$backups" && ! -L "$backups" ]] || return 0
+  case "$backups" in
+    */www/app.reserveworx.com/laravel/shared/backups) ;;
+    *) return 0 ;;
+  esac
+  find "$backups" -maxdepth 1 -type f \( -name '.client.*' -o -name '.dbname.*' \) -mmin +60 -delete 2>/dev/null || true
+  # This host has no /dev/fd, so the file list cannot use process substitution.
+  list="$(mktemp)"
+  find "$backups" -maxdepth 1 -type f -name '*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    count=$((count + 1))
+    if [[ "$count" -gt "$keep" ]]; then
+      rm -f -- "$file"
+      echo "backup_pruned=1"
+    fi
+  done < "$list"
+  rm -f "$list"
+  echo "db_dumps_kept=$((count > keep ? keep : count))"
+}
+
+# Regenerable files only, used by the guard before it decides. The release
+# archive that is about to be extracted is kept; every other archive in
+# incoming is stale.
+inode_guard_cleanup() {
+  case "$incoming" in
+    */www/app.reserveworx.com/laravel/incoming) ;;
+    *) return 0 ;;
+  esac
+  if [[ -d "$incoming" && ! -L "$incoming" ]]; then
+    find "$incoming" -maxdepth 1 -type f -name '*.tar.gz' ! -name "${RELEASE:-none}.tar.gz" -delete 2>/dev/null || true
+  fi
+  prune_old_files "${shared}/storage/framework/views" 180 views
+  prune_old_files "${shared}/storage/framework/sessions" 1440 sessions
+  prune_old_files "${shared}/storage/framework/cache/data" 10080 cache
+  prune_old_files "${shared}/storage/framework/testing" 0 testing
+  prune_old_files "${shared}/storage/pail" 1440 pail
+  prune_old_files "${shared}/storage/logs" "$log_retention_minutes" logs
+  prune_db_dumps
+}
+
+count_account_inodes() {
+  du --inodes -s -x "$HOME" 2>/dev/null | cut -f1 || true
+}
+
+# Inode guard for deploys. SiteGround counts inodes for the whole account and
+# the deploy user cannot see mail, other sites or backups, so the total is
+# this home directory plus RW_INODE_EXTERNAL, an allowance for usage outside it
+# (repo variable, 0 when unset). At or above the warn level it removes
+# regenerable files and counts again. At or above the abort level it fails
+# before anything else is written. It is never run for rollback or backup.
+inode_guard() {
+  local cap=600000 external warn abort home_count total
+  external="${RW_INODE_EXTERNAL:-0}"
+  warn="${RW_INODE_WARN:-450000}"
+  abort="${RW_INODE_ABORT:-540000}"
+  if [[ ! "$external" =~ ^[0-9]{1,9}$ ]]; then
+    echo "inode_guard_external=invalid, treated as 0" >&2
+    external=0
+  fi
+  [[ "$warn" =~ ^[0-9]{1,9}$ ]] || warn=450000
+  [[ "$abort" =~ ^[0-9]{1,9}$ ]] || abort=540000
+
+  home_count="$(count_account_inodes)"
+  if [[ ! "$home_count" =~ ^[0-9]+$ ]]; then
+    echo "inode_guard=unmeasured, du --inodes did not report a count, guard skipped" >&2
+    return 0
+  fi
+  total=$((home_count + external))
+  if [[ "$total" -ge "$warn" ]]; then
+    echo "inode_guard_cleanup=running at ${total}"
+    inode_guard_cleanup
+    home_count="$(count_account_inodes)"
+    if [[ "$home_count" =~ ^[0-9]+$ ]]; then
+      total=$((home_count + external))
+    fi
+  fi
+
+  echo "inode_guard_home=${home_count}"
+  echo "inode_guard_external=${external}"
+  echo "inode_guard_total=${total}"
+  echo "inode_guard_warn=${warn} abort=${abort} cap=${cap}"
+  if [[ "$total" -ge "$abort" ]]; then
+    echo "inode_guard=abort total ${total} is at or above ${abort} of the ${cap} cap. Nothing was extracted or changed. Free space outside this app (main site, mail, backups) or raise RW_INODE_EXTERNAL only if it is too high." >&2
+    return 1
+  fi
+  if [[ "$total" -ge "$warn" ]]; then
+    echo "inode_guard=warn total ${total} is at or above ${warn} of the ${cap} cap"
+    return 0
+  fi
+  echo "inode_guard=ok"
+  return 0
+}
+
+# Pin the daily log channel with a seven day limit in the shared .env without
+# printing it. Only LOG_CHANNEL and LOG_DAILY_DAYS change; every other line is
+# copied as it is, and the file is left alone when the copy looks short.
+ensure_log_settings() {
+  local env_file="${shared}/.env" tmp before after
+  case "$env_file" in
+    */www/app.reserveworx.com/laravel/shared/.env) ;;
+    *)
+      echo "log_env=rejected" >&2
+      return 1
+      ;;
+  esac
+  [[ -f "$env_file" && ! -L "$env_file" ]] || return 0
+  tmp="$(mktemp "${shared}/.env-log.XXXXXX")"
+  chmod 600 "$tmp"
+  awk '
+    /^LOG_CHANNEL=/ { print "LOG_CHANNEL=daily"; c = 1; next }
+    /^LOG_DAILY_DAYS=/ { print "LOG_DAILY_DAYS=7"; d = 1; next }
+    { print }
+    END {
+      if (!c) print "LOG_CHANNEL=daily"
+      if (!d) print "LOG_DAILY_DAYS=7"
+    }
+  ' "$env_file" > "$tmp"
+  before="$(wc -l < "$env_file")"
+  after="$(wc -l < "$tmp")"
+  if [[ "$after" -ge "$before" && -s "$tmp" ]] && cat "$tmp" > "$env_file"; then
+    echo "log_env=daily 7 days"
+  else
+    echo "log_env=unchanged" >&2
+  fi
+  rm -f "$tmp"
+}
+
+# Entries counted by find, one per path, so symlinks and mounts show up.
+count_entries() {
+  find "$1" 2>/dev/null | wc -l | tr -d ' '
+}
+
+# Secret hand-off files are located by name only. Their contents are never read.
+# A path under public_html is under a web root.
+find_secret_files() {
+  local root
+  for root in "$domain" "${HOME}/www/harbor.reserveworx.com"; do
+    [[ -d "$root" && ! -L "$root" ]] || continue
+    find "$root" -xdev -maxdepth 6 \( -type f -o -type l \) \( -name demo-logins.txt -o -name platform-admin.txt \) 2>/dev/null
+  done
+}
+
+# Read-only. Answers where the inodes are and whether the numbers in the deploy
+# log are for the real path: it prints the resolved path and its mount, counts
+# the tree with find (links not followed) and with find -L (links followed, how
+# a symlink-following scanner would count it), and counts every release with
+# and without vendor.
+maintenance_report() {
+  local label="$1" entry name target kind file webroot
+  echo "maintenance_${label}_begin"
+  echo "maintenance_home_real=$(cd "$HOME" && pwd -P)"
+  echo "maintenance_laravel_real=$(readlink -f "$laravel")"
+  echo "maintenance_laravel_mount=$(df -P "$laravel" 2>/dev/null | awk 'NR==2 {print $1 " " $6}')"
+  echo "maintenance_find_laravel=$(count_entries "$laravel")"
+  echo "maintenance_find_L_laravel=$(find -L "$laravel" 2>/dev/null | wc -l | tr -d ' ')"
+  echo "maintenance_du_x_laravel=$(du --inodes -s -x "$laravel" 2>/dev/null | cut -f1 || true)"
+  echo "maintenance_du_laravel=$(du --inodes -s "$laravel" 2>/dev/null | cut -f1 || true)"
+  echo "maintenance_find_domain=$(count_entries "$domain")"
+  echo "maintenance_du_x_home=$(count_account_inodes)"
+  for name in current previous; do
+    entry="${laravel}/${name}"
+    if [[ -L "$entry" ]]; then
+      target="$(readlink -f "$entry")"
+      echo "maintenance_${name}=symlink to ${target#"${laravel}/"} find_L=$(count_entries "${entry}/")"
+    elif [[ -d "$entry" ]]; then
+      echo "maintenance_${name}=REAL DIRECTORY find=$(count_entries "$entry") vendor=$(count_entries "${entry}/vendor")"
+    else
+      echo "maintenance_${name}=absent"
+    fi
+  done
+  shopt -s nullglob
+  for entry in "$releases"/*; do
+    [[ -d "$entry" ]] || continue
+    kind="directory"
+    [[ -L "$entry" ]] && kind="symlink"
+    echo "maintenance_release=$(basename "$entry") ${kind} find=$(count_entries "$entry") vendor=$(count_entries "${entry}/vendor")"
+  done
+  for entry in "$laravel"/*; do
+    echo "maintenance_laravel_entry=$(basename "$entry") find=$(count_entries "$entry")"
+  done
+  shopt -u nullglob
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    webroot="no"
+    case "$file" in */public_html/*) webroot="YES" ;; esac
+    echo "maintenance_secret_file=${file#"${HOME}/"} under_web_root=${webroot} mode=$(stat -c %a "$file" 2>/dev/null || echo ?)"
+  done < <(find_secret_files)
+  echo "maintenance_${label}_end"
+}
+
+# Keep the release current points at plus one rollback, delete the rest.
+# It never deletes what current resolves to or the rollback, and it stops
+# before deleting anything when current is not a symlink to a sha directory in
+# laravel/releases. A real directory named previous (not a symlink) is a stray
+# copy: it is removed, and the newest other release becomes the rollback.
+maintenance_prune() {
+  local cur prev releases_real stray newest dir file moved=0
+  releases_real="$(readlink -f "$releases")"
+  cur="$(release_path "$current")"
+  if [[ ! -L "$current" || -z "$cur" || ! -d "$cur" || "$cur" != "${releases_real}/"* || ! "$(basename "$cur")" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "maintenance_prune=refused current does not resolve to a release directory" >&2
+    return 1
+  fi
+
+  stray="$previous"
+  if [[ -d "$stray" && ! -L "$stray" ]]; then
+    case "$stray" in
+      */www/app.reserveworx.com/laravel/previous) ;;
+      *)
+        echo "maintenance_prune=refused unexpected previous path" >&2
+        return 1
+        ;;
+    esac
+    if [[ "$(readlink -f "$stray")" == "$cur" || "$cur" == "$(readlink -f "$stray")/"* ]]; then
+      echo "maintenance_prune=refused current is inside previous" >&2
+      return 1
+    fi
+    echo "maintenance_removed_stray_previous_dir=1 entries=$(count_entries "$stray")"
+    rm -rf -- "$stray"
+  fi
+
+  prev="$(release_path "$previous")"
+  if [[ -z "$prev" || ! -d "$prev" || "$prev" == "$cur" || "$prev" != "${releases_real}/"* || ! "$(basename "$prev")" =~ ^[0-9a-f]{40}$ ]]; then
+    [[ -L "$previous" ]] && rm -f "$previous"
+    newest=""
+    while IFS= read -r dir; do
+      [[ -n "$dir" ]] || continue
+      [[ "$(basename "$dir")" =~ ^[0-9a-f]{40}$ ]] || continue
+      [[ "$(readlink -f "$dir")" == "$cur" ]] && continue
+      newest="$dir"
+      break
+    done < <(find "$releases" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2-)
+    if [[ -n "$newest" ]]; then
+      ln -sfn "$newest" "$previous"
+      echo "maintenance_rollback=linked $(basename "$newest")"
+    else
+      echo "maintenance_rollback=none available"
+    fi
+  else
+    echo "maintenance_rollback=kept $(basename "$prev")"
+  fi
+
+  prune_releases
+  inode_guard_cleanup
+
+  # A secret hand-off file under the web root is moved next to .env. Only inside
+  # app.reserveworx.com. Contents are not read.
+  while IFS= read -r file; do
+    [[ -n "$file" && ! -L "$file" ]] || continue
+    case "$file" in
+      "${domain}"/*/public_html/*|"${domain}"/public_html/*)
+        if [[ ! -e "${shared}/$(basename "$file")" ]]; then
+          mv -n -- "$file" "${shared}/$(basename "$file")"
+          chmod 600 "${shared}/$(basename "$file")"
+          echo "maintenance_secret_moved=$(basename "$file") to laravel/shared"
+          moved=$((moved + 1))
+        else
+          echo "maintenance_secret_move=skipped $(basename "$file") already exists in laravel/shared" >&2
+        fi
+        ;;
+    esac
+  done < <(find_secret_files)
+  echo "maintenance_secret_files_moved=${moved}"
 }
 
 report_inodes() {
@@ -1199,18 +1507,7 @@ remove_orphan_laravel_backups() {
   shopt -u nullglob
   echo "inode_cleanup_orphan_backups_dir_removed=1 files=$(count_files "$orphan")"
   rm -rf -- "$orphan"
-  count=0
-  list="$(mktemp)"
-  find "${shared}/backups" -maxdepth 1 -type f -name '*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
-  while IFS= read -r file; do
-    [[ -n "$file" ]] || continue
-    count=$((count + 1))
-    if [[ "$count" -gt 2 ]]; then
-      rm -f -- "$file"
-      echo "backup_pruned=1"
-    fi
-  done < "$list"
-  rm -f "$list"
+  prune_db_dumps
 }
 
 inode_cleanup() {
@@ -1235,9 +1532,10 @@ inode_cleanup() {
   prune_old_files "${shared}/storage/framework/cache/data" 10080 cache
   prune_old_files "${shared}/storage/framework/testing" 0 testing
   prune_old_files "${shared}/storage/pail" 1440 pail
-  prune_old_files "${shared}/storage/logs" 20160 logs
+  prune_old_files "${shared}/storage/logs" "$log_retention_minutes" logs
   remove_pre_docroots
   remove_orphan_laravel_backups
+  prune_db_dumps
   if [[ -d "${shared}/vendor" || -d "${laravel}/vendor" ]]; then
     echo "vendor_outside_releases=present (not removed, review)"
   else
@@ -1266,6 +1564,24 @@ if [[ "$ACTION" == "backup" ]]; then
   exit 0
 fi
 
+if [[ "$ACTION" == "preflight" ]]; then
+  inode_guard
+  exit $?
+fi
+
+if [[ "$ACTION" == "maintenance" ]]; then
+  # Report always. Prune only when the workflow input asks for it. This never
+  # runs the guard, never deploys, and never touches the database.
+  maintenance_report before
+  if [[ "${RW_MAINTENANCE_PRUNE:-false}" == "true" ]]; then
+    maintenance_prune
+    maintenance_report after
+  else
+    echo "maintenance_prune=not requested, report only"
+  fi
+  exit 0
+fi
+
 echo "https_enforcement=required for app.reserveworx.com only, in Site Tools, Security, HTTPS Enforce"
 
 if [[ "$ACTION" == "rollback" ]]; then
@@ -1287,6 +1603,12 @@ fi
 
 if [[ ! -f "$archive" ]]; then
   echo "The release archive is missing. Nothing was extracted." >&2
+  exit 1
+fi
+
+# The archive is already uploaded. The guard runs before anything is extracted
+# or changed, and the exit trap deletes the archive when it aborts.
+if ! inode_guard; then
   exit 1
 fi
 
@@ -1312,6 +1634,8 @@ if ! configure_production_mail; then
   exit 1
 fi
 
+ensure_log_settings || echo "log_env=failed" >&2
+
 if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   if ! assert_dump_file "${BACKUP_PATH:-}"; then
     rm -f "$archive"
@@ -1331,7 +1655,11 @@ drop_old_rollback
 target="${releases}/${RELEASE}"
 rm -rf "$target"
 mkdir -p "$target"
-tar -xzf "$archive" -C "$target"
+if ! tar -xzf "$archive" -C "$target"; then
+  echo "The release archive could not be extracted. Document root was not changed." >&2
+  rm -rf "$target"
+  exit 1
+fi
 rm -f "$archive"
 echo "archive=deleted"
 

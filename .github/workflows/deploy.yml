@@ -15,13 +15,19 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy the current main commit, or roll back to the previous release
+        description: Deploy the current main commit, roll back to the previous release, or run maintenance (inode report, plus a prune when prune is true)
         type: choice
         required: true
         options:
           - deploy
           - rollback
+          - maintenance
         default: deploy
+      prune:
+        description: Maintenance only. Delete old releases (keeps current plus one rollback), stale caches, logs older than 7 days and extra dumps. Off means report only.
+        type: boolean
+        required: true
+        default: false
       run_migrations:
         description: Run php artisan migrate --force after a verified database dump. The job fails when that dump is missing, empty, or fails gunzip -t.
         type: boolean
@@ -123,7 +129,7 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}"
+            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (prune: {0})', inputs.prune) || '' }}"
             echo "- Commit: ${sha}"
             echo "- Migrations requested: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -170,6 +176,55 @@ jobs:
             --exclude 'storage/framework/views' \
             --exclude 'storage/pail' \
             .
+
+      - name: Inode budget pre-flight
+        id: inodes
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          # Inodes used on this SiteGround account outside the SSH user's home
+          # (main site, mail, backups). Set the repo variable RW_INODE_EXTERNAL
+          # from Site Tools. Unset counts as 0.
+          RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              close_ssh_master
+            fi
+            exit "$status"
+          }
+          trap on_exit EXIT
+          # Warns at 450000 and aborts at 540000 of the 600000 cap, counting
+          # the whole account with du --inodes -s -x "$HOME" plus the external
+          # allowance. It runs before the backup and the upload, so an
+          # over-budget account receives nothing. Rollback never runs it.
+          remote_cmd="$(printf 'ACTION=%q RW_INODE_EXTERNAL=%q bash -s' preflight "${RW_INODE_EXTERNAL:-0}")"
+          status=0
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh > /tmp/inode-preflight.txt 2>&1 || status=$?
+          cat /tmp/inode-preflight.txt
+          {
+            echo '### Inode budget'
+            echo '```'
+            grep '^inode_guard' /tmp/inode-preflight.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '^inode_guard=warn' /tmp/inode-preflight.txt; then
+            echo "::warning::Account inode usage is at or above 450000 of the 600000 cap."
+          fi
+          if [[ "$status" -ne 0 ]]; then
+            echo "::error::Inode guard stopped this deploy before upload. See the Inode budget summary."
+            exit "$status"
+          fi
 
       - name: Back up the application database
         id: dbbackup
@@ -237,6 +292,9 @@ jobs:
           on_exit() {
             status=$?
             if [[ "$status" -ne 0 ]]; then
+              # A failed or cut-off upload must not leave a partial archive in
+              # incoming. Reuse the open connection once, no retry.
+              timeout 30 scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "rm -f www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" >/dev/null 2>&1 || true
               close_ssh_master
             fi
             exit "$status"
@@ -258,6 +316,8 @@ jobs:
           RUN_MIGRATIONS: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
           RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
+          RW_MAINTENANCE_PRUNE: ${{ github.event_name == 'workflow_dispatch' && inputs.prune || 'false' }}
         run: |
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
@@ -282,8 +342,8 @@ jobs:
           }
           trap on_exit EXIT
           bootstrap="$(cat scripts/accept-mail-header.sh)"
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -c %q' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "$bootstrap")"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_PRUNE=%q bash -c %q' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_PRUNE" "$bootstrap")"
           {
             echo
             echo '```'
