@@ -16,13 +16,20 @@ use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Membership;
 use App\Models\MembershipLocation;
+use App\Models\Payment;
+use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\Pool;
+use App\Models\PriceRule;
+use App\Models\Refund;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Models\User;
 use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
+use App\Tenancy\TenantScope;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -380,6 +387,193 @@ class StaffCalendarTest extends TestCase
         foreach ($plain as $id) {
             $this->assertStringNotContainsString('data-below-minimum="'.$id.'"', $html);
         }
+    }
+
+    public function test_a_visit_stays_on_its_location_date_including_a_daylight_saving_span(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-03-08 05:30:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        app(TenantManager::class)->set($alpha['tenant']);
+        TenantSetting::query()->where('tenant_id', $alpha['tenant']->id)->update(['timezone' => 'America/Chicago']);
+
+        $east = $this->location($alpha['tenant'], 'East dock');
+        $west = $this->location($alpha['tenant'], 'West dock');
+        $utc = $this->location($alpha['tenant'], 'Utc dock');
+        $plain = $this->location($alpha['tenant'], 'Plain dock');
+        $this->clock($east, 'America/New_York', '2026-01-01 00:00:00');
+        $this->clock($west, 'America/Los_Angeles', '2026-01-02 00:00:00');
+        $this->clock($utc, 'UTC', '2026-01-03 00:00:00');
+        $this->clock($plain, 'Not/AZone', '2026-01-04 00:00:00');
+
+        $westLate = CarbonImmutable::parse('2026-03-07 23:30:00', 'America/Los_Angeles');
+        $spanStart = CarbonImmutable::parse('2026-03-07 22:00:00', 'America/Los_Angeles');
+        $spanEnd = CarbonImmutable::parse('2026-03-09 11:00:00', 'America/Los_Angeles');
+        $eastLate = CarbonImmutable::parse('2026-03-07 23:30:00', 'America/New_York');
+        $utcNight = CarbonImmutable::parse('2026-03-08 02:30:00', 'UTC');
+        $plainLate = CarbonImmutable::parse('2026-03-07 23:30:00', 'America/Chicago');
+        $fallLate = CarbonImmutable::parse('2026-11-01 23:30:00', 'America/Los_Angeles');
+
+        $this->visit($alpha, $west, 'West Evening', $westLate);
+        $this->visit($alpha, $west, 'Span Guest', $spanStart, $spanEnd);
+        $this->visit($alpha, $east, 'East Evening', $eastLate);
+        $this->visit($alpha, $utc, 'Utc Night', $utcNight);
+        $this->visit($alpha, $plain, 'Plain Evening', $plainLate);
+        $this->visit($alpha, $west, 'Fall Evening', $fallLate);
+        $tour = $this->service($alpha['tenant'], $west, 'Late tour', ServiceKind::Tour, 2);
+        $departure = $this->departure($alpha['tenant'], $tour, $westLate->utc()->format('Y-m-d H:i:s'));
+
+        $beta = $this->workspace('beta.test');
+        $other = $this->location($beta['tenant'], 'Other dock');
+        $this->clock($other, 'America/Los_Angeles', '2026-01-01 00:00:00');
+        $this->visit($beta, $other, 'Other Workspace', $westLate);
+
+        $this->actingAs($alpha['user']);
+
+        $march7Html = $this->calendarHtml('/staff/calendar?view=day&date=2026-03-07');
+        $this->assertStringContainsString('Each visit stays on its location\'s date.', $march7Html);
+        $this->assertStringContainsString('.calendar-page .zone-note { overflow-wrap: anywhere; }', $march7Html);
+        $this->assertOnDate($march7Html, '2026-03-07', [
+            'West Evening',
+            'Span Guest',
+            '10:00 PM',
+            '11:00 AM',
+            'East Evening',
+            'Plain Evening',
+            'Late tour',
+            'data-departure="'.$departure->id.'"',
+        ], [
+            'Utc Night',
+            'Fall Evening',
+            'Other Workspace',
+        ]);
+
+        $this->assertOnDate($this->calendarHtml('/staff/calendar?view=day&date=2026-03-08'), '2026-03-08', [
+            'Utc Night',
+        ], [
+            'West Evening',
+            'Span Guest',
+            'East Evening',
+            'Plain Evening',
+            'Late tour',
+        ]);
+
+        $this->assertOnDate($this->calendarHtml('/staff/calendar?view=day&date=2026-03-09'), '2026-03-09', [], [
+            'Span Guest',
+        ]);
+
+        $week = $this->calendarHtml('/staff/calendar?view=week&date=2026-03-07');
+        $this->assertStringContainsString('data-date="2026-03-08" class="calendar-day is-today"', $week);
+        $this->assertOnDate($week, '2026-03-07', [
+            'West Evening',
+            'data-departure="'.$departure->id.'"',
+        ], []);
+        $this->assertOnDate($week, '2026-03-08', [], ['West Evening']);
+
+        $losAngeles = $this->calendarHtml('/staff/calendar?view=day&date=2026-03-07&location='.$west->id);
+        $this->assertStringContainsString('Days follow America/Los_Angeles.', $losAngeles);
+        $this->assertOnDate($losAngeles, '2026-03-07', ['West Evening', 'Late tour'], [
+            'East Evening',
+            'Plain Evening',
+            'Utc Night',
+        ]);
+        $losAngelesWeek = $this->calendarHtml('/staff/calendar?view=week&date=2026-03-07&location='.$west->id);
+        $this->assertStringContainsString('data-date="2026-03-07" class="calendar-day is-today"', $losAngelesWeek);
+        $this->assertStringNotContainsString('data-date="2026-03-08" class="calendar-day is-today"', $losAngelesWeek);
+
+        $this->assertOnDate(
+            $this->calendarHtml('/staff/calendar?view=day&date=2026-03-08&location='.$west->id),
+            '2026-03-08',
+            [],
+            ['West Evening', 'Span Guest'],
+        );
+
+        $eastDay = $this->calendarHtml('/staff/calendar?view=day&date=2026-03-07&location='.$east->id);
+        $this->assertStringContainsString('Days follow America/New_York.', $eastDay);
+        $this->assertOnDate($eastDay, '2026-03-07', ['East Evening'], ['West Evening']);
+
+        $utcDay = $this->calendarHtml('/staff/calendar?view=day&date=2026-03-08&location='.$utc->id);
+        $this->assertStringContainsString('Days follow UTC.', $utcDay);
+        $this->assertOnDate($utcDay, '2026-03-08', ['Utc Night'], []);
+        $this->assertOnDate(
+            $this->calendarHtml('/staff/calendar?view=day&date=2026-03-07&location='.$utc->id),
+            '2026-03-07',
+            [],
+            ['Utc Night'],
+        );
+
+        $plainDay = $this->calendarHtml('/staff/calendar?view=day&date=2026-03-07&location='.$plain->id);
+        $this->assertStringContainsString('Days follow America/Chicago.', $plainDay);
+        $this->assertOnDate($plainDay, '2026-03-07', ['Plain Evening'], []);
+        $this->assertOnDate(
+            $this->calendarHtml('/staff/calendar?view=day&date=2026-03-08&location='.$plain->id),
+            '2026-03-08',
+            [],
+            ['Plain Evening'],
+        );
+
+        $fallDay = $this->calendarHtml('/staff/calendar?view=day&date=2026-11-01&location='.$west->id);
+        $this->assertOnDate($fallDay, '2026-11-01', ['Fall Evening', '11:30 PM'], []);
+        $this->assertOnDate(
+            $this->calendarHtml('/staff/calendar?view=day&date=2026-11-02&location='.$west->id),
+            '2026-11-02',
+            [],
+            ['Fall Evening'],
+        );
+
+        $this->assertSame(0, Payment::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame(0, Refund::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame(0, PlatformFee::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame(0, PlatformFeeRefund::withoutGlobalScope(TenantScope::class)->count());
+        $this->assertSame(0, PriceRule::withoutGlobalScope(TenantScope::class)->count());
+    }
+
+    private function clock(Location $location, string $timezone, string $createdAt): void
+    {
+        $location->timezone = $timezone;
+        $location->created_at = Carbon::parse($createdAt);
+        $location->save();
+    }
+
+    /**
+     * @param  array{tenant: Tenant, user: User}  $workspace
+     */
+    private function visit(array $workspace, Location $location, string $name, CarbonImmutable $start, ?CarbonImmutable $end = null): Booking
+    {
+        return $this->booking($workspace, $location, $name, $start->utc()->format('Y-m-d H:i:s'), customerName: $name, extra: [
+            'ends_at' => ($end ?? $start->addMinutes(20))->utc(),
+        ]);
+    }
+
+    private function calendarHtml(string $path): string
+    {
+        return (string) $this->get($this->tenantUrl('alpha.test', $path))->assertOk()->getContent();
+    }
+
+    /**
+     * @param  list<string>  $present
+     * @param  list<string>  $absent
+     */
+    private function assertOnDate(string $html, string $date, array $present, array $absent): void
+    {
+        $slice = $this->daySlice($html, $date);
+
+        foreach ($present as $text) {
+            $this->assertStringContainsString($text, $slice);
+        }
+
+        foreach ($absent as $text) {
+            $this->assertStringNotContainsString($text, $slice);
+        }
+    }
+
+    private function daySlice(string $html, string $date): string
+    {
+        $needle = 'data-date="'.$date.'"';
+        $start = strpos($html, $needle);
+        $this->assertNotFalse($start);
+        $next = strpos($html, 'data-date="', $start + strlen($needle));
+
+        return $next === false ? substr($html, $start) : substr($html, $start, $next - $start);
     }
 
     private function location(Tenant $tenant, string $name): Location
