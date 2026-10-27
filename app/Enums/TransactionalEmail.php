@@ -4,8 +4,8 @@ namespace App\Enums;
 
 /**
  * Transactional messages a workspace can turn on or off.
- * Kinds the booking engine already queues are included, plus reminder and refund
- * messages from spec Section 10 that do not have a sender yet.
+ * Kinds the booking engine already queues are included. A receipt uses
+ * payment.completed, the same switch as a GoHighLevel receipt.
  */
 enum TransactionalEmail: string
 {

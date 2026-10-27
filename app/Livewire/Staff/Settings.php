@@ -37,6 +37,8 @@ class Settings extends Component
 
     public string $timezone = TenantSetting::DEFAULT_TIMEZONE;
 
+    public bool $emailPaymentReceipt = false;
+
     public string $stripeName = '';
 
     public string $stripeEmail = '';
@@ -59,6 +61,7 @@ class Settings extends Component
         $this->feePayer = $setting->fee_payer->value;
         $this->holdMinutes = $setting->hold_minutes;
         $this->timezone = DisplayZone::named($setting->timezone) ?? TenantSetting::DEFAULT_TIMEZONE;
+        $this->emailPaymentReceipt = $setting->email_payment_receipt;
         $this->stripeName = $this->tenant()->name;
         $this->stripeEmail = (string) auth()->user()?->email;
         $this->loadPolicy($policies);
@@ -99,6 +102,24 @@ class Settings extends Component
             'after' => ['timezone' => $setting->timezone],
         ]);
         $this->flash = 'Business time zone saved. New locations start in this zone. A location that already has its own zone keeps that zone.';
+        $this->problem = null;
+    }
+
+    public function savePaymentReceipt(): void
+    {
+        $setting = $this->setting();
+        $this->authorize('update', $setting);
+        $this->validate([
+            'emailPaymentReceipt' => ['boolean'],
+        ]);
+        $before = $setting->email_payment_receipt;
+        $setting->email_payment_receipt = $this->emailPaymentReceipt;
+        $setting->save();
+        $this->audit('settings.updated', $setting, [
+            'before' => ['email_payment_receipt' => $before],
+            'after' => ['email_payment_receipt' => $setting->email_payment_receipt],
+        ]);
+        $this->flash = 'Payment receipt email saved.';
         $this->problem = null;
     }
 

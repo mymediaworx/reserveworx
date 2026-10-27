@@ -7,8 +7,8 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 
 /**
- * A plain customer email about a change to a booking: a cancellation, a
- * refund, a new time, an overdue rental, or a failed payment.
+ * A plain customer email about a booking: a cancellation, a refund, a new
+ * time, an overdue rental, a failed payment, or a stored receipt.
  */
 class BookingUpdateNotification extends Notification
 {

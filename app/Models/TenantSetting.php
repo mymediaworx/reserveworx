@@ -28,6 +28,7 @@ class TenantSetting extends Model
         'currency',
         'pay_at_pickup',
         'timezone',
+        'email_payment_receipt',
         'reminder_offsets_minutes',
     ];
 
@@ -42,6 +43,7 @@ class TenantSetting extends Model
 
     protected $attributes = [
         'timezone' => self::DEFAULT_TIMEZONE,
+        'email_payment_receipt' => false,
     ];
 
     /** @use HasFactory<TenantSettingFactory> */
@@ -61,6 +63,7 @@ class TenantSetting extends Model
         'direct_fee_minimum_cents' => 'integer',
         'third_party_fee_minimum_cents' => 'integer',
         'pay_at_pickup' => 'boolean',
+        'email_payment_receipt' => 'boolean',
         'reminder_offsets_minutes' => 'array',
     ];
 
