@@ -21,6 +21,8 @@
             .calendar-page .month-event,
             .calendar-page .agenda-day { overflow-wrap: anywhere; }
             .calendar-page .badge { white-space: normal; }
+            .calendar-page .lede,
+            .calendar-page .zone-note { overflow-wrap: anywhere; }
             .calendar-page .calendar.is-month .calendar-day,
             .calendar-page .calendar.is-month .calendar-day h2,
             .calendar-page .calendar.is-month .calendar-week { overflow: hidden; min-width: 0; }
@@ -38,6 +40,13 @@
                 @else
                     {{ $first->format('M j') }} – {{ $last->format('M j, Y') }}
                 @endif
+                <span class="zone-note" data-calendar-zone="{{ $zone }}">
+                    @if ($location !== '')
+                        Days follow {{ $zone }}.
+                    @else
+                        Each visit stays on its location's date.
+                    @endif
+                </span>
             </p>
         </div>
         <div class="toolbar">
@@ -163,9 +172,11 @@
                             $room = max(0, 4 - count($flagged));
                             $shown = array_slice($rest, 0, $room);
                             $extra = count($rest) - count($shown);
-                            $dayHref = '/staff/calendar?view=day&date='.$day['date']->toDateString().$keptQuery;
+                            $dayKey = $day['date']->toDateString();
+                            $dayHref = '/staff/calendar?view=day&date='.$dayKey.$keptQuery;
+                            $dayClass = 'calendar-day'.($dayKey === $todayDate ? ' is-today' : '').($day['inMonth'] ? '' : ' is-outside');
                         @endphp
-                        <section @class(['calendar-day', 'is-today' => $day['date']->toDateString() === $todayDate, 'is-outside' => ! $day['inMonth']])>
+                        <section data-date="{{ $dayKey }}" class="{{ $dayClass }}">
                             <h2>
                                 <span class="weekday">{{ $day['date']->format('D') }}</span>
                                 <a class="daynum" href="{{ $dayHref }}" wire:navigate>{{ $day['date']->format('j') }}</a>
@@ -197,7 +208,11 @@
         @else
             <div class="calendar is-agenda">
                 @foreach ($agendaDays as $day)
-                    <section @class(['agenda-day', 'calendar-day', 'is-today' => $day['date']->toDateString() === $todayDate])>
+                    @php
+                        $dayKey = $day['date']->toDateString();
+                        $dayClass = 'agenda-day calendar-day'.($dayKey === $todayDate ? ' is-today' : '');
+                    @endphp
+                    <section data-date="{{ $dayKey }}" class="{{ $dayClass }}">
                         <h2>
                             <span class="weekday">{{ $day['date']->format('l') }}</span>
                             <a class="daynum" href="/staff/calendar?view=day&date={{ $day['date']->toDateString() }}{{ $keptQuery }}" wire:navigate>{{ $day['date']->format('M j') }}</a>
@@ -219,7 +234,11 @@
     @else
         <div @class(['calendar', 'is-week' => $view === 'week', 'is-day' => $view === 'day'])>
             @foreach ($days as $day)
-                <section @class(['calendar-day', 'is-today' => $day['date']->toDateString() === $todayDate])>
+                @php
+                    $dayKey = $day['date']->toDateString();
+                    $dayClass = 'calendar-day'.($dayKey === $todayDate ? ' is-today' : '');
+                @endphp
+                <section data-date="{{ $dayKey }}" class="{{ $dayClass }}">
                     <h2>
                         <span class="weekday">{{ $day['date']->format('D') }}</span>
                         <span class="daynum">{{ $day['date']->format('j') }}</span>
