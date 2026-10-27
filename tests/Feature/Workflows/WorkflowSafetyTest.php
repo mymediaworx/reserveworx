@@ -634,9 +634,17 @@ PY);
         $script = (string) file_get_contents(base_path('scripts/remote-deploy.sh'));
         $this->assertStringContainsString('inode_cleanup || echo "inode_cleanup=failed" >&2', $script);
         $this->assertStringContainsString('du --inodes -s -x "$domain"', $script);
+        $this->assertStringContainsString('df -iP "$domain"', $script);
+        $this->assertStringContainsString('remove_pre_docroots', $script);
+        $this->assertStringContainsString('remove_orphan_laravel_backups', $script);
+        $this->assertStringContainsString('public_html.pre-reserveworx-', $script);
         $this->assertStringContainsString('*/www/app.reserveworx.com/laravel/releases/?*|*/www/app.reserveworx.com/laravel/shared/storage/?*) ;;', $script);
         $this->assertStringContainsString('inode_cleanup=refused empty path', $script);
         $this->assertStringNotContainsString('demo-logins.txt"', $script);
+
+        $workflow = (string) file_get_contents(base_path('.github/workflows/deploy.yml'));
+        $this->assertStringContainsString("--exclude 'docs'", $workflow);
+        $this->assertStringContainsString("--exclude '.github'", $workflow);
     }
 
     public function test_ci_declares_the_required_checks(): void

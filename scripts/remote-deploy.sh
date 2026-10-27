@@ -1125,6 +1125,94 @@ report_home_inodes() {
 
 # Keeps current plus one rollback release, removes build leftovers and stale
 # framework caches, sessions and old logs, then reports inode counts.
+# Also removes app-only leftovers this deploy created (never another site).
+report_df_inodes() {
+  local out
+  echo "df_inodes_begin"
+  out="$(mktemp)"
+  if df -iP "$domain" >"$out" 2>/dev/null; then
+    while IFS= read -r line; do
+      echo "df_inodes ${line}"
+    done < "$out"
+  else
+    echo "df_inodes=unavailable"
+  fi
+  rm -f "$out"
+  echo "df_inodes_end"
+}
+
+remove_pre_docroots() {
+  local dir
+  shopt -s nullglob
+  for dir in "$domain"/public_html.pre-reserveworx-*; do
+    [[ -d "$dir" && ! -L "$dir" ]] || continue
+    case "$dir" in
+      */www/app.reserveworx.com/public_html.pre-reserveworx-*) ;;
+      *)
+        echo "inode_cleanup=refused ${dir}" >&2
+        continue
+        ;;
+    esac
+    case "$dir" in
+      *www/reserveworx.com*|*laravel/shared*|*laravel/releases*)
+        echo "inode_cleanup=refused ${dir}" >&2
+        continue
+        ;;
+    esac
+    echo "inode_cleanup_pre_docroot_removed=${dir#"${domain}/"} files=$(count_files "$dir")"
+    rm -rf -- "$dir"
+  done
+  shopt -u nullglob
+}
+
+# Early dump path was laravel/backups; live dumps are laravel/shared/backups.
+# Move any leftover dumps into shared, keep two newest, then drop the orphan dir.
+remove_orphan_laravel_backups() {
+  local orphan="${laravel}/backups" file dest count list
+  [[ -d "$orphan" && ! -L "$orphan" ]] || { echo "inode_cleanup_orphan_backups=absent"; return 0; }
+  case "$orphan" in
+    */www/app.reserveworx.com/laravel/backups) ;;
+    *)
+      echo "inode_cleanup=refused ${orphan}" >&2
+      return 0
+      ;;
+  esac
+  if [[ "$orphan" == "${shared}/backups" ]]; then
+    echo "inode_cleanup_orphan_backups=skipped_shared"
+    return 0
+  fi
+  mkdir -p "${shared}/backups"
+  chmod 700 "${shared}/backups"
+  shopt -s nullglob
+  for file in "$orphan"/*.sql.gz; do
+    [[ -f "$file" ]] || continue
+    dest="${shared}/backups/$(basename "$file")"
+    if [[ -e "$dest" ]]; then
+      rm -f -- "$file"
+      echo "inode_cleanup_orphan_backup_dup_removed=$(basename "$file")"
+    else
+      mv -- "$file" "$dest"
+      chmod 600 "$dest"
+      echo "inode_cleanup_orphan_backup_moved=$(basename "$file")"
+    fi
+  done
+  shopt -u nullglob
+  echo "inode_cleanup_orphan_backups_dir_removed=1 files=$(count_files "$orphan")"
+  rm -rf -- "$orphan"
+  count=0
+  list="$(mktemp)"
+  find "${shared}/backups" -maxdepth 1 -type f -name '*.sql.gz' -printf '%T@ %p\n' | sort -nr | cut -d' ' -f2- > "$list"
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    count=$((count + 1))
+    if [[ "$count" -gt 2 ]]; then
+      rm -f -- "$file"
+      echo "backup_pruned=1"
+    fi
+  done < "$list"
+  rm -f "$list"
+}
+
 inode_cleanup() {
   local dir rel
   report_inodes before
@@ -1132,7 +1220,7 @@ inode_cleanup() {
   shopt -s nullglob
   for rel in "$releases"/*; do
     [[ -d "$rel" && ! -L "$rel" ]] || continue
-    for dir in "$rel/node_modules" "$rel/.composer" "$rel/.cache" "$rel/tests"; do
+    for dir in "$rel/node_modules" "$rel/.composer" "$rel/.cache" "$rel/tests" "$rel/.github" "$rel/docs"; do
       if [[ -d "$dir" && ! -L "$dir" ]] && guard_app_path "$dir"; then
         echo "inode_cleanup_build_removed=${dir#"${laravel}/"} files=$(count_files "$dir")"
         rm -rf -- "$dir"
@@ -1148,12 +1236,15 @@ inode_cleanup() {
   prune_old_files "${shared}/storage/framework/testing" 0 testing
   prune_old_files "${shared}/storage/pail" 1440 pail
   prune_old_files "${shared}/storage/logs" 20160 logs
+  remove_pre_docroots
+  remove_orphan_laravel_backups
   if [[ -d "${shared}/vendor" || -d "${laravel}/vendor" ]]; then
     echo "vendor_outside_releases=present (not removed, review)"
   else
     echo "vendor_outside_releases=none"
   fi
   report_inodes after
+  report_df_inodes || true
   report_home_inodes || true
   report_site_inodes || true
 }
@@ -1185,6 +1276,7 @@ if [[ "$ACTION" == "rollback" ]]; then
   prune_releases
   purge_dynamic_cache || echo "dynamic_cache=flush app.reserveworx.com manually in Site Tools"
   health_check
+  inode_cleanup || echo "inode_cleanup=failed" >&2
   exit 0
 fi
 
