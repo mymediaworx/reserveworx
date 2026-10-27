@@ -142,7 +142,7 @@ class Allocator
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
 
-            if ($booking->status !== BookingStatus::Held) {
+            if (! $booking->status->isOpenHold()) {
                 throw new AllocationUnavailableException('Only a held booking can be confirmed.');
             }
 
@@ -336,7 +336,7 @@ class Allocator
             $this->enterTenant($booking->tenant_id);
             $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
 
-            if (! in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true)) {
+            if (! $booking->status->isOpenHold() && $booking->status !== BookingStatus::Confirmed) {
                 throw new AllocationUnavailableException('Only a held or confirmed booking can be marked as a no-show.');
             }
 
@@ -549,7 +549,7 @@ class Allocator
     }
 
     /**
-     * Name or clear the staff guide on a held or confirmed booking.
+     * Name or clear the staff guide on a held, pending-payment, or confirmed booking.
      * Live parties on the same departure share that guide. The price,
      * allocations, and payments stay as they are.
      *
@@ -584,7 +584,7 @@ class Allocator
                 $current = $locked->firstWhere('id', $seed->id);
 
                 throw new AllocationUnavailableException(
-                    $current instanceof Booking && $current->status === BookingStatus::Held
+                    $current instanceof Booking && $current->status->isOpenHold()
                         ? 'That hold has expired.'
                         : 'Only a held or confirmed booking can be assigned a guide.',
                 );
@@ -2930,7 +2930,7 @@ class Allocator
             return true;
         }
 
-        if ($booking->status !== BookingStatus::Held) {
+        if (! $booking->status->isOpenHold()) {
             return false;
         }
 
@@ -3032,7 +3032,7 @@ class Allocator
             ->where(function ($query): void {
                 $query->where('status', BookingStatus::Confirmed)
                     ->orWhere(function ($held): void {
-                        $held->where('status', BookingStatus::Held)
+                        $held->whereIn('status', [BookingStatus::Held, BookingStatus::PendingPayment])
                             ->whereHas('holds', fn ($holds) => $holds->where('expires_at', '>', now()));
                     });
             })

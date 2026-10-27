@@ -51,7 +51,7 @@ class WaiverSigningController extends Controller
 
     private function assertSignable(Booking $booking): void
     {
-        abort_unless(in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true), 404);
+        abort_unless(in_array($booking->status, [BookingStatus::Held, BookingStatus::PendingPayment, BookingStatus::Confirmed], true), 404);
         abort_if($booking->ends_at->lessThan(now()->subDay()), 404);
     }
 

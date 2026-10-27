@@ -149,7 +149,7 @@ final class NamedParty
                 }
             }
 
-            if (! in_array($locked->status, [BookingStatus::Held, BookingStatus::Confirmed], true)) {
+            if (! in_array($locked->status, [BookingStatus::Held, BookingStatus::PendingPayment, BookingStatus::Confirmed], true)) {
                 throw new AllocationUnavailableException('Only a held or confirmed booking can name a participant.');
             }
 
