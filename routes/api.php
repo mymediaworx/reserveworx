@@ -213,6 +213,8 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/maintenance-windows/{maintenance_window}/end', [OperationsController::class, 'endMaintenance']);
             Route::get('/assets/{asset}/maintenance-records', [OperationsController::class, 'indexMaintenanceRecords']);
             Route::post('/assets/{asset}/maintenance-records', [OperationsController::class, 'storeMaintenanceRecord']);
+            Route::get('/pools/{pool}/maintenance-records', [OperationsController::class, 'indexPoolMaintenanceRecords']);
+            Route::post('/pools/{pool}/maintenance-records', [OperationsController::class, 'storePoolMaintenanceRecord']);
             Route::get('/notification-hooks', [NotificationHookController::class, 'index']);
             Route::post('/waiver-versions', [OperationsController::class, 'storeWaiver']);
             Route::post('/bookings/{booking}/pricing', [PricingController::class, 'priceBooking']);

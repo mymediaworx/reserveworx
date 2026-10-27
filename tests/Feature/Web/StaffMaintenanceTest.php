@@ -151,13 +151,13 @@ class StaffMaintenanceTest extends TestCase
         $this->actingAs($alpha['user']);
 
         Livewire::test(Maintenance::class)
-            ->set('inspectionAsset', $boat->id)
+            ->set('inspectionResource', 'asset:'.$boat->id)
             ->set('inspectionName', 'Safety check')
             ->set('inspectionEvery', '30')
             ->set('inspectionUnit', 'days')
             ->call('addInspection')
             ->assertHasNoErrors()
-            ->set('inspectionAsset', $boat->id)
+            ->set('inspectionResource', 'asset:'.$boat->id)
             ->set('inspectionName', 'Prop check')
             ->set('inspectionEvery', '5')
             ->set('inspectionUnit', 'uses')
@@ -248,7 +248,7 @@ class StaffMaintenanceTest extends TestCase
             ->assertNotFound();
         Livewire::test(Maintenance::class)->call('markDone', $southCheck->id)->assertNotFound();
         Livewire::test(Maintenance::class)
-            ->set('inspectionAsset', $southBoat->id)
+            ->set('inspectionResource', 'asset:'.$southBoat->id)
             ->set('inspectionName', 'Sneaky check')
             ->call('addInspection')
             ->assertNotFound();

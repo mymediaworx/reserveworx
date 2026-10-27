@@ -83,7 +83,8 @@
                             @foreach ($inspections as $row)
                                 @php
                                     $schedule = $row['schedule'];
-                                    $zone = \App\Support\DisplayZone::forLocation($schedule->asset?->location);
+                                    $resource = $schedule->asset ?? $schedule->pool;
+                                    $zone = \App\Support\DisplayZone::forLocation($resource?->location);
                                 @endphp
                                 <li class="row inspection-row" wire:key="inspection-{{ $schedule->id }}">
                                     <div>
@@ -92,7 +93,7 @@
                                             <span class="badge badge-payment">Due</span>
                                         @endif
                                         <span class="muted">
-                                            {{ $schedule->asset?->name }}
+                                            {{ $resource?->name }}{{ $schedule->pool_id !== null ? ' (pool)' : '' }}
                                             ·
                                             @if ($schedule->interval_days !== null)
                                                 Every {{ $schedule->interval_days }} {{ $schedule->interval_days === 1 ? 'day' : 'days' }}
@@ -200,20 +201,20 @@
 
                     <section class="panel" aria-labelledby="add-inspection-heading">
                         <h2 id="add-inspection-heading">Add an inspection</h2>
-                        @if ($assets->isEmpty())
-                            <p class="muted">Inspections are for individual boats. Add one under inventory first.</p>
+                        @if ($resources->isEmpty())
+                            <p class="muted">Add a boat or pool under inventory first.</p>
                         @else
                             <form wire:submit="addInspection" class="stack">
                                 <label class="field">
-                                    <span>Boat</span>
-                                    <select wire:model="inspectionAsset" required>
+                                    <span>Boat or pool</span>
+                                    <select wire:model="inspectionResource" required>
                                         <option value="">Choose one</option>
-                                        @foreach ($assets as $asset)
-                                            <option value="{{ $asset->id }}">{{ $asset->name }}{{ $locations->count() > 1 && ! $selected ? ' · '.$asset->location?->name : '' }}</option>
+                                        @foreach ($resources as $key => $label)
+                                            <option value="{{ $key }}">{{ $label }}</option>
                                         @endforeach
                                     </select>
                                 </label>
-                                @error('inspectionAsset')<p class="error">{{ $message }}</p>@enderror
+                                @error('inspectionResource')<p class="error">{{ $message }}</p>@enderror
                                 <label class="field">
                                     <span>Inspection</span>
                                     <input type="text" wire:model="inspectionName" maxlength="120" required placeholder="Safety check">
