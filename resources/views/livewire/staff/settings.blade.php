@@ -67,6 +67,32 @@
         </form>
     </section>
 
+    <section class="panel" id="guest-cancellation">
+        <h2>Guest cancellation</h2>
+        <p>A guest can cancel a held or confirmed booking from their manage page until this many minutes before it starts. Leave it off until you want that. This does not change a cancellation window or a refund.</p>
+        @if (! $guestCancellationEnabled)
+            <p class="muted">Online cancellation is off.</p>
+        @elseif ($guestCancelMinutes === '0')
+            <p class="muted">Guests can cancel until the start.</p>
+        @elseif ($guestCancelMinutes !== '')
+            <p class="muted">Guests can cancel until {{ $guestCancelMinutes }} minutes before the start.</p>
+        @endif
+        <form wire:submit="saveGuestCancellation" class="stack">
+            <label class="check">
+                <input type="checkbox" wire:model.live="guestCancellationEnabled" @disabled(! $canUpdate)>
+                <span>Guests can cancel their own booking</span>
+            </label>
+            @if ($guestCancellationEnabled)
+                <label class="field compact">
+                    <span>Minutes before the start</span>
+                    <input type="number" min="0" max="43200" inputmode="numeric" wire:model="guestCancelMinutes" @disabled(! $canUpdate)>
+                </label>
+                @error('guestCancelMinutes')<p class="error" role="alert">{{ $message }}</p>@enderror
+            @endif
+            @if ($canUpdate)<button type="submit" class="button primary">Save guest cancellation</button>@endif
+        </form>
+    </section>
+
     <section class="panel" id="capacity-ledger">
         <h2>Shared gear lock</h2>
         <p>Pools of interchangeable gear are locked in blocks of this many minutes. The usual length is 15. The next booking uses the length you save. A booking that is already held keeps the blocks it used. Saving does not change a price, a payment, a tax, a fee, or a refund.</p>
