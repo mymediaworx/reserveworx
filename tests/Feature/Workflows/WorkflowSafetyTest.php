@@ -659,5 +659,161 @@ PY);
         $this->assertStringContainsString('pint', $contents);
         $this->assertStringContainsString('phpstan', $contents);
         $this->assertStringContainsString('composer audit', $contents);
+        $this->assertStringContainsString('bash .github/scripts/check-changelog-unreleased.sh', $contents);
+    }
+
+    public function test_changelog_fragments_add_no_inodes_to_a_packed_release(): void
+    {
+        $workflow = (string) file_get_contents(base_path('.github/workflows/deploy.yml'));
+        preg_match_all("/--exclude '([^']*)'/", $workflow, $matches);
+        $excludes = $matches[1];
+        $this->assertContains('docs', $excludes);
+        $this->assertContains('.cursor', $excludes);
+        $this->assertContains('.github', $excludes);
+
+        $root = sys_get_temp_dir().'/rw-pack-'.bin2hex(random_bytes(4));
+        $archive = $root.'.tar.gz';
+        $packed = $root.'-packed';
+        $plain = $root.'-plain';
+
+        try {
+            mkdir($root.'/app', 0777, true);
+            mkdir($root.'/docs/changelog.d', 0777, true);
+            mkdir($root.'/.cursor/rules', 0777, true);
+            mkdir($root.'/.github/scripts', 0777, true);
+            file_put_contents($root.'/app/index.php', "<?php\n");
+            file_put_contents($root.'/docs/CHANGELOG.md', "# Changelog\n");
+            file_put_contents($root.'/docs/changelog.d/README.md', "readme\n");
+            file_put_contents($root.'/docs/changelog.d/example.md', "- note\n");
+            file_put_contents($root.'/.cursor/rules/changelog.mdc', "rule\n");
+            file_put_contents($root.'/.github/scripts/check-changelog-unreleased.sh', "#!/usr/bin/env bash\n");
+
+            $command = 'tar -czf '.escapeshellarg($archive);
+            foreach ($excludes as $exclude) {
+                $command .= ' --exclude '.escapeshellarg($exclude);
+            }
+            $command .= ' -C '.escapeshellarg($root).' .';
+            $ran = $this->runShell($command);
+            $this->assertSame(0, $ran['exit'], $ran['output']);
+
+            $listed = $this->runShell('tar -tzf '.escapeshellarg($archive));
+            $this->assertSame(0, $listed['exit'], $listed['output']);
+            $this->assertDoesNotMatchRegularExpression('/(^|\/)docs(\/|$)/m', $listed['output']);
+            $this->assertStringNotContainsString('.cursor', $listed['output']);
+            $this->assertStringNotContainsString('.github', $listed['output']);
+            $this->assertStringContainsString('app/index.php', $listed['output']);
+
+            mkdir($packed);
+            $extracted = $this->runShell('tar -xzf '.escapeshellarg($archive).' -C '.escapeshellarg($packed));
+            $this->assertSame(0, $extracted['exit'], $extracted['output']);
+            $this->assertFileDoesNotExist($packed.'/docs');
+            $this->assertFileDoesNotExist($packed.'/.cursor');
+            $this->assertFileDoesNotExist($packed.'/.github');
+            $this->assertFileExists($packed.'/app/index.php');
+
+            mkdir($plain.'/app', 0777, true);
+            file_put_contents($plain.'/app/index.php', "<?php\n");
+            $this->assertSame($this->inodeCount($plain), $this->inodeCount($packed));
+        } finally {
+            $this->runShell('rm -rf '.escapeshellarg($root).' '.escapeshellarg($archive).' '.escapeshellarg($packed).' '.escapeshellarg($plain));
+        }
+    }
+
+    public function test_inode_cleanup_removes_changelog_fragments_from_a_release(): void
+    {
+        $home = sys_get_temp_dir().'/rw-inodes-'.bin2hex(random_bytes(4));
+        $sha = str_repeat('a', 40);
+        $release = $home.'/www/app.reserveworx.com/laravel/releases/'.$sha;
+        $clean = $home.'-clean';
+
+        try {
+            mkdir($release.'/app', 0777, true);
+            mkdir($release.'/docs/changelog.d', 0777, true);
+            mkdir($release.'/.cursor/rules', 0777, true);
+            file_put_contents($release.'/app/index.php', "<?php\n");
+            file_put_contents($release.'/docs/changelog.d/note.md', "- note\n");
+            file_put_contents($release.'/.cursor/rules/changelog.mdc', "rule\n");
+            symlink($release, $home.'/www/app.reserveworx.com/laravel/current');
+
+            $before = $this->inodeCount($release);
+            $command = 'export HOME='.escapeshellarg($home)
+                .' ACTION=deploy RW_DEPLOY_LIBRARY=1; source '.escapeshellarg(base_path('scripts/remote-deploy.sh'))
+                .'; inode_cleanup';
+            $ran = $this->runShell($command);
+            $this->assertSame(0, $ran['exit'], $ran['output']);
+            $this->assertStringContainsString('inode_cleanup_build_removed=releases/'.$sha.'/docs', $ran['output']);
+            $this->assertStringContainsString('inode_cleanup_build_removed=releases/'.$sha.'/.cursor', $ran['output']);
+            $this->assertFileDoesNotExist($release.'/docs');
+            $this->assertFileDoesNotExist($release.'/.cursor');
+            $this->assertFileExists($release.'/app/index.php');
+
+            mkdir($clean.'/app', 0777, true);
+            file_put_contents($clean.'/app/index.php', "<?php\n");
+            $after = $this->inodeCount($release);
+            $this->assertLessThan($before, $after);
+            $this->assertSame($this->inodeCount($clean), $after);
+        } finally {
+            $this->runShell('rm -rf '.escapeshellarg($home).' '.escapeshellarg($clean));
+        }
+    }
+
+    public function test_a_direct_edit_of_the_unreleased_changelog_fails(): void
+    {
+        $script = base_path('.github/scripts/check-changelog-unreleased.sh');
+        $this->assertFileExists($script);
+
+        $dir = sys_get_temp_dir().'/rw-changelog-'.bin2hex(random_bytes(4));
+        mkdir($dir);
+        $base = $dir.'/base.md';
+        $head = $dir.'/head.md';
+        $unchanged = "# Changelog\n\nIntro.\n\n## Unreleased\n\n- One.\n";
+
+        try {
+            file_put_contents($base, $unchanged);
+            file_put_contents($head, $unchanged);
+            $same = $this->changelogCheck($script, $base, $head);
+            $this->assertSame(0, $same['exit'], $same['output']);
+
+            file_put_contents($head, "# Changelog\n\nA different intro.\n\n## Unreleased\n\n- One.\n");
+            $intro = $this->changelogCheck($script, $base, $head);
+            $this->assertSame(0, $intro['exit'], $intro['output']);
+
+            file_put_contents($head, "# Changelog\n\nIntro.\n\n## Unreleased\n\n- One.\n\n## 1.0.0\n\n- Collected.\n");
+            $version = $this->changelogCheck($script, $base, $head);
+            $this->assertSame(0, $version['exit'], $version['output']);
+
+            file_put_contents($head, "# Changelog\n\nIntro.\n\n## Unreleased\n\n- One.\n- Two.\n");
+            $edited = $this->changelogCheck($script, $base, $head);
+            $this->assertSame(1, $edited['exit'], $edited['output']);
+            $this->assertStringContainsString('docs/changelog.d/', $edited['output']);
+
+            file_put_contents($head, "# Changelog\n\nIntro.\n\n- One.\n");
+            $missing = $this->changelogCheck($script, $base, $head);
+            $this->assertSame(1, $missing['exit'], $missing['output']);
+
+            $changelog = base_path('docs/CHANGELOG.md');
+            $real = $this->changelogCheck($script, $changelog, $changelog);
+            $this->assertSame(0, $real['exit'], $real['output']);
+        } finally {
+            $this->runShell('rm -rf '.escapeshellarg($dir));
+        }
+    }
+
+    /**
+     * @return array{exit: int, output: string}
+     */
+    private function changelogCheck(string $script, string $base, string $head): array
+    {
+        return $this->runShell('bash '.escapeshellarg($script).' '.escapeshellarg($base).' '.escapeshellarg($head));
+    }
+
+    private function inodeCount(string $path): int
+    {
+        $ran = $this->runShell('du --inodes -s '.escapeshellarg($path));
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertMatchesRegularExpression('/^\d+\s/', $ran['output']);
+        preg_match('/^(\d+)/', $ran['output'], $matches);
+
+        return (int) $matches[1];
     }
 }

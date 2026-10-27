@@ -152,4 +152,12 @@ Before relying on a package's API, confirm its installed version:
 - Rerun a test after each change to it.
 - Run `vendor/bin/phpunit` to call the test runner directly. It accepts the same file path and `--filter=testName` arguments.
 
+=== changelog rules ===
+
+# Changelog
+
+Do not edit the Unreleased section of `docs/CHANGELOG.md`. Add one fragment per pull request: `docs/changelog.d/<branch-or-slug>.md`. Use the branch name with slashes replaced by hyphens, or a short slug. Write a Markdown list in the same style as `docs/CHANGELOG.md`.
+
+`docs/` is excluded from the production archive. Deploy also deletes a leftover `docs` directory inside a release. Keep fragments under `docs/changelog.d/` so they add no inodes to a release. See `docs/changelog.d/README.md`.
+
 </laravel-boost-guidelines>

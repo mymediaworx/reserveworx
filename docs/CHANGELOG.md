@@ -2,6 +2,8 @@
 
 Semantic versions start at the first tagged release. This file records what landed before that tag.
 
+Add a pull request note as `docs/changelog.d/<branch-or-slug>.md`. Do not edit the Unreleased section. See `docs/changelog.d/README.md`.
+
 ## Unreleased
 
 - Each rental start time on the public booking page shows the total already calculated for that clock, length, and party, in the workspace currency. A tour departure with no option shows that total beside the time and the seats left. A tour that already lists options keeps the price on the option. Customer-paid mode adds “Booking fee included.” Operator-absorbed mode shows the customer total without that line. A start with no price omits the amount. Holding the time still uses the quote that already exists. No price rule, payment, tax, fee, or refund is written by showing the times. On a 390px-wide screen the start price and the departure list wrap. Spec Section 14 item 10 and Spec Section 7.6.1. Pricing, tax, fee, and refund-policy logic are unchanged. This only displays the existing quote.
