@@ -28,6 +28,7 @@ use App\Livewire\Platform\Handbook as PlatformHandbook;
 use App\Livewire\Platform\Readiness;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
+use App\Livewire\Platform\Upgrade;
 use App\Livewire\Staff\ActivityLog;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
@@ -109,6 +110,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
         Route::get('/', Tenants::class);
         Route::get('/help', PlatformHandbook::class);
         Route::get('/readiness', Readiness::class);
+        Route::get('/upgrade', Upgrade::class);
         Route::get('/tenants/{tenant}', TenantDetail::class);
         Route::get('/tenants/{tenant}/exports/{export}', [TenantExportController::class, 'download'])->name('platform.exports.download');
     });
