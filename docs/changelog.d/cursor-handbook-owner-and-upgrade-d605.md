@@ -1,0 +1,1 @@
+- An owner’s handbook at `/staff/help` lists All businesses and Add a business. A manager and staff do not see those links. A platform administrator’s handbook at `/platform/help` lists Upgrade. That page does not run a deploy. Opening either handbook still writes no booking, price, payment, tax, fee, or refund. Spec Section 17.
