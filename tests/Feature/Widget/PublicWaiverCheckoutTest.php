@@ -134,7 +134,12 @@ class PublicWaiverCheckoutTest extends TestCase
         $this->post($this->formAction((string) $review->getContent(), 'Pay with card'))
             ->assertRedirect('https://checkout.stripe.test/pay/cs_test_123');
         $this->assertCount(1, $fake->sessions);
-        $this->assertHeld($workspace['tenant'], $bookingId, $total);
+        app(TenantManager::class)->set($workspace['tenant']);
+        $paid = Booking::query()->findOrFail($bookingId);
+        $this->assertSame('pending_payment', $paid->status->value);
+        $this->assertNotSame('due_at_pickup', $paid->payment_status->value);
+        app(TenantManager::class)->forget();
+        $this->assertSame($total, $this->customerTotal($workspace['tenant'], $bookingId));
     }
 
     public function test_a_named_child_signs_before_payment_and_a_missing_guardian_is_refused(): void

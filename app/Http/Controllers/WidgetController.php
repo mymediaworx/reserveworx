@@ -327,7 +327,7 @@ class WidgetController extends Controller
     {
         $this->activeToken($token);
         $this->assertBookingService($booking);
-        abort_unless(in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true), 404);
+        abort_unless(in_array($booking->status, [BookingStatus::Held, BookingStatus::PendingPayment, BookingStatus::Confirmed], true), 404);
 
         if ($this->alreadyBooked($booking)) {
             return redirect()->to($this->confirmationUrl($token, $booking));
@@ -1487,7 +1487,7 @@ class WidgetController extends Controller
             'whenLabel' => $this->whenLabel($booking),
             'checkInQr' => $this->checkInPass->svg($booking),
             'checkInUrl' => $this->checkInPass->url($booking),
-            'waiverUrl' => in_array($booking->status, [BookingStatus::Held, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($booking) : null,
+            'waiverUrl' => in_array($booking->status, [BookingStatus::Held, BookingStatus::PendingPayment, BookingStatus::Confirmed], true) ? app(WaiverLinks::class)->urlIfNeeded($booking) : null,
             'taxLines' => $taxLines,
             'currency' => $currency,
             'serviceCents' => $serviceCents,

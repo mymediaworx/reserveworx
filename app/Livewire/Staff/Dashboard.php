@@ -130,7 +130,7 @@ class Dashboard extends Component
             'checkedOutLaterCount' => (clone $later)->count(),
             'checkedOutLater' => $checkedOutLater,
             'attentionCount' => BookingListFilters::needsAttention(Booking::query())->count(),
-            'waitingCount' => Booking::query()->where('status', BookingStatus::Held->value)->count(),
+            'waitingCount' => Booking::query()->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value])->count(),
             'upcomingCount' => Booking::query()
                 ->where('starts_at', '>', $end)
                 ->where('starts_at', '<', $now->addDays(7)->endOfDay()->utc())

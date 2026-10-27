@@ -33,7 +33,7 @@
         <section class="notice attention" role="alert" data-needs-attention="payment_exception">
             <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time, or cancel it with a full refund, and let the customer know.</p>
         </section>
-    @elseif ($booking->attention_reason && in_array($status, ['held', 'confirmed'], true))
+    @elseif ($booking->attention_reason && in_array($status, ['held', 'pending_payment', 'confirmed'], true))
         <section class="notice attention" role="alert" data-needs-attention="flagged">
             <p><strong>Needs attention:</strong> {{ $booking->attention_reason }}</p>
             <p class="muted small">Nothing was cancelled or moved. Move the booking, change the resource, or contact the guest, then mark it handled.</p>
@@ -43,9 +43,13 @@
         </section>
     @endif
 
-    @if ($status === 'held' && $holdExpires)
+    @if (in_array($status, ['held', 'pending_payment'], true) && $holdExpires)
         <p class="notice attention">
-            Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.
+            @if ($status === 'pending_payment')
+                Waiting for payment until {{ Display::time($holdExpires, $zone) }}.
+            @else
+                Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.
+            @endif
         </p>
     @endif
 
@@ -264,7 +268,7 @@
                             @endif
                         </div>
                     @endif
-                    @if ($status === 'held')
+                    @if (in_array($status, ['held', 'pending_payment'], true))
                         <button type="button" class="button" wire:click="confirm">Confirm without payment</button>
                     @endif
                 </section>

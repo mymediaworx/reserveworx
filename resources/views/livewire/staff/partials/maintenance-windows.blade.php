@@ -31,8 +31,8 @@
                                     @if ($booking->attention_reason)
                                         <span class="badge badge-payment">Flagged</span>
                                     @endif
-                                    @if ($booking->status->value === 'held')
-                                        <span class="badge badge-held">Held</span>
+                                    @if (in_array($booking->status->value, ['held', 'pending_payment'], true))
+                                        <span class="badge badge-{{ $booking->status->value }}">{{ Display::status($booking->status->value) }}</span>
                                     @endif
                                 </li>
                             @endforeach

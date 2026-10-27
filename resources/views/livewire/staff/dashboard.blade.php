@@ -105,7 +105,7 @@
                 @endif
             </span>
         </a>
-        <a class="stat-card" href="/staff/bookings?status=held" wire:navigate>
+        <a class="stat-card" href="/staff/bookings?status=waiting&when=all" wire:navigate>
             <span class="stat-strip"><x-icon name="history" size="16" /> Right now</span>
             <span class="stat-body">
                 <span class="stat-title">Waiting on payment</span>
