@@ -18,6 +18,7 @@ enum GhlMessageKind: string
     case PaymentFailed = 'payment.failed';
     case RefundIssued = 'refund.issued';
     case Overdue = 'rental.overdue';
+    case WaitlistPromoted = 'waitlist.promoted';
 
     public function preference(): string
     {
@@ -31,6 +32,7 @@ enum GhlMessageKind: string
             self::PaymentFailed => TransactionalEmail::PaymentFailed->value,
             self::RefundIssued => TransactionalEmail::RefundIssued->value,
             self::Overdue => TransactionalEmail::RentalOverdue->value,
+            self::WaitlistPromoted => TransactionalEmail::WaitlistPromoted->value,
         };
     }
 
@@ -45,6 +47,7 @@ enum GhlMessageKind: string
             self::PaymentFailed => 'Payment failed',
             self::RefundIssued => 'Refund',
             self::Overdue => 'Overdue rental',
+            self::WaitlistPromoted => 'Waitlist opening',
         };
     }
 }
