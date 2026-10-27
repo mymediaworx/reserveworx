@@ -103,7 +103,7 @@ final class MaintenancePlanner
     }
 
     /**
-     * Held and confirmed bookings whose buffered time on this resource
+     * Held, pending-payment, and confirmed bookings whose buffered time on this resource
      * overlaps the window and that have not started yet.
      *
      * @return Collection<int, Booking>
@@ -119,7 +119,7 @@ final class MaintenancePlanner
 
         return Booking::query()
             ->with('customer')
-            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value])
+            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value, BookingStatus::Confirmed->value])
             ->where('starts_at', '>', now())
             ->where(function ($query) use ($overlaps): void {
                 $query->whereIn('id', Allocation::query()->where($overlaps)->select('booking_id'))
@@ -223,7 +223,7 @@ final class MaintenancePlanner
 
         $bookings = Booking::query()
             ->where('attention_reason', $window->reason)
-            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::Confirmed->value])
+            ->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value, BookingStatus::Confirmed->value])
             ->where('starts_at', '>', CarbonImmutable::now()->utc())
             ->where(function ($query) use ($overlaps): void {
                 $query->whereIn('id', Allocation::query()->where($overlaps)->select('booking_id'))
