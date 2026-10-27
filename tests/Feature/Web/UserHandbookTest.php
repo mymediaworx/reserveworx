@@ -56,6 +56,10 @@ class UserHandbookTest extends TestCase
             ->assertSee('href="/staff/team"', false)
             ->assertSee('href="/staff/customers"', false)
             ->assertSee('href="/staff/audit"', false)
+            ->assertSee('href="/staff/portfolio"', false)
+            ->assertSee('href="/staff/businesses/new"', false)
+            ->assertSee('All businesses')
+            ->assertSee('Add a business')
             ->assertSee('href="/admin/integrations"', false)
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
@@ -85,6 +89,8 @@ class UserHandbookTest extends TestCase
         $handbookLinks = $matches[1];
         $this->assertContains('/staff/maintenance', $handbookLinks);
         $this->assertContains('/staff/audit', $handbookLinks);
+        $this->assertContains('/staff/portfolio', $handbookLinks);
+        $this->assertContains('/staff/businesses/new', $handbookLinks);
         foreach ($handbookLinks as $href) {
             $this->assertTrue(str_starts_with($href, '/'));
             $this->assertStringNotContainsString('://', $href);
@@ -106,7 +112,11 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('>Import<', false)
             ->assertDontSee('href="/staff/team"', false)
             ->assertDontSee('href="/staff/customers"', false)
-            ->assertDontSee('href="/staff/audit"', false);
+            ->assertDontSee('href="/staff/audit"', false)
+            ->assertDontSee('All businesses')
+            ->assertDontSee('Add a business')
+            ->assertDontSee('href="/staff/portfolio"', false)
+            ->assertDontSee('href="/staff/businesses/new"', false);
 
         $this->get($this->tenantUrl('alpha.test', '/staff/menu'))
             ->assertOk()
@@ -140,7 +150,25 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('Customer records')
             ->assertDontSee('Audit log')
             ->assertDontSee('href="/staff/customers"', false)
-            ->assertDontSee('href="/staff/audit"', false);
+            ->assertDontSee('href="/staff/audit"', false)
+            ->assertSee('All businesses')
+            ->assertSee('Add a business')
+            ->assertSee('href="/staff/portfolio"', false)
+            ->assertSee('href="/staff/businesses/new"', false);
+    }
+
+    public function test_a_manager_does_not_see_owner_business_pages(): void
+    {
+        $this->signedIn('manager');
+
+        $this->get($this->tenantUrl('alpha.test', '/staff/help'))
+            ->assertOk()
+            ->assertSee('Setup guide')
+            ->assertSee('href="/staff/setup"', false)
+            ->assertDontSee('All businesses')
+            ->assertDontSee('Add a business')
+            ->assertDontSee('href="/staff/portfolio"', false)
+            ->assertDontSee('href="/staff/businesses/new"', false);
     }
 
     public function test_a_spa_uses_its_own_word_and_another_workspace_is_refused(): void
@@ -188,6 +216,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('Admin handbook')
             ->assertSee('does not change a workspace, a price, a payment, a tax, a fee, or a refund')
             ->assertSee('href="/platform/readiness"', false)
+            ->assertSee('href="/platform/upgrade"', false)
+            ->assertSee('The page does not run a deploy.')
             ->assertSee('href="/platform"', false)
             ->assertSee('The private token is typed once and is not shown again.')
             ->assertSee('This handbook does not change them.')
@@ -205,6 +235,7 @@ class UserHandbookTest extends TestCase
 
         Livewire::actingAs($admin)->test(PlatformHandbook::class)
             ->assertSee('Readiness')
+            ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
         $member = User::factory()->create();
