@@ -10,8 +10,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * A repeating inspection on one asset, due every `interval_days` days or
- * after `interval_uses` finished rentals since it was last done.
+ * A repeating inspection on one asset or one pool, due every `interval_days`
+ * days or after `interval_uses` finished rentals since it was last done.
  */
 class InspectionSchedule extends Model
 {
@@ -21,6 +21,7 @@ class InspectionSchedule extends Model
     protected $fillable = [
         'tenant_id',
         'asset_id',
+        'pool_id',
         'name',
         'interval_days',
         'interval_uses',
@@ -41,5 +42,13 @@ class InspectionSchedule extends Model
     public function asset(): BelongsTo
     {
         return $this->belongsTo(Asset::class);
+    }
+
+    /**
+     * @return BelongsTo<Pool, $this>
+     */
+    public function pool(): BelongsTo
+    {
+        return $this->belongsTo(Pool::class);
     }
 }

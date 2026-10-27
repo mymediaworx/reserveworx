@@ -3,12 +3,16 @@
 namespace App\Services\Notifications;
 
 use App\Models\NotificationHook;
+use App\Services\Integrations\GhlMessages;
 use App\Services\Integrations\Outbox;
 use Illuminate\Database\QueryException;
 
 final class NotificationHooks
 {
-    public function __construct(private readonly Outbox $outbox) {}
+    public function __construct(
+        private readonly Outbox $outbox,
+        private readonly GhlMessages $messages,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -33,5 +37,6 @@ final class NotificationHooks
             'tenant_id' => $tenantId,
             'booking_id' => $bookingId,
         ]));
+        $this->messages->queueFromHook($tenantId, $bookingId, $kind, $dedupeKey);
     }
 }

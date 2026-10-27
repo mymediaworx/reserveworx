@@ -71,6 +71,18 @@ An owner or manager opens `/staff/customers` on the workspace host. Search finds
 
 Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each signed waiver has **Download PDF**. The file is the stored text, hash, and signature record. It is not an electronic-signature certificate. `bookings.view` is required. A member limited to other locations does not see that booking. How long a signed waiver is kept is still open question 3.
 
+## Handbook
+
+Staff open `/staff/help` on the workspace host. A platform administrator opens `/platform/help` on the platform host. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+
+## Upgrade
+
+A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
+
+## Production readiness
+
+A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.
+
 ## Audit log
 
 An owner or manager opens `/staff/audit` on the workspace host. The page lists the latest 50 changes. Staff, and a member limited to some locations, cannot open it. The filter has to match the stored action, such as `booking.cancelled`. The page does not write a row. `GET /api/v1/audit-logs` is the same read.

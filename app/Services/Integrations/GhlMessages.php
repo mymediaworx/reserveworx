@@ -83,6 +83,26 @@ final class GhlMessages
         );
     }
 
+    /**
+     * Queues the customer messages that are recorded as notification hooks
+     * and were not already queued by their own sender. A new time and a
+     * failed payment use the hook's dedupe key, so the same event is one message.
+     */
+    public function queueFromHook(string $tenantId, ?string $bookingId, string $kind, string $dedupe): void
+    {
+        $messageKind = match ($kind) {
+            GhlMessageKind::Rescheduled->value => GhlMessageKind::Rescheduled,
+            GhlMessageKind::PaymentFailed->value => GhlMessageKind::PaymentFailed,
+            default => null,
+        };
+
+        if (! $messageKind instanceof GhlMessageKind || ! is_string($bookingId) || $bookingId === '') {
+            return;
+        }
+
+        $this->queue($tenantId, $bookingId, $messageKind, $dedupe);
+    }
+
     public function queueOverdue(RentalCheckout $checkout): bool
     {
         return $this->queue(
@@ -488,7 +508,8 @@ final class GhlMessages
             GhlMessageKind::Reminder => $booking->status === BookingStatus::Confirmed
                 && $booking->starts_at->greaterThan(now()),
             GhlMessageKind::Cancelled, GhlMessageKind::GuestCancelled => $booking->status === BookingStatus::Cancelled,
-            GhlMessageKind::Receipt, GhlMessageKind::RefundIssued => true,
+            GhlMessageKind::Rescheduled => $booking->status === BookingStatus::Confirmed,
+            GhlMessageKind::PaymentFailed, GhlMessageKind::Receipt, GhlMessageKind::RefundIssued => true,
             GhlMessageKind::Overdue => $checkout instanceof RentalCheckout && $checkout->returned_at === null,
         };
     }

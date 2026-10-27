@@ -24,8 +24,11 @@ use App\Http\Controllers\Web\UiAssetController;
 use App\Http\Controllers\Web\WaitlistLeaveController;
 use App\Http\Controllers\Web\WaiverSigningController;
 use App\Http\Controllers\WidgetController;
+use App\Livewire\Platform\Handbook as PlatformHandbook;
+use App\Livewire\Platform\Readiness;
 use App\Livewire\Platform\TenantDetail;
 use App\Livewire\Platform\Tenants;
+use App\Livewire\Platform\Upgrade;
 use App\Livewire\Staff\ActivityLog;
 use App\Livewire\Staff\Bookings;
 use App\Livewire\Staff\BookingShow;
@@ -36,6 +39,7 @@ use App\Livewire\Staff\Closures;
 use App\Livewire\Staff\Customers;
 use App\Livewire\Staff\Dashboard;
 use App\Livewire\Staff\Feedback;
+use App\Livewire\Staff\Handbook;
 use App\Livewire\Staff\Import;
 use App\Livewire\Staff\Incidents;
 use App\Livewire\Staff\LoadSheet;
@@ -104,6 +108,9 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
 
     Route::middleware(['auth', 'platform.admin'])->group(function (): void {
         Route::get('/', Tenants::class);
+        Route::get('/help', PlatformHandbook::class);
+        Route::get('/readiness', Readiness::class);
+        Route::get('/upgrade', Upgrade::class);
         Route::get('/tenants/{tenant}', TenantDetail::class);
         Route::get('/tenants/{tenant}/exports/{export}', [TenantExportController::class, 'download'])->name('platform.exports.download');
     });
@@ -137,6 +144,7 @@ Route::middleware('tenant.resolve')->prefix('staff')->group(function (): void {
 
     Route::middleware(['auth', 'tenant.member'])->group(function (): void {
         Route::get('/', Dashboard::class)->name('staff.home');
+        Route::get('/help', Handbook::class)->name('staff.help');
         Route::get('/calendar', Calendar::class);
         Route::get('/schedule', Schedule::class);
         Route::get('/bookings', Bookings::class);

@@ -1,5 +1,19 @@
 @php use App\Support\Display; @endphp
-<div class="page narrow">
+<div class="page narrow settings-page">
+    <style>
+        @media (max-width: 390px) {
+            .settings-page, .settings-page * { min-width: 0; }
+            .settings-page h1,
+            .settings-page h2,
+            .settings-page p,
+            .settings-page label,
+            .settings-page .check { overflow-wrap: anywhere; }
+            .settings-page .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            .settings-page input,
+            .settings-page button,
+            .settings-page select { max-width: 100%; }
+        }
+    </style>
     <header class="page-head">
         <h1>Settings</h1>
     </header>
@@ -53,6 +67,23 @@
         </form>
     </section>
 
+    <section class="panel" id="capacity-ledger">
+        <h2>Shared gear lock</h2>
+        <p>Pools of interchangeable gear are locked in blocks of this many minutes. The usual length is 15. The next booking uses the length you save. A booking that is already held keeps the blocks it used. Saving does not change a price, a payment, a tax, a fee, or a refund.</p>
+        <form wire:submit="saveLedgerBucket" class="stack">
+            <label class="field compact">
+                <span>Block length</span>
+                <select wire:model="ledgerBucketMinutes" @disabled(! $canUpdate)>
+                    @foreach ($ledgerBucketChoices as $minutes)
+                        <option value="{{ $minutes }}">{{ $minutes }} minutes</option>
+                    @endforeach
+                </select>
+            </label>
+            @error('ledgerBucketMinutes')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdate)<button type="submit" class="button primary">Save block length</button>@endif
+        </form>
+    </section>
+
     <section class="panel">
         <h2>Cancellation and refunds</h2>
         <p>These windows decide the card refund when a customer cancels, and the refund when a booking is marked as a no-show. Until you save a window, a customer cancellation does not refund a card.</p>
@@ -96,6 +127,54 @@
                 <span>Email customers a payment receipt</span>
             </label>
             @if ($canUpdate)<button type="submit" class="button primary">Save payment receipts</button>@endif
+        </form>
+    </section>
+
+    <section class="panel" id="reminders">
+        <h2>Reminders</h2>
+        <p>A confirmed booking is reminded once at each of these times before it starts. The usual times are 24 hours and 2 hours. Remove every time to turn reminders off. Saving does not change a price, a payment, or a refund, and it does not send a reminder that already went out.</p>
+        @if ($remindersAreDefault)
+            <p class="muted">These are the usual times. They are not saved until you save reminders.</p>
+        @elseif ($reminderOffsets === [])
+            <p class="muted">Reminders are off.</p>
+        @endif
+        <form wire:submit="saveReminders" class="stack">
+            @foreach ($reminderOffsets as $index => $minutes)
+                <div class="form-row">
+                    <label class="field compact grow">
+                        <span>Minutes before the start</span>
+                        <input type="number" min="1" max="10080" inputmode="numeric" wire:model="reminderOffsets.{{ $index }}" @disabled(! $canManageReminders)>
+                    </label>
+                    @if ($reminderHints[$index] !== '')
+                        <p class="muted">{{ $reminderHints[$index] }}</p>
+                    @endif
+                    @if ($canManageReminders)
+                        <button type="button" class="button" wire:click="removeReminder({{ $index }})">Remove</button>
+                    @endif
+                </div>
+                @error('reminderOffsets.'.$index)<p class="error">{{ $message }}</p>@enderror
+            @endforeach
+            @error('reminderOffsets')<p class="error">{{ $message }}</p>@enderror
+            @if ($canManageReminders && count($reminderOffsets) < 8)
+                <button type="button" class="button" wire:click="addReminder">Add a reminder</button>
+            @endif
+            @if ($canManageReminders)<button type="submit" class="button primary">Save reminders</button>@endif
+        </form>
+    </section>
+
+    <section class="panel" id="customer-messages">
+        <h2>Customer messages</h2>
+        <p>These are the messages a customer can get for a booking. Turning one off stops that message. Feedback stays on the feedback page, and the payment receipt stays on the switch above. A price, a payment, and a refund stay as they were.</p>
+        <form wire:submit="saveMessages" class="stack">
+            @foreach ($messageChoices as $index => $choice)
+                <label class="check">
+                    <input type="checkbox" wire:model="messageEnabled.{{ $index }}" @disabled(! $canUpdateMessages)>
+                    <span>{{ $choice['label'] }}</span>
+                </label>
+            @endforeach
+            @error('messageEnabled')<p class="error">{{ $message }}</p>@enderror
+            @error('messageEnabled.*')<p class="error">{{ $message }}</p>@enderror
+            @if ($canUpdateMessages)<button type="submit" class="button primary">Save customer messages</button>@endif
         </form>
     </section>
 

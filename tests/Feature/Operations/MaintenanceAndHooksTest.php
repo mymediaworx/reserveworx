@@ -47,6 +47,7 @@ class MaintenanceAndHooksTest extends TestCase
             'summary' => 'Hull is sound.',
         ])->assertCreated()
             ->assertJsonPath('data.asset_id', $asset->id)
+            ->assertJsonPath('data.pool_id', null)
             ->assertJsonPath('data.summary', 'Hull is sound.');
 
         $this->getJson($this->tenantUrl('dock.test', '/api/v1/assets/'.$asset->id.'/maintenance-records'))

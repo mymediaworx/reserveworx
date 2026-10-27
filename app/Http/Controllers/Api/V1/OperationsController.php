@@ -143,6 +143,38 @@ class OperationsController extends Controller
         $record = MaintenanceRecord::query()->create([
             'tenant_id' => $tenant->id,
             'asset_id' => $asset->id,
+            'pool_id' => null,
+            'inspected_at' => CarbonImmutable::parse($validated['inspected_at'])->utc(),
+            'summary' => $validated['summary'],
+        ]);
+
+        return response()->json(['data' => $this->maintenanceRecordPayload($record)], 201);
+    }
+
+    public function indexPoolMaintenanceRecords(Pool $pool): JsonResponse
+    {
+        $this->authorize('view', $pool);
+        $rows = [];
+
+        foreach (MaintenanceRecord::query()->where('pool_id', $pool->id)->orderBy('inspected_at')->orderBy('id')->get() as $record) {
+            $rows[] = $this->maintenanceRecordPayload($record);
+        }
+
+        return response()->json(['data' => $rows]);
+    }
+
+    public function storePoolMaintenanceRecord(Request $request, Pool $pool): JsonResponse
+    {
+        $this->authorize('create', Pool::class);
+        $tenant = $this->tenant($request);
+        $validated = $request->validate([
+            'inspected_at' => ['required', 'date'],
+            'summary' => ['required', 'string', 'max:500'],
+        ]);
+        $record = MaintenanceRecord::query()->create([
+            'tenant_id' => $tenant->id,
+            'asset_id' => null,
+            'pool_id' => $pool->id,
             'inspected_at' => CarbonImmutable::parse($validated['inspected_at'])->utc(),
             'summary' => $validated['summary'],
         ]);
@@ -328,13 +360,14 @@ class OperationsController extends Controller
     }
 
     /**
-     * @return array{id: string, asset_id: string, inspected_at: string, summary: string}
+     * @return array{id: string, asset_id: string|null, pool_id: string|null, inspected_at: string, summary: string}
      */
     private function maintenanceRecordPayload(MaintenanceRecord $record): array
     {
         return [
             'id' => $record->id,
             'asset_id' => $record->asset_id,
+            'pool_id' => $record->pool_id,
             'inspected_at' => $record->inspected_at->toIso8601String(),
             'summary' => $record->summary,
         ];

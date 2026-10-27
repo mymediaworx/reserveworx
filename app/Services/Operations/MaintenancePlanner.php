@@ -16,6 +16,7 @@ use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * Schedules maintenance windows and temporary blocks, lists the bookings a
@@ -130,17 +131,25 @@ final class MaintenancePlanner
     }
 
     /**
-     * Records the inspection on the asset and moves the next due date on.
-     * A use-based schedule starts counting again from now.
+     * Records the inspection on the same boat or pool and moves the next due
+     * date on. A use-based schedule starts counting again from now. The
+     * booking, its price, and its payments are left as they are.
      */
     public function markInspectionDone(InspectionSchedule $schedule, ?string $note = null, ?CarbonImmutable $doneAt = null): MaintenanceRecord
     {
         $at = ($doneAt ?? CarbonImmutable::now())->utc();
+        $assetId = $schedule->asset_id;
+        $poolId = $schedule->pool_id;
 
-        return DB::transaction(function () use ($schedule, $note, $at): MaintenanceRecord {
+        if (($assetId === null) === ($poolId === null)) {
+            throw new InvalidArgumentException('An inspection belongs to one boat or one pool.');
+        }
+
+        return DB::transaction(function () use ($schedule, $note, $at, $assetId, $poolId): MaintenanceRecord {
             $record = MaintenanceRecord::query()->create([
                 'tenant_id' => $schedule->tenant_id,
-                'asset_id' => $schedule->asset_id,
+                'asset_id' => $assetId,
+                'pool_id' => $poolId,
                 'inspected_at' => $at,
                 'summary' => mb_substr($schedule->name.(is_string($note) && trim($note) !== '' ? ': '.trim($note) : ''), 0, 500),
             ]);
@@ -154,15 +163,23 @@ final class MaintenancePlanner
     }
 
     /**
-     * Finished rentals on the asset since the inspection was last done, or
-     * since the schedule was set up.
+     * Finished rentals on this boat or pool since the inspection was last
+     * done, or since the schedule was set up. A rental on another resource
+     * does not count.
      */
     public function usesSince(InspectionSchedule $schedule): int
     {
+        $resourceId = $schedule->asset_id ?? $schedule->pool_id;
+
+        if ($resourceId === null) {
+            return 0;
+        }
+
+        $column = $schedule->asset_id !== null ? 'asset_id' : 'pool_id';
         $since = $schedule->last_done_at ?? $schedule->created_at ?? now();
 
         return Allocation::query()
-            ->where('asset_id', $schedule->asset_id)
+            ->where($column, $resourceId)
             ->where('ends_at', '>', $since)
             ->where('ends_at', '<=', now())
             ->whereIn('booking_id', Booking::query()
