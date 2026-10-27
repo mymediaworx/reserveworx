@@ -122,7 +122,7 @@ final class UserHandbook
                     $this->topic('Branding', 'The name, logo, and colors guests and staff see.', '/staff/branding', 'settings.view'),
                     $this->topic('Team', 'Invite people, set a role, or limit someone to locations.', '/staff/team', 'members.manage'),
                     $this->topic('Import', 'Upload a CSV of customers or inventory.', '/staff/import', null, true),
-                    $this->topic('Settings', 'Hold length, shared-gear lock blocks, card payments, cancellation windows, and receipt email are saved here. This handbook does not change them.', '/staff/settings', 'settings.view'),
+                    $this->topic('Settings', 'Hold length, guest cancellation, shared-gear lock blocks, card payments, cancellation windows, and receipt email are saved here. This handbook does not change them.', '/staff/settings', 'settings.view'),
                     $this->topic('Customer records', 'Download one person\'s record, then remove their name, email, and phone. Bookings and payments stay.', '/staff/customers', 'customers.privacy', false, true),
                     $this->topic('Audit log', 'The latest changes in this workspace.', '/staff/audit', 'audit.view', false, true),
                     $this->topic('Integrations', 'Tries sent out for this workspace. A stopped try can be sent again. The token is not shown.', '/admin/integrations', 'settings.view'),
