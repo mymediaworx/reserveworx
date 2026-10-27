@@ -69,6 +69,14 @@
             .resources-page .retire-offers .button { width: 100%; }
             .resources-page .buffer-times { grid-template-columns: 1fr; }
             .resources-page .buffer-times input, .resources-page .buffer-times .field { width: 100%; }
+            .resources-page .resource-type,
+            .resources-page .resource-type select,
+            .resources-page #asset-types,
+            .resources-page #asset-types .form-row,
+            .resources-page #asset-types input,
+            .resources-page #asset-types .button { width: 100%; max-width: 100%; min-width: 0; }
+            .resources-page #asset-types * { overflow-wrap: anywhere; }
+            .resources-page .resource-type * { overflow-wrap: anywhere; }
         }
     </style>
     <header class="page-head">
@@ -121,6 +129,27 @@
         <p class="muted small top-gap"><a href="/staff/setup/locations" wire:navigate>Locations</a> can be marked delivered from fleet. Link the item on a service so bookings draw from this count.</p>
     </section>
 
+    <section class="panel" id="asset-types">
+        <h2>Asset types</h2>
+        <p class="muted">A type groups the same kind of boat or gear, such as single kayaks. A service option can use a boat or pool only after it has a type.</p>
+        @if ($categories->isEmpty())
+            <p class="empty">No asset types yet.</p>
+        @else
+            <ul class="rows compact">
+                @foreach ($categories as $category)
+                    <li class="row" data-asset-type="{{ $category->id }}"><span>{{ $category->name }}</span></li>
+                @endforeach
+            </ul>
+        @endif
+        @if ($canManage)
+            <form wire:submit="createCategory" class="form-row top-gap">
+                <label class="field compact grow"><span>New type</span><input type="text" wire:model="categoryName" maxlength="120" required placeholder="Single kayak"></label>
+                <button type="submit" class="button">Add asset type</button>
+            </form>
+            @error('categoryName')<p class="error">{{ $message }}</p>@enderror
+        @endif
+    </section>
+
     @if ($locations->isEmpty())
         <section class="notice">
             <p>{{ $industry->needsLocation() }}</p>
@@ -141,8 +170,17 @@
                             <ul class="rows">
                                 @foreach ($locPools as $pool)
                                     <li class="row" id="pool-{{ $pool->id }}">
-                                        <span class="grow"><strong>{{ $pool->name }}</strong></span>
+                                        <span class="grow"><strong>{{ $pool->name }}</strong>@if ($pool->category) <span class="muted">· {{ $pool->category->name }}</span>@endif</span>
                                         @if ($canManage)
+                                            <label class="field inline resource-type">
+                                                <span class="sr-only">Type of {{ $pool->name }}</span>
+                                                <select aria-label="Type of {{ $pool->name }}" wire:change="setCategory('pool', '{{ $pool->id }}', $event.target.value)">
+                                                    <option value="" @selected($pool->resource_category_id === null)>No type</option>
+                                                    @foreach ($categories as $category)
+                                                        <option value="{{ $category->id }}" @selected($pool->resource_category_id === $category->id)>{{ $category->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </label>
                                             <label class="field inline"><span class="sr-only">Count of {{ $pool->name }}</span>
                                                 <input type="number" min="0" max="100000" value="{{ $pool->quantity }}" wire:change="setQuantity('{{ $pool->id }}', $event.target.value)" class="count">
                                             </label>
@@ -151,12 +189,14 @@
                                             </select>
                                             <button type="button" class="button small" wire:click="deleteResource('pool', '{{ $pool->id }}')">Delete</button>
                                         @else
+                                            <span class="muted">{{ $pool->category?->name ?? 'No type' }}</span>
                                             <span>{{ $pool->quantity }}</span>
                                             <span class="muted">{{ Display::status($pool->status->value) }}</span>
                                         @endif
                                         @include('livewire.staff.setup.partials.resource-buffers', ['type' => 'pool', 'resource' => $pool])
                                     </li>
                                     @error('pool-'.$pool->id)<li class="error">{{ $message }}</li>@enderror
+                                    @error('pool-'.$pool->id.'-category')<li class="error">{{ $message }}</li>@enderror
                                 @endforeach
                             </ul>
                         @endif
@@ -165,8 +205,17 @@
                             <ul class="rows">
                                 @foreach ($locAssets as $asset)
                                     <li class="row" id="asset-{{ $asset->id }}">
-                                        <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span>@if ($asset->status->value === 'retired' && $asset->replacement) <span class="muted">· replacement {{ $asset->replacement->name }}</span>@endif</span>
+                                        <span class="grow"><strong>{{ $asset->name }}</strong> <span class="muted">{{ $asset->is_guide ? 'Guide' : 'Seats '.$asset->capacity }}</span>@if ($asset->category) <span class="muted">· {{ $asset->category->name }}</span>@endif@if ($asset->status->value === 'retired' && $asset->replacement) <span class="muted">· replacement {{ $asset->replacement->name }}</span>@endif</span>
                                         @if ($canManage)
+                                            <label class="field inline resource-type">
+                                                <span class="sr-only">Type of {{ $asset->name }}</span>
+                                                <select aria-label="Type of {{ $asset->name }}" wire:change="setCategory('asset', '{{ $asset->id }}', $event.target.value)">
+                                                    <option value="" @selected($asset->resource_category_id === null)>No type</option>
+                                                    @foreach ($categories as $category)
+                                                        <option value="{{ $category->id }}" @selected($asset->resource_category_id === $category->id)>{{ $category->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                            </label>
                                             <select aria-label="Status of {{ $asset->name }}" wire:change="setStatus('asset', '{{ $asset->id }}', $event.target.value)">
                                                 @foreach ($statuses as $s)@continue($s->value === 'retired' && $asset->status !== $s)<option value="{{ $s->value }}" @selected($asset->status === $s)>{{ Display::status($s->value) }}</option>@endforeach
                                             </select>
@@ -175,11 +224,13 @@
                                             @endif
                                             <button type="button" class="button small" wire:click="deleteResource('asset', '{{ $asset->id }}')">Delete</button>
                                         @else
+                                            <span class="muted">{{ $asset->category?->name ?? 'No type' }}</span>
                                             <span class="muted">{{ Display::status($asset->status->value) }}</span>
                                         @endif
                                         @include('livewire.staff.setup.partials.resource-buffers', ['type' => 'asset', 'resource' => $asset])
                                     </li>
                                     @error('asset-'.$asset->id)<li class="error">{{ $message }}</li>@enderror
+                                    @error('asset-'.$asset->id.'-category')<li class="error">{{ $message }}</li>@enderror
                                     @if ($retireAssetId === $asset->id)
                                         <li class="retire-panel" id="retire-{{ $asset->id }}">
                                             <form wire:submit="retire" class="stack">
@@ -238,6 +289,15 @@
                             </select>
                         </label>
                         <label class="field"><span>Name</span><input type="text" wire:model="name" maxlength="120" required placeholder="{{ $kind === 'pool' ? $industry->poolPlaceholder() : $industry->assetPlaceholder() }}"></label>
+                        <label class="field"><span>Asset type <span class="muted">optional</span></span>
+                            <select wire:model="categoryId" aria-label="Asset type for the new item">
+                                <option value="">No type</option>
+                                @foreach ($categories as $category)
+                                    <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                @endforeach
+                            </select>
+                        </label>
+                        @error('categoryId')<p class="error">{{ $message }}</p>@enderror
                         @if ($kind === 'pool')
                             <label class="field"><span>How many</span><input type="number" min="0" max="100000" wire:model="quantity" required></label>
                         @else
