@@ -18,7 +18,9 @@ return new class extends Migration
             $table->dropForeign(['asset_id']);
         });
 
-        DB::statement('ALTER TABLE inspection_schedules MODIFY asset_id CHAR(26) NULL');
+        Schema::table('inspection_schedules', function (Blueprint $table): void {
+            $table->char('asset_id', 26)->nullable()->change();
+        });
 
         Schema::table('inspection_schedules', function (Blueprint $table): void {
             $table->foreign('asset_id')->references('id')->on('assets')->cascadeOnDelete();
@@ -35,7 +37,9 @@ return new class extends Migration
             $table->dropForeign(['asset_id']);
         });
 
-        DB::statement('ALTER TABLE maintenance_records MODIFY asset_id CHAR(26) NULL');
+        Schema::table('maintenance_records', function (Blueprint $table): void {
+            $table->char('asset_id', 26)->nullable()->change();
+        });
 
         Schema::table('maintenance_records', function (Blueprint $table): void {
             $table->foreign('asset_id')->references('id')->on('assets')->cascadeOnDelete();
@@ -58,7 +62,9 @@ return new class extends Migration
             $table->dropForeign(['asset_id']);
         });
 
-        DB::statement('ALTER TABLE inspection_schedules MODIFY asset_id CHAR(26) NOT NULL');
+        Schema::table('inspection_schedules', function (Blueprint $table): void {
+            $table->char('asset_id', 26)->nullable(false)->change();
+        });
 
         Schema::table('inspection_schedules', function (Blueprint $table): void {
             $table->foreign('asset_id')->references('id')->on('assets')->cascadeOnDelete();
@@ -70,7 +76,9 @@ return new class extends Migration
             $table->dropForeign(['asset_id']);
         });
 
-        DB::statement('ALTER TABLE maintenance_records MODIFY asset_id CHAR(26) NOT NULL');
+        Schema::table('maintenance_records', function (Blueprint $table): void {
+            $table->char('asset_id', 26)->nullable(false)->change();
+        });
 
         Schema::table('maintenance_records', function (Blueprint $table): void {
             $table->foreign('asset_id')->references('id')->on('assets')->cascadeOnDelete();
