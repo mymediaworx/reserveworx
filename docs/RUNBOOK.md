@@ -83,6 +83,10 @@ A platform administrator opens `/platform/upgrade` on the platform host. The sam
 
 A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.
 
+## Multi-tenant demonstration
+
+A platform administrator opens `/platform/demo` on the platform host. `php artisan reserveworx:demo` prints one line for Harbor Demo, one line for Inland Demo, and `shown=yes` only when both are loaded and neither lists the other's locations, services, or bookings. A missing demo workspace is not created. The command does not print a customer email. A tenant address does not serve the page.
+
 ## Audit log
 
 An owner or manager opens `/staff/audit` on the workspace host. The page lists the latest 50 changes. Staff, and a member limited to some locations, cannot open it. The filter has to match the stored action, such as `booking.cancelled`. The page does not write a row. `GET /api/v1/audit-logs` is the same read.
