@@ -15,6 +15,7 @@ use App\Models\Tenant;
 use App\Models\WaiverSignature;
 use App\Models\WaiverVersion;
 use App\Services\AuditLogger;
+use App\Services\Booking\BookingMutationIdempotency;
 use App\Services\Operations\MaintenancePlanner;
 use App\Services\Operations\MaintenanceWindowAlreadyEndedException;
 use App\Services\Operations\WaiverPdf;
@@ -32,6 +33,7 @@ class OperationsController extends Controller
         private readonly MaintenancePlanner $maintenance,
         private readonly WaiverSigner $waivers,
         private readonly AuditLogger $audit,
+        private readonly BookingMutationIdempotency $mutations,
     ) {}
 
     public function indexMaintenance(): JsonResponse
@@ -257,12 +259,6 @@ class OperationsController extends Controller
         $participant = $this->participantOnBooking($booking, $validated['participant_id'] ?? null);
 
         if ($participant instanceof Participant) {
-            $existing = $this->waivers->existing($booking, $waiver, $participant);
-
-            if ($existing instanceof WaiverSignature) {
-                return response()->json(['data' => $this->signaturePayload($existing)]);
-            }
-
             $name = $participant->name;
             $minor = $participant->is_minor;
             $guardian = $participant->guardian_name;
@@ -288,22 +284,29 @@ class OperationsController extends Controller
             }
         }
 
-        $signature = $this->waivers->sign(
-            $booking,
-            $waiver,
-            $participant,
-            $name,
-            $minor,
-            $guardian,
-            $request->ip(),
-            $request->userAgent(),
-        );
+        return $this->mutations->once($request, $booking, 'sign_waiver', [
+            'waiver_version_id' => $waiver->id,
+            'participant_id' => $participant?->id,
+            'participant_name' => $name,
+            'is_minor' => $minor,
+            'guardian_name' => $guardian,
+        ], function () use ($request, $booking, $waiver, $participant, $name, $minor, $guardian): JsonResponse {
+            $signature = $this->waivers->sign(
+                $booking,
+                $waiver,
+                $participant,
+                $name,
+                $minor,
+                $guardian,
+                $request->ip(),
+                $request->userAgent(),
+            );
 
-        if (! $signature->wasRecentlyCreated) {
-            return response()->json(['data' => $this->signaturePayload($signature)]);
-        }
-
-        return response()->json(['data' => $this->signaturePayload($signature)], 201);
+            return response()->json(
+                ['data' => $this->signaturePayload($signature)],
+                $signature->wasRecentlyCreated ? 201 : 200,
+            );
+        });
     }
 
     public function waiverPdf(Booking $booking, string $signature, WaiverPdf $pdf): Response
