@@ -251,6 +251,55 @@ class StaffResourceBufferTest extends TestCase
         $this->assertSame(9, $foreign->fresh()->return_buffer_minutes);
     }
 
+    public function test_a_narrow_screen_can_scroll_the_gear_list_past_the_floating_action(): void
+    {
+        $alpha = $this->workspace('alpha.test');
+        app(TenantManager::class)->set($alpha['tenant']);
+        $shop = $this->rentalShop($alpha['tenant'], 1, 'UTC');
+        Asset::factory()->create([
+            'tenant_id' => $alpha['tenant']->id,
+            'location_id' => $shop['location']->id,
+            'name' => 'Pontoon',
+        ]);
+        $this->actingAs($alpha['user']);
+
+        $html = (string) $this->get($this->tenantUrl('alpha.test', '/staff/setup/resources'))
+            ->assertOk()
+            ->assertSee('Boats & gear')
+            ->assertSee('Prep before Single kayak (minutes)', false)
+            ->assertSee('Retire', false)
+            ->assertSee('@media (max-width: 430px)', false)
+            ->assertSee('@media (max-width: 390px)', false)
+            ->getContent();
+
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 430px\) \{.*?body\.app:has\(\.fab\):has\(\.resources-page\) \{[^}]*height: auto;[^}]*overflow: visible;/s',
+            $html,
+        );
+        $this->assertMatchesRegularExpression(
+            '/body\.app:has\(\.fab\):has\(\.resources-page\) \.app-main \{[^}]*max-height: none;[^}]*overflow: visible;/s',
+            $html,
+        );
+        $this->assertStringContainsString(
+            'padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 5.5rem)',
+            $html,
+        );
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 430px\) \{.*?\.resources-page \.buffer-times \{ grid-template-columns: minmax\(0, 1fr\); \}/s',
+            $html,
+        );
+
+        $css = (string) file_get_contents(resource_path('ui/app.css'));
+        $this->assertMatchesRegularExpression(
+            '/@media \(max-width: 430px\) \{.*?body\.app:has\(\.fab\):has\(\.resources-page\) \{[^}]*overflow: visible;/s',
+            $css,
+        );
+        $this->assertStringContainsString(
+            'max-height: calc(100dvh - var(--tabbar) - var(--safe-bottom) - 3.75rem - 2rem)',
+            $css,
+        );
+    }
+
     private function intent(string $tenantId, string $serviceId, string $start, string $key): AllocationIntent
     {
         $starts = CarbonImmutable::parse($start, 'UTC');

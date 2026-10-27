@@ -7,6 +7,58 @@
         .resources-page .buffer-times { flex: 1 0 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; margin-top: .35rem; }
         .resources-page .buffer-times .field, .resources-page .buffer-times input { min-width: 0; max-width: 100%; }
         .resources-page .buffer-times .muted, .resources-page .buffer-times .error { grid-column: 1 / -1; margin: 0; }
+        /* Below 1024px the shell pins the page to the viewport and ends the
+           scrolling column above the floating action. On a short screen — a
+           phone, or a desktop window zoomed to about 360–430px — that column
+           only fits the app bar, location tabs, and title. The gear list is
+           clipped, and the page itself cannot scroll. Let this page grow, and
+           keep the last controls above the floating action and the tab bar. */
+        @media (max-width: 430px) {
+            body.app:has(.fab):has(.resources-page) {
+                height: auto;
+                min-height: 100dvh;
+                overflow: visible;
+            }
+            body.app:has(.fab):has(.resources-page) .app-shell,
+            body.app:has(.fab):has(.resources-page) .app-main {
+                height: auto;
+                max-height: none;
+                min-height: 0;
+                overflow: visible;
+            }
+            body.app:has(.fab):has(.resources-page) .app-content {
+                padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 5.5rem);
+            }
+            .resources-page,
+            .resources-page .panel,
+            .resources-page .split,
+            .resources-page .stack,
+            .resources-page .row,
+            .resources-page .form-row,
+            .resources-page .panel-head,
+            .resources-page .field { min-width: 0; max-width: 100%; }
+            .resources-page .panel-head { flex-wrap: wrap; align-items: flex-start; }
+            .resources-page h1,
+            .resources-page .lede,
+            .resources-page .panel-head h2,
+            .resources-page .row { overflow-wrap: anywhere; }
+            .resources-page .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
+            .resources-page .field.compact { min-width: 0; }
+            .resources-page .row .button,
+            .resources-page .form-row .button,
+            .resources-page .panel-head .button,
+            .resources-page .retire-panel select,
+            .resources-page .retire-panel .button,
+            .resources-page .retire-offers .button { width: 100%; max-width: 100%; white-space: normal; }
+            .resources-page .row select { width: 100%; min-width: 0; max-width: 100%; }
+            .resources-page .retire-panel,
+            .resources-page .retire-panel *,
+            .resources-page .retire-offers,
+            .resources-page .retire-offers * { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+            .resources-page .buffer-times { grid-template-columns: minmax(0, 1fr); }
+            .resources-page .buffer-times input,
+            .resources-page .buffer-times .field { width: 100%; }
+        }
         @media (max-width: 390px) {
             .resources-page .retire-panel,
             .resources-page .retire-panel *,

@@ -255,6 +255,29 @@ img { max-width: 100%; }
     }
 }
 
+/* A short viewport (a phone, or a desktop window zoomed until it is about
+   360–430px wide) makes the scrolling column above shorter than the app bar,
+   location tabs, and title. Gear on Boats & gear then sits in the overflow
+   while the page itself cannot scroll. Let that page grow, and keep its last
+   controls clear of the floating action and the tab bar. */
+@media (max-width: 430px) {
+    body.app:has(.fab):has(.resources-page) {
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+    }
+    body.app:has(.fab):has(.resources-page) .app-shell,
+    body.app:has(.fab):has(.resources-page) .app-main {
+        height: auto;
+        max-height: none;
+        min-height: 0;
+        overflow: visible;
+    }
+    body.app:has(.fab):has(.resources-page) .app-content {
+        padding-bottom: calc(var(--tabbar) + var(--safe-bottom) + 5.5rem);
+    }
+}
+
 @media print {
     body.app:has(.fab),
     body.app:has(.fab) .app-shell,
