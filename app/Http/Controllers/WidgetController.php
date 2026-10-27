@@ -42,6 +42,7 @@ use App\Services\Booking\Waitlist;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\CheckIn\CheckInPass;
+use App\Services\Customers\CustomerReceipts;
 use App\Services\Inventory\OpeningHours;
 use App\Services\Notifications\WaitlistJoinedMail;
 use App\Services\Payments\CheckoutService;
@@ -566,6 +567,7 @@ class WidgetController extends Controller
             $snapshot instanceof PricingSnapshot && $snapshot->currency !== '' ? $snapshot->currency : 'USD',
             is_numeric($payload['services_cents'] ?? null) ? (int) $payload['services_cents'] : 0,
             is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
+            receiptHtml: $this->storedReceiptHtml($fresh),
         );
     }
 
@@ -1530,6 +1532,7 @@ class WidgetController extends Controller
         array $addOnLines = [],
         ?string $partyError = null,
         array $partyOld = [],
+        ?string $receiptHtml = null,
     ): View {
         $booking->load(['service', 'variant', 'namedParticipants', 'customer']);
 
@@ -1543,8 +1546,16 @@ class WidgetController extends Controller
             'currency' => $currency,
             'serviceCents' => $serviceCents,
             'addOnLines' => $addOnLines,
+            'receiptHtml' => $receiptHtml,
             ...$this->partyState($token, $booking, 'confirmation', $partyError, $partyOld),
         ]);
+    }
+
+    private function storedReceiptHtml(Booking $booking): ?string
+    {
+        $html = app(CustomerReceipts::class)->forBooking($booking)['html'] ?? null;
+
+        return is_string($html) && $html !== '' ? $html : null;
     }
 
     private function saveParticipant(Request $request, string $token, Booking $booking): Response|RedirectResponse
@@ -1672,6 +1683,7 @@ class WidgetController extends Controller
                 is_array($payload['add_ons'] ?? null) ? $payload['add_ons'] : [],
                 $error,
                 $old,
+                $this->storedReceiptHtml($fresh),
             ), $status);
         }
 
