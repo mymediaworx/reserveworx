@@ -31,6 +31,7 @@ use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Allocation\Allocator;
 use App\Services\Allocation\IdempotencyConflictException;
+use App\Services\AuditLogger;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Catalog\BookingOperatorFeeLines;
 use App\Services\Notifications\BookingEvents;
@@ -60,6 +61,7 @@ final class CheckoutService
         private readonly RefundService $refunds,
         private readonly BookingAddOnLines $addOnLines,
         private readonly BookingOperatorFeeLines $operatorFees,
+        private readonly AuditLogger $audit,
     ) {}
 
     /**
@@ -71,6 +73,8 @@ final class CheckoutService
         $existing = $this->storedPayment($idempotencyKey, $hash);
 
         if ($existing instanceof Payment) {
+            $this->markPendingPayment($booking);
+
             return ['payment' => $existing, 'url' => null];
         }
 
@@ -124,23 +128,49 @@ final class CheckoutService
         ], $idempotencyKey, $hash);
 
         if ($idempotencyKey !== null && $idempotencyKey !== '' && ! $payment->wasRecentlyCreated) {
+            $this->markPendingPayment($booking);
+
             return ['payment' => $payment, 'url' => null];
         }
+
+        $this->markPendingPayment($booking);
 
         return ['payment' => $payment, 'url' => $session['url']];
     }
 
     /**
-     * A held booking's Stripe session must not outlive its hold, or a customer
-     * can pay for a slot someone else has since taken (#132). Stripe requires a
-     * session to stay open at least 30 minutes, so the session ends at the later
-     * of the hold expiry and now plus 31 minutes, and the hold is extended to
-     * that end plus a grace period for the webhook. Returns null for a booking
-     * that is not held, which keeps Stripe's default expiry.
+     * A card checkout has started. The hold stays, and the stored price is not
+     * rewritten. A booking that is already pending, or no longer a hold, is left
+     * as it is.
+     */
+    private function markPendingPayment(Booking $booking): void
+    {
+        if ($booking->status !== BookingStatus::Held) {
+            return;
+        }
+
+        $booking->status = BookingStatus::PendingPayment;
+        $booking->save();
+        $this->audit->log(
+            'booking.pending_payment',
+            $booking,
+            ['status' => BookingStatus::PendingPayment->value],
+            $booking->tenant_id,
+            request: request(),
+        );
+    }
+
+    /**
+     * A held or pending booking's Stripe session must not outlive its hold, or a
+     * customer can pay for a slot someone else has since taken (#132). Stripe
+     * requires a session to stay open at least 30 minutes, so the session ends
+     * at the later of the hold expiry and now plus 31 minutes, and the hold is
+     * extended to that end plus a grace period for the webhook. Returns null for
+     * a booking that is not an open hold, which keeps Stripe's default expiry.
      */
     public function reserveCheckoutWindow(Booking $booking): ?CarbonImmutable
     {
-        if ($booking->status !== BookingStatus::Held) {
+        if (! $booking->status->isOpenHold()) {
             return null;
         }
 
@@ -471,7 +501,7 @@ final class CheckoutService
             return $payment;
         }
 
-        if ($booking->status->value === 'held') {
+        if ($booking->status->isOpenHold()) {
             $booking = $this->allocator->confirm($booking);
         }
 

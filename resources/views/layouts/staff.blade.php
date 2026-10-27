@@ -33,7 +33,7 @@
         $locationNames->count() > 1 => $locationNames->count().' locations',
         default => 'Getting started',
     };
-    $waiting = $tenantModel ? Booking::query()->where('status', BookingStatus::Held->value)->count() : 0;
+    $waiting = $tenantModel ? Booking::query()->whereIn('status', [BookingStatus::Held->value, BookingStatus::PendingPayment->value])->count() : 0;
 
     $tabs = [
         ['href' => '/staff', 'label' => 'Home', 'icon' => 'home', 'active' => request()->is('staff')],
@@ -154,7 +154,7 @@
                     <button type="button" class="icon-button" data-staff-search aria-label="Search" aria-keyshortcuts="Control+K Meta+K">
                         <x-icon name="search" size="26" />
                     </button>
-                    <a class="icon-button" href="/staff/bookings?status=held" wire:navigate aria-label="{{ $waiting }} {{ $waiting === 1 ? 'booking' : 'bookings' }} waiting on payment">
+                    <a class="icon-button" href="/staff/bookings?status=waiting&when=all" wire:navigate aria-label="{{ $waiting }} {{ $waiting === 1 ? 'booking' : 'bookings' }} waiting on payment">
                         <x-icon name="bell" size="26" />
                         @if ($waiting > 0)
                             <span class="dot-count" aria-hidden="true">{{ $waiting > 9 ? '9+' : $waiting }}</span>

@@ -48,7 +48,7 @@ final class AffectedBookings
                 continue;
             }
 
-            if (! in_array($booking->status->value, ['held', 'confirmed'], true)) {
+            if (! in_array($booking->status->value, ['held', 'pending_payment', 'confirmed'], true)) {
                 continue;
             }
 

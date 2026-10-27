@@ -389,7 +389,7 @@ final class ResourceSchedule
         }
 
         foreach ($bookings as $booking) {
-            if (isset($covered[$booking->id]) || $booking->status === BookingStatus::Held || $booking->status === BookingStatus::Cancelled) {
+            if (isset($covered[$booking->id]) || $booking->status->isOpenHold() || $booking->status === BookingStatus::Cancelled) {
                 continue;
             }
 

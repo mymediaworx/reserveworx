@@ -300,7 +300,7 @@ class GuestBookingController extends Controller
 
     private function cancelBlock(Booking $booking): ?string
     {
-        if (! in_array($booking->status->value, ['held', 'confirmed'], true)) {
+        if (! in_array($booking->status->value, ['held', 'pending_payment', 'confirmed'], true)) {
             return 'This booking can no longer be cancelled here.';
         }
 
