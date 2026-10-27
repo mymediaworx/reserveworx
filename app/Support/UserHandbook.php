@@ -17,7 +17,7 @@ final class UserHandbook
     /**
      * @return list<array{heading: string, topics: list<array{title: string, body: string, href: string}>}>
      */
-    public function forMember(Industry $industry, User $user, string $tenantId, bool $ownerOrManager, bool $restricted): array
+    public function forMember(Industry $industry, User $user, string $tenantId, bool $ownerOrManager, bool $restricted, bool $owner): array
     {
         $sections = [];
 
@@ -25,7 +25,7 @@ final class UserHandbook
             $topics = [];
 
             foreach ($section['topics'] as $topic) {
-                if (! $this->allowed($topic, $user, $tenantId, $ownerOrManager, $restricted)) {
+                if (! $this->allowed($topic, $user, $tenantId, $ownerOrManager, $restricted, $owner)) {
                     continue;
                 }
 
@@ -69,6 +69,16 @@ final class UserHandbook
                         'href' => '/platform/readiness',
                     ],
                     [
+                        'title' => 'Performance',
+                        'body' => 'How many database queries the product page, signup, and one booking page use on this server, and whether memory is at least 128M. The same lines are printed by reserveworx:performance. It does not call the public internet and does not keep a row.',
+                        'href' => '/platform/performance',
+                    ],
+                    [
+                        'title' => 'Upgrade',
+                        'body' => 'How a later release replaces the live one. The page does not run a deploy. Rollback swaps the previous release and does not undo migrations.',
+                        'href' => '/platform/upgrade',
+                    ],
+                    [
                         'title' => 'A workspace',
                         'body' => 'From the list, open a workspace for its industry, domains, and owners. The GoHighLevel Location ID is saved there. The private token is typed once and is not shown again. Export the workspace before closing it for good. Booking fee rates are on that page. This handbook does not change them.',
                         'href' => '/platform',
@@ -79,7 +89,7 @@ final class UserHandbook
     }
 
     /**
-     * @return list<array{heading: string, topics: list<array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool}>}>
+     * @return list<array{heading: string, topics: list<array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool, ownerOnly: bool}>}>
      */
     private function staff(Industry $industry): array
     {
@@ -93,7 +103,7 @@ final class UserHandbook
                     $this->topic('Home', 'Today\'s bookings, what is checked out, and anything overdue.', '/staff', 'bookings.view'),
                     $this->topic('New booking', 'Hold a time for a customer. Pay at pickup and the card link stay on that booking.', '/staff/bookings/new', 'bookings.manage'),
                     $this->topic('Bookings', 'Filter the list and open one booking to check it in, return it, or cancel it.', '/staff/bookings', 'bookings.view'),
-                    $this->topic('Calendar', 'Day, week, month, and agenda. The page refreshes about once a minute while the tab is open.', '/staff/calendar', 'bookings.view'),
+                    $this->topic('Calendar', 'Day, week, month, and agenda. A visit stays on the date in its location’s time zone. The page refreshes about once a minute while the tab is open.', '/staff/calendar', 'bookings.view'),
                     $this->topic('Schedule', 'Each '.$unit.' for the day. Tap an empty hour to start a booking, or tap a booking to move it.', '/staff/schedule', 'bookings.view'),
                     $this->topic('Check in', 'Today\'s arrivals for one location.', '/staff/check-in', 'bookings.check_in'),
                     $this->topic('Returns', 'Rentals due back today, and anything still out.', '/staff/returns', 'bookings.check_in'),
@@ -111,11 +121,13 @@ final class UserHandbook
                 'heading' => 'Set up the workspace',
                 'topics' => [
                     $this->topic('Setup guide', 'The checklist for a new workspace. It links to the real pages.', '/staff/setup', null, true),
+                    $this->topic('All businesses', 'Totals for the businesses this owner holds, or for one of them. The same rows download. A business this owner does not hold is left out.', '/staff/portfolio', null, false, false, true),
+                    $this->topic('Add a business', 'Start another workspace. It begins in onboarding. An optional address is saved unverified.', '/staff/businesses/new', null, false, false, true),
                     $this->topic('Locations', 'Opening hours and closed dates.', '/staff/setup/locations', 'inventory.view'),
                     $this->topic('Closures', 'A closed day or a closed part of the day. Bookings that overlap stay booked.', '/staff/closures', 'settings.view'),
                     $this->topic('Waivers', 'The current waiver text. A signed copy downloads from the booking.', '/staff/waivers', 'settings.view'),
-                    $this->topic($catalog, 'Prep time, return time, and what is available to rent.', '/staff/setup/resources', 'inventory.view'),
-                    $this->topic('Services', 'Services, lengths, options, and departures. An empty departure can be cancelled. One that still has a booking stays scheduled. Prices stay on the service page.', '/staff/setup/services', 'inventory.view'),
+                    $this->topic($catalog, 'Asset types, prep time, return time, and what is available to rent.', '/staff/setup/resources', 'inventory.view'),
+                    $this->topic('Services', 'Services, lengths, options, and departures. An empty departure can be cancelled. One that still has a booking stays scheduled. Linked gear can be removed. A booking that already took it stays booked. Prices stay on the service page.', '/staff/setup/services', 'inventory.view'),
                     $this->topic('Promo codes', 'Codes guests can enter on the review page.', '/staff/promo-codes', 'inventory.view'),
                     $this->topic('Add-ons', 'Optional equipment and extras on the booking page.', '/staff/add-ons', 'inventory.view'),
                     $this->topic('Corporate accounts', 'Named accounts for a staff booking or a quote.', '/staff/corporate-accounts', 'inventory.view'),
@@ -132,7 +144,7 @@ final class UserHandbook
     }
 
     /**
-     * @return array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool}
+     * @return array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool, ownerOnly: bool}
      */
     private function topic(
         string $title,
@@ -141,6 +153,7 @@ final class UserHandbook
         ?string $permission = null,
         bool $owners = false,
         bool $wholeWorkspace = false,
+        bool $ownerOnly = false,
     ): array {
         return [
             'title' => $title,
@@ -149,14 +162,19 @@ final class UserHandbook
             'permission' => $permission,
             'owners' => $owners,
             'wholeWorkspace' => $wholeWorkspace,
+            'ownerOnly' => $ownerOnly,
         ];
     }
 
     /**
-     * @param  array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool}  $topic
+     * @param  array{title: string, body: string, href: string, permission: ?string, owners: bool, wholeWorkspace: bool, ownerOnly: bool}  $topic
      */
-    private function allowed(array $topic, User $user, string $tenantId, bool $ownerOrManager, bool $restricted): bool
+    private function allowed(array $topic, User $user, string $tenantId, bool $ownerOrManager, bool $restricted, bool $owner): bool
     {
+        if ($topic['ownerOnly'] && ! $owner) {
+            return false;
+        }
+
         if ($topic['owners'] && ! $ownerOrManager) {
             return false;
         }
