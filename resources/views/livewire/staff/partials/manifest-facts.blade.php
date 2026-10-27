@@ -50,7 +50,7 @@
     </div>
     <div>
         <dt>Return due</dt>
-        <dd>{{ $booking->startsAt->timezone($booking->timezone)->isSameDay($booking->returnDue->timezone($booking->timezone)) ? Display::time($booking->returnDue, $booking->timezone) : Display::dateTime($booking->returnDue, $booking->timezone) }}</dd>
+        <dd class="when">{{ $booking->returnLabel() }}</dd>
     </div>
     <div>
         <dt>Staff notes</dt>
