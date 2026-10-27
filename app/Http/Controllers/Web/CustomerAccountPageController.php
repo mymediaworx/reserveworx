@@ -11,6 +11,7 @@ use App\Services\AuditLogger;
 use App\Services\Customers\CustomerAccounts;
 use App\Services\Customers\CustomerReceipts;
 use App\Support\BookingReference;
+use App\Support\Display;
 use App\Support\DisplayZone;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -214,7 +215,7 @@ class CustomerAccountPageController extends Controller
                 'id' => $booking->id,
                 'reference' => BookingReference::short($booking->id),
                 'service' => $booking->service->name,
-                'when' => $this->localStart($booking),
+                'when' => $this->visitLabel($booking),
                 'total' => Money::format($receipt['total_cents'], $receipt['currency']),
                 'receipt' => is_string($html) ? $html : '',
             ];
@@ -223,11 +224,13 @@ class CustomerAccountPageController extends Controller
         return $rows;
     }
 
-    private function localStart(Booking $booking): string
+    private function visitLabel(Booking $booking): string
     {
-        $zone = DisplayZone::forLocation($booking->location);
-
-        return $booking->starts_at->copy()->timezone($zone)->format('D, M j, Y g:i A');
+        return Display::rangeWithZone(
+            $booking->starts_at,
+            $booking->ends_at,
+            DisplayZone::forLocation($booking->location),
+        );
     }
 
     /**

@@ -5,7 +5,10 @@
     <div class="account-page">
         <style>
             .account-page, .account-page * { min-width: 0; }
-            .account-page h1, .account-page p, .account-page li, .account-page dt, .account-page dd { overflow-wrap: anywhere; }
+            .account-page h1, .account-page p, .account-page li, .account-page dt, .account-page dd, .account-page [data-visit] { overflow-wrap: anywhere; }
+            @media (max-width: 390px) {
+                .account-page [data-visit] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+            }
             .account-page form, .account-page button, .account-page input { max-width: 100%; }
             .account-page ul { margin: 0 0 1rem; padding: 0; list-style: none; display: grid; gap: .75rem; }
             .account-page li, .account-page .receipt-summary { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 1rem 1.1rem; }
@@ -39,7 +42,7 @@
                             <strong>{{ $row['reference'] }}</strong>
                             <span class="optional">{{ $row['id'] }}</span>
                             <div>{{ $row['service'] }}</div>
-                            <div>{{ $row['when'] }}</div>
+                            <div data-visit>{{ $row['when'] }}</div>
                         </li>
                     @endforeach
                 </ul>
@@ -55,7 +58,7 @@
                             <strong>{{ $row['reference'] }}</strong>
                             <span class="optional">{{ $row['id'] }}</span>
                             <div>{{ $row['service'] }}</div>
-                            <div>{{ $row['when'] }}</div>
+                            <div data-visit>{{ $row['when'] }}</div>
                         </li>
                     @endforeach
                 </ul>
