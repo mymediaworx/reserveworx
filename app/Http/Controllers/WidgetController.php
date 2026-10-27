@@ -870,6 +870,7 @@ class WidgetController extends Controller
         $choices = [];
 
         foreach ($departures as $departure) {
+            $when = CarbonImmutable::instance($departure->starts_at)->timezone($zone);
             $label = Display::rangeWithZone($departure->starts_at, $departure->ends_at, $zone);
 
             if ($departure->private) {
