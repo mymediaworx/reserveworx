@@ -1220,7 +1220,7 @@ inode_cleanup() {
   shopt -s nullglob
   for rel in "$releases"/*; do
     [[ -d "$rel" && ! -L "$rel" ]] || continue
-    for dir in "$rel/node_modules" "$rel/.composer" "$rel/.cache" "$rel/tests" "$rel/.github" "$rel/docs"; do
+    for dir in "$rel/node_modules" "$rel/.composer" "$rel/.cache" "$rel/tests" "$rel/.github" "$rel/.cursor" "$rel/docs"; do
       if [[ -d "$dir" && ! -L "$dir" ]] && guard_app_path "$dir"; then
         echo "inode_cleanup_build_removed=${dir#"${laravel}/"} files=$(count_files "$dir")"
         rm -rf -- "$dir"
