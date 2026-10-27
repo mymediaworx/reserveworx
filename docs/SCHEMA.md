@@ -187,6 +187,10 @@ The client calls `https://services.leadconnectorhq.com` with `Authorization: Bea
 
 `booking_mutations` stores one successful change to a booking when the request sends `Idempotency-Key` or `idempotency_key`. The action is `confirm`, `extend`, `cancel`, `no_show`, `rental_checkout`, `return`, `operational_status`, `reschedule`, `reassign`, `party_size`, `remove_participant`, `sign_waiver`, or `incident`. The same key and the same request return the first response and do not run the change again. A different request for that key is refused. A refused change deletes the row, so the same key can be sent again after the time is free. Creating a hold still uses `bookings.idempotency_key`. Payments, refunds, and adding a participant keep their own keys. The customer download includes the stored response. Anonymizing that customer scrubs their name, email, and phone out of it.
 
+## Waitlist cancel retries
+
+`waitlist_mutations` stores one successful cancellation when `POST /api/v1/waitlist/{waitlist_entry}/cancel` sends `Idempotency-Key` or `idempotency_key`. The action is `cancel`. The key is at most 80 characters, and the header wins over the body. The same key and the same entry return the first response and do not write another `waitlist.cancelled` audit. The same key on a different entry in that workspace is refused, and that entry stays waiting. A refused request deletes the row. A request with no key is not stored and still cancels. Joining the list still uses `waitlist_entries.idempotency_key`, unique on `(tenant_id, idempotency_key)`. Migration `2026_10_27_094951` adds the table. Its unique key is `(tenant_id, action, idempotency_key)`. The workspace export includes the table. The customer download does not, because the stored response has no name, email, or phone.
+
 ## Integration logs
 
 `integration_logs` is one row per outbound attempt, migrated in `database/migrations/2026_10_26_183000_create_integration_logs_table.php`. It is tenant-owned and uses `BelongsToTenant`. `channel` is `outbox`, `webhook`, `ghl_sync`, or `ghl_message`. `kind` is the event name. `attempt` starts at 1. `status` is `deferred`, `held`, `succeeded`, `failed`, or `skipped`. `http_status` and `error` are empty when they do not apply. `available_at` is the next outbox try, in UTC, and is empty for the other channels. The row does not store a payload, a response body, a secret, or a token. Rows are not updated or deleted. The index is `(tenant_id, created_at)`. `GET /api/v1/integrations/outbox` and `/admin/integrations` return the latest 20. The workspace export includes the table. The customer export does not.
@@ -200,7 +204,7 @@ These Section 13 tables are design-only. Do not infer columns beyond the spec an
 - a mail transport. Outbound webhook endpoints are migrated
 - inbound HighLevel webhooks. Check-in and return are still contact tags, not customer messages. A new time and a failed payment are `ghl_message_logs`, with reminders, confirmations, receipts, cancellations, refunds, and overdue rentals
 
-Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash.
+Tenant-owned planned tables get `tenant_id`, foreign keys, and the indexes their queries need. Allocation overlap queries and the ledger unique key are the hot ones. Idempotency for bookings and payments is a unique `(tenant_id, idempotency_key)` plus a payload hash. Waitlist cancellation is `waitlist_mutations`.
 
 ## Tenant scope
 
