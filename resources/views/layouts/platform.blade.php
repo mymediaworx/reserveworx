@@ -17,6 +17,7 @@
             </a>
             <nav class="side-nav" aria-label="Main">
                 <a href="/platform" wire:navigate @class(['is-active' => request()->is('platform', 'platform/tenants*')])><x-icon name="building" size="20" /> Workspaces</a>
+                <a href="/platform/fees" wire:navigate @class(['is-active' => request()->is('platform/fees')]) @if(request()->is('platform/fees')) aria-current="page" @endif><x-icon name="dollar" size="20" /> Fees</a>
                 <a href="/platform/help" wire:navigate @class(['is-active' => request()->is('platform/help')]) @if(request()->is('platform/help')) aria-current="page" @endif><x-icon name="book" size="20" /> Handbook</a>
                 <a href="/platform/readiness" wire:navigate @class(['is-active' => request()->is('platform/readiness')])><x-icon name="shield" size="20" /> Readiness</a>
                 <a href="/platform/upgrade" wire:navigate @class(['is-active' => request()->is('platform/upgrade')]) @if(request()->is('platform/upgrade')) aria-current="page" @endif><x-icon name="refresh" size="20" /> Upgrade</a>
