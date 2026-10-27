@@ -20,7 +20,8 @@ use Throwable;
  * A payment receipt uses the amounts already stored on the booking. It does
  * not recalculate a price, a tax, a booking fee, or a refund. A refund notice
  * lists the booking-fee amount already stored on that hook and does not
- * calculate a new fee.
+ * calculate a new fee. A waitlist opening names the visit and does not read
+ * those amounts.
  */
 final class BookingUpdateMail
 {
@@ -39,6 +40,7 @@ final class BookingUpdateMail
         'rental.overdue' => TransactionalEmail::RentalOverdue,
         'payment.completed' => TransactionalEmail::PaymentCompleted,
         'payment.failed' => TransactionalEmail::PaymentFailed,
+        'waitlist.promoted' => TransactionalEmail::WaitlistPromoted,
     ];
 
     public static function handles(string $kind): bool
@@ -96,6 +98,14 @@ final class BookingUpdateMail
                 'lines' => [
                     'Your payment for '.$service.' on '.$when.' did not go through, so the booking is not confirmed yet.',
                     'Please try again from the booking page, or contact '.$businessName.'.',
+                    $reference,
+                ],
+            ],
+            'waitlist.promoted' => [
+                'subject' => 'A spot opened with '.$businessName,
+                'lines' => [
+                    'A spot opened for '.$service.' on '.$when.'.',
+                    'The booking is held for you. Finish it from the booking page, or contact '.$businessName.'.',
                     $reference,
                 ],
             ],
