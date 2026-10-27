@@ -38,6 +38,8 @@ class Settings extends Component
 
     public int $holdMinutes = 15;
 
+    public int $ledgerBucketMinutes = 15;
+
     public string $timezone = TenantSetting::DEFAULT_TIMEZONE;
 
     public bool $emailPaymentReceipt = false;
@@ -79,6 +81,7 @@ class Settings extends Component
         $this->authorize('view', $setting);
         $this->feePayer = $setting->fee_payer->value;
         $this->holdMinutes = $setting->hold_minutes;
+        $this->ledgerBucketMinutes = $setting->ledger_bucket_minutes;
         $this->timezone = DisplayZone::named($setting->timezone) ?? TenantSetting::DEFAULT_TIMEZONE;
         $this->emailPaymentReceipt = $setting->email_payment_receipt;
         $this->loadReminders($setting);
@@ -105,6 +108,24 @@ class Settings extends Component
             'after' => ['fee_payer' => $setting->fee_payer->value, 'hold_minutes' => $setting->hold_minutes],
         ]);
         $this->flash = 'Settings saved. A change to who pays the booking fee applies to new bookings only.';
+        $this->problem = null;
+    }
+
+    public function saveLedgerBucket(): void
+    {
+        $setting = $this->setting();
+        $this->authorize('update', $setting);
+        $this->validate([
+            'ledgerBucketMinutes' => ['required', 'integer', Rule::in(TenantSetting::LEDGER_BUCKET_MINUTES)],
+        ]);
+        $before = $setting->ledger_bucket_minutes;
+        $setting->ledger_bucket_minutes = $this->ledgerBucketMinutes;
+        $setting->save();
+        $this->audit('settings.updated', $setting, [
+            'before' => ['ledger_bucket_minutes' => $before],
+            'after' => ['ledger_bucket_minutes' => $setting->ledger_bucket_minutes],
+        ]);
+        $this->flash = 'Shared-gear lock saved. The next booking uses this block length. A booking already held keeps the blocks it used.';
         $this->problem = null;
     }
 
@@ -338,6 +359,7 @@ class Settings extends Component
             'messageChoices' => self::messageChoices(),
             'reminderHints' => array_map(fn (string $minutes): string => $this->reminderHint($minutes), $this->reminderOffsets),
             'timezones' => timezone_identifiers_list(),
+            'ledgerBucketChoices' => TenantSetting::LEDGER_BUCKET_MINUTES,
             'canSeeSetupGuide' => $this->ownerOrManager(),
             'setupGuideHidden' => app(SetupGuide::class)->isHidden($this->tenant()),
         ]);

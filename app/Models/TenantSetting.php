@@ -35,6 +35,13 @@ class TenantSetting extends Model
     public const DEFAULT_TIMEZONE = 'America/New_York';
 
     /**
+     * Capacity-ledger block length, in minutes. Spec Section 4.3.
+     *
+     * @var list<int>
+     */
+    public const LEDGER_BUCKET_MINUTES = [5, 10, 15, 30, 60];
+
+    /**
      * Elapsed minutes before a confirmed booking starts. Null in the database uses this list.
      *
      * @var list<int>
