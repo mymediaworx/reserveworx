@@ -283,7 +283,7 @@ class NewBooking extends Component
 
     public function render(SlotFinder $slots): View
     {
-        $services = Service::query()->with(['location', 'durations'])->orderBy('name')->get();
+        $services = Service::query()->with(['location', 'durations'])->atListedLocation()->orderBy('name')->get();
         $service = $services->firstWhere('id', $this->serviceId);
         $times = [];
         $departures = collect();
@@ -310,7 +310,7 @@ class NewBooking extends Component
 
     private function selectService(string $id): void
     {
-        $service = $id !== '' ? Service::query()->with('durations')->find($id) : null;
+        $service = $id !== '' ? Service::query()->with('durations')->atListedLocation()->find($id) : null;
         $this->serviceId = $service instanceof Service ? $service->id : '';
         $this->durationMinutes = $service instanceof Service ? (int) ($service->durations->sortBy('duration_minutes')->first()->duration_minutes ?? 60) : 0;
         $this->participants = max(1, (int) ($service->min_participants ?? 1));
@@ -320,7 +320,7 @@ class NewBooking extends Component
 
     private function service(): ?Service
     {
-        return $this->serviceId !== '' ? Service::query()->with('location')->find($this->serviceId) : null;
+        return $this->serviceId !== '' ? Service::query()->with('location')->atListedLocation()->find($this->serviceId) : null;
     }
 
     /**
