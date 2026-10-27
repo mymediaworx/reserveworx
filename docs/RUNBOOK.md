@@ -86,6 +86,9 @@ A platform administrator opens `/platform/readiness` on the platform host. `php 
 ## Performance check
 
 A platform administrator opens `/platform/performance` on the platform host. `php artisan reserveworx:performance` prints the same lines and exits 0 only when nothing fails. It renders the product page, signup, and one verified booking page, counts the queries, and rolls that work back. Durations are printed and are not pass or fail. It does not call the public internet and does not keep a price, a payment, a tax, a fee, or a refund. Run it on the SiteGround server to measure that machine. A tenant address does not serve the page.
+## Multi-tenant demonstration
+
+A platform administrator opens `/platform/demo` on the platform host. `php artisan reserveworx:demo` prints one line for Harbor Demo, one line for Inland Demo, and `shown=yes` only when both are loaded and neither lists the other's locations, services, or bookings. A missing demo workspace is not created. The command does not print a customer email. A tenant address does not serve the page.
 
 ## Audit log
 

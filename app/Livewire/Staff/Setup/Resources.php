@@ -14,6 +14,7 @@ use App\Models\FleetItem;
 use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Pool;
+use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\ServiceVariantResource;
 use App\Services\Allocation\AllocationUnavailableException;
@@ -25,7 +26,9 @@ use App\Support\BookingReference;
 use App\Support\Display;
 use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationAccess;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Component;
@@ -61,6 +64,10 @@ class Resources extends Component
 
     public int $fleetQuantity = 1;
 
+    public string $categoryName = '';
+
+    public string $categoryId = '';
+
     public string $retireAssetId = '';
 
     public string $replacementId = '';
@@ -75,6 +82,12 @@ class Resources extends Component
     public function create(): void
     {
         $tenantId = $this->tenant()->id;
+        $categoryId = $this->chosenCategoryId();
+
+        if ($categoryId === false) {
+            return;
+        }
+
         $owned = app(StaffLocationAccess::class)->locationExistsRule($tenantId);
         $base = [
             'locationId' => ['required', 'string', $owned],
@@ -93,6 +106,7 @@ class Resources extends Component
             $resource = Asset::query()->create([
                 'tenant_id' => $tenantId,
                 'location_id' => $this->locationId,
+                'resource_category_id' => $categoryId,
                 'name' => $this->name,
                 'status' => ResourceStatus::Active,
                 'capacity' => $this->capacity,
@@ -108,6 +122,7 @@ class Resources extends Component
             $resource = Pool::query()->create([
                 'tenant_id' => $tenantId,
                 'location_id' => $this->locationId,
+                'resource_category_id' => $categoryId,
                 'name' => $this->name,
                 'quantity' => $this->quantity,
                 'status' => ResourceStatus::Active,
@@ -120,6 +135,75 @@ class Resources extends Component
 
         $this->reset('name', 'quantity', 'capacity', 'isGuide', 'turnaround', 'prepMinutes', 'returnMinutes');
         $this->flash = 'Added. Link it to a service under Services & prices so it can be booked.';
+    }
+
+    /**
+     * An asset type is a resource category. A service option can name a boat
+     * or pool only after that row has one.
+     */
+    public function createCategory(): void
+    {
+        $this->authorize('create', ResourceCategory::class);
+        $this->categoryName = trim($this->categoryName);
+        $this->validate([
+            'categoryName' => ['required', 'string', 'max:120'],
+        ]);
+
+        $slug = $this->categorySlug($this->categoryName);
+
+        if ($slug === '') {
+            $this->addError('categoryName', 'Use letters or numbers in the type name.');
+
+            return;
+        }
+
+        $taken = ResourceCategory::query()
+            ->where(function (Builder $query) use ($slug): void {
+                $query->where('slug', $slug)
+                    ->orWhereRaw('LOWER(name) = ?', [mb_strtolower($this->categoryName)]);
+            })
+            ->exists();
+
+        if ($taken) {
+            $this->addError('categoryName', 'That type is already in this workspace.');
+
+            return;
+        }
+
+        $category = ResourceCategory::query()->create([
+            'tenant_id' => $this->tenant()->id,
+            'name' => $this->categoryName,
+            'slug' => $slug,
+        ]);
+        $this->audit('resource_category.created', $category, [
+            'slug' => $category->slug,
+        ]);
+        $this->reset('categoryName');
+        $this->flash = 'Asset type added.';
+    }
+
+    public function setCategory(string $type, string $id, string $categoryId): void
+    {
+        abort_unless($type === 'asset' || $type === 'pool', 422);
+
+        $resource = $this->resource($type, $id);
+        $this->authorize('update', $resource);
+        $next = $categoryId === '' ? null : $this->ownedCategoryId($categoryId);
+
+        if ($categoryId !== '' && $next === null) {
+            $this->addError($type.'-'.$id.'-category', 'Choose a type in this workspace.');
+
+            return;
+        }
+
+        if ($resource->resource_category_id === $next) {
+            return;
+        }
+
+        $resource->resource_category_id = $next;
+        $resource->save();
+        $this->audit($type.'.updated', $resource, ['resource_category_id' => $next]);
+        $this->flash = 'Asset type updated.';
     }
 
     public function setStatus(string $type, string $id, string $status, AffectedBookings $affected): void
@@ -354,12 +438,13 @@ class Resources extends Component
             $this->locationId = $locations->first()->id;
         }
 
-        $assets = Asset::query()->with(['location', 'replacement'])->orderBy('name')->get();
+        $assets = Asset::query()->with(['location', 'replacement', 'category'])->orderBy('name')->get();
 
         return view('livewire.staff.setup.resources', [
             'locations' => $locations,
-            'pools' => Pool::query()->orderBy('name')->get()->groupBy('location_id'),
+            'pools' => Pool::query()->with('category')->orderBy('name')->get()->groupBy('location_id'),
             'assets' => $assets->groupBy('location_id'),
+            'categories' => ResourceCategory::query()->orderBy('name')->get(),
             'fleetItems' => FleetItem::query()->orderBy('name')->get(),
             'retirement' => $this->retirementView($assets),
             'canManage' => $this->allows('inventory.manage'),
@@ -461,6 +546,38 @@ class Resources extends Component
         abort_unless($asset instanceof Asset, 404);
 
         return $asset;
+    }
+
+    /**
+     * @return string|null|false Null when the new row has no type. False when the choice is not in this workspace.
+     */
+    private function chosenCategoryId(): string|null|false
+    {
+        if ($this->categoryId === '') {
+            return null;
+        }
+
+        $id = $this->ownedCategoryId($this->categoryId);
+
+        if ($id === null) {
+            $this->addError('categoryId', 'Choose a type in this workspace.');
+
+            return false;
+        }
+
+        return $id;
+    }
+
+    private function ownedCategoryId(string $id): ?string
+    {
+        $category = ResourceCategory::query()->find($id);
+
+        return $category instanceof ResourceCategory ? $category->id : null;
+    }
+
+    private function categorySlug(string $name): string
+    {
+        return rtrim(substr(Str::slug($name), 0, 64), '-');
     }
 
     private function resource(string $type, string $id): Asset|Pool
