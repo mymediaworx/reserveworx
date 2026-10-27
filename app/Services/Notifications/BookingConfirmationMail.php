@@ -11,6 +11,9 @@ use App\Notifications\BookingConfirmedNotification;
 use App\Services\CheckIn\CheckInPass;
 use App\Services\CheckIn\QrSvg;
 use App\Services\Waivers\WaiverLinks;
+use App\Support\BookingReference;
+use App\Support\Display;
+use App\Support\DisplayZone;
 use App\Tenancy\TenantManager;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +60,7 @@ final class BookingConfirmationMail
             return;
         }
 
-        $booking->loadMissing(['customer', 'service']);
+        $booking->loadMissing(['customer', 'service', 'location']);
         $email = $booking->customer?->email;
 
         if (! is_string($email) || $email === '') {
@@ -89,7 +92,10 @@ final class BookingConfirmationMail
         $replyTo = $setting instanceof TenantNotificationSetting ? $setting->reply_to : null;
         $replyTo = is_string($replyTo) && $replyTo !== '' ? $replyTo : null;
 
-        DB::transaction(function () use ($booking, $email, $serviceName, $url, $svg, $replyTo): void {
+        $when = Display::rangeWithZone($booking->starts_at, $booking->ends_at, DisplayZone::forLocation($booking->location));
+        $reference = BookingReference::short($booking->id);
+
+        DB::transaction(function () use ($booking, $email, $serviceName, $url, $svg, $replyTo, $when, $reference): void {
             $hook = NotificationHook::query()
                 ->where('dedupe_key', 'booking.confirmed:'.$booking->id)
                 ->lockForUpdate()
@@ -104,6 +110,8 @@ final class BookingConfirmationMail
                 $url,
                 $svg,
                 $replyTo,
+                $when,
+                $reference,
                 $this->waivers->urlIfNeeded($booking),
             ));
 
