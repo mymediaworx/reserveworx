@@ -31,7 +31,7 @@
 
     @if ($status === 'payment_exception')
         <section class="notice attention" role="alert" data-needs-attention="payment_exception">
-            <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time, or cancel it with a full refund, and let the customer know.</p>
+            <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time below. The price and the payment stay as they are. A time that is taken leaves this booking where it was.</p>
         </section>
     @elseif ($booking->attention_reason && in_array($status, ['held', 'pending_payment', 'confirmed'], true))
         <section class="notice attention" role="alert" data-needs-attention="flagged">
@@ -291,8 +291,10 @@
                             </label>
                         </div>
                     </section>
+                @endif
 
-                    <section class="panel">
+                @if ($open || $status === 'payment_exception')
+                    <section class="panel recover-time">
                         <h2>Change time</h2>
                         @if ($booking->departure_id)
                             @if ($departures === [])
@@ -335,7 +337,9 @@
                             @endforeach
                         @endif
                     </section>
+                @endif
 
+                @if ($open)
                     <section class="panel">
                         <h2>Close out</h2>
                         <div class="actions">
