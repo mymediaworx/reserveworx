@@ -11,7 +11,7 @@
         .person legend { font-weight: 600; color: var(--ink); }
         .agree { display: flex; gap: .6rem; align-items: flex-start; font-weight: 500; color: var(--ink); }
         .agree input { width: 1.2rem; height: 1.2rem; min-height: 0; margin-top: .15rem; flex: none; accent-color: var(--brand); }
-        .ok { background: #DCFCE7; color: #14532D; border-radius: 10px; padding: .75rem 1rem; }
+        .ok { background: var(--ok-surface); color: var(--ok); border-radius: 10px; padding: .75rem 1rem; }
     </style>
 
     <h1>Sign your waiver</h1>

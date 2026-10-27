@@ -13,9 +13,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     @include('layouts.partials.brand-style')
     <style>
-        /* Same look as the staff app (resources/ui/app.css). Colors come from the workspace's branding. */
-        :root { color-scheme: light; --ink: #1F2937; --ink-soft: #374151; --muted: #6B7280; --line: #E5E7EB; --line-strong: #D1D5DB; --page: #F3F4F6; --danger: #B91C1C; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.06); }
+        /* Same look as the staff app (resources/ui/app.css). Brand colors come from the workspace. Text and borders come from CustomerChrome so they stay readable. */
+        :root { color-scheme: light; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.06); }
+        {!! \App\Support\CustomerChrome::css() !!}
         * { box-sizing: border-box; }
+        .skip { position: absolute; left: .75rem; top: 0; transform: translateY(-120%); z-index: 10; max-width: calc(100% - 1.5rem); background: var(--brand); color: var(--brand-ink); font-weight: 600; text-decoration: none; padding: .6rem .9rem; border-radius: 10px; }
+        .skip:focus { transform: none; top: .75rem; outline: 3px solid var(--brand-text); outline-offset: 2px; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
         body { margin: 0; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 1rem; line-height: 1.5; color: var(--ink); background: var(--page); font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
         .w-bar { display: flex; align-items: center; gap: .75rem; padding: .85rem 1rem; background: #fff; border-bottom: 1px solid var(--line); }
         .w-avatar { display: inline-grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; overflow: hidden; background: var(--brand); color: var(--brand-ink); font-weight: 700; flex: none; }
@@ -30,15 +34,15 @@
         h2 { font-size: 1.1rem; font-weight: 600; }
         p { margin: 0 0 .75rem; }
         a { color: var(--brand-text); }
-        a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
+        a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 3px solid var(--brand-text); outline-offset: 2px; }
         form { display: grid; gap: 1rem; background: #fff; padding: 1.25rem; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); margin-bottom: .75rem; }
         label { display: grid; gap: .35rem; font-weight: 500; font-size: .9rem; color: var(--ink-soft); }
         input, select { font: inherit; font-size: 1rem; color: var(--ink); padding: .6rem .75rem; min-height: 2.875rem; border: 1px solid var(--line-strong); border-radius: 10px; background: #fff; width: 100%; }
-        input:focus, select:focus { border-color: var(--brand); outline: 3px solid var(--brand-soft); outline-offset: 0; }
+        input:focus, select:focus, textarea:focus { border-color: var(--brand-text); outline: 3px solid var(--brand-text); outline-offset: 2px; }
         fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: .5rem; }
         legend { font-weight: 500; font-size: .9rem; color: var(--ink-soft); margin-bottom: .4rem; }
         fieldset label { display: flex; align-items: center; gap: .6rem; font-weight: 500; color: var(--ink); border: 1px solid var(--line-strong); border-radius: 10px; padding: .65rem .8rem; cursor: pointer; }
-        fieldset label:has(input:checked) { border-color: var(--brand); background: var(--brand-soft); color: var(--brand-soft-ink); }
+        fieldset label:has(input:checked) { border-color: var(--brand-text); background: var(--brand-soft); color: var(--brand-soft-ink); }
         fieldset input[type="radio"] { width: 1.15rem; height: 1.15rem; min-height: 0; margin: 0; accent-color: var(--brand); flex: none; }
         fieldset.extras label { justify-content: space-between; gap: .75rem; }
         fieldset.extras label span { min-width: 0; overflow-wrap: anywhere; }
@@ -50,23 +54,23 @@
         }
         button { font: inherit; font-weight: 600; padding: .75rem 1.1rem; min-height: 3rem; background: var(--brand); color: var(--brand-ink); border: 0; border-radius: 10px; cursor: pointer; }
         button:hover { background: var(--brand-strong); }
-        button.secondary { background: #fff; color: var(--brand-text); border: 1px solid var(--brand); }
+        button.secondary { background: #fff; color: var(--brand-text); border: 1px solid var(--brand-text); }
         button.secondary:hover { background: var(--brand-soft); }
         .muted { color: var(--muted); }
-        .notice { background: #FEF3C7; color: #78350F; border-radius: 10px; padding: .75rem 1rem; }
+        .notice { background: var(--notice-surface); color: var(--notice); border-radius: 10px; padding: .75rem 1rem; }
         .slots { grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr)); }
         .slots legend { grid-column: 1 / -1; }
         .slots label { justify-content: flex-start; padding: .55rem .6rem; flex-wrap: wrap; gap: .2rem .45rem; }
-        .slots label.is-full { color: var(--muted); background: #F9FAFB; cursor: not-allowed; }
+        .slots label.is-full { color: var(--muted); background: var(--slot); cursor: not-allowed; }
         .slots .slot-note { font-size: .75rem; font-weight: 400; width: 100%; }
-        .error { background: #FEE2E2; color: var(--danger); border-radius: 10px; padding: .75rem 1rem; }
+        .error { background: var(--danger-surface); color: var(--danger); border-radius: 10px; padding: .75rem 1rem; }
         .optional { font-weight: 400; color: var(--muted); }
         .waitlist-join { margin: 0 0 .75rem; }
         .card { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 1rem 1.1rem; margin: 0 0 .75rem; display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; align-items: center; }
         .card h2 { margin: 0; grid-column: 1; }
         .card .price { grid-column: 1; margin: 0; }
         .card p:last-child { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
-        .card p:last-child a { display: inline-block; text-decoration: none; background: var(--brand); color: var(--brand-ink); font-weight: 600; padding: .65rem 1.05rem; border-radius: 10px; }
+        .card p:last-child a { display: inline-block; max-width: 100%; overflow-wrap: anywhere; text-decoration: none; background: var(--brand); color: var(--brand-ink); font-weight: 600; padding: .65rem 1.05rem; border-radius: 10px; }
         .card p:last-child a:hover { background: var(--brand-strong); }
         .price, .group-price { font-weight: 600; font-size: 1.05rem; }
         .group-price { margin: 0 0 1rem; padding: .9rem 1rem; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
@@ -90,9 +94,13 @@
             .card { grid-template-columns: 1fr; }
             .card p:last-child { grid-column: 1; grid-row: auto; margin-top: .5rem; }
         }
+        @media (max-width: 390px) {
+            .card p:last-child a { display: block; }
+        }
     </style>
 </head>
 <body>
+<a class="skip" href="#booking">Skip to booking</a>
 @if ($widgetBrandName && ! View::hasSection('hide_bar'))
     <header class="w-bar">
         <span class="w-avatar">
@@ -106,7 +114,7 @@
         <span class="w-name">{{ $widgetBrandName }}</span>
     </header>
 @endif
-<main>
+<main id="booking">
     @yield('content')
     @if (isset($workspaceBranding) && ($workspaceBranding->supportEmail || $workspaceBranding->supportPhone))
         <p class="w-support">
