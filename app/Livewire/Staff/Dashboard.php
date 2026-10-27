@@ -29,6 +29,8 @@ use App\Tenancy\Access;
 use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -152,16 +154,16 @@ class Dashboard extends Component
     /**
      * Visits that overlap today in their own location's timezone.
      *
-     * @template TModel of Booking|Departure
+     * @template TModel of Model
      *
      * @param  Builder<TModel>  $query
      * @param  Collection<int, Location>  $locations
-     * @return Collection<int, TModel>
+     * @return EloquentCollection<int, TModel>
      */
-    private function overlappingLocalToday(Builder $query, Collection $locations, CarbonImmutable $nowUtc, LocationDayWindow $days): Collection
+    private function overlappingLocalToday(Builder $query, Collection $locations, CarbonImmutable $nowUtc, LocationDayWindow $days): EloquentCollection
     {
         if ($locations->isEmpty()) {
-            return new Collection;
+            return new EloquentCollection;
         }
 
         $query->where(function (Builder $outer) use ($locations, $nowUtc, $days): void {
