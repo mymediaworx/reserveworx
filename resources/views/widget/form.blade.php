@@ -51,6 +51,9 @@
                 @endif
                 <input type="hidden" name="date" value="{{ $old['date'] ?? '' }}">
                 <input type="hidden" name="start" value="{{ $old['start'] ?? '' }}">
+                @if (($old['variant_id'] ?? '') !== '')
+                    <input type="hidden" name="variant_id" value="{{ $old['variant_id'] }}">
+                @endif
                 @if (($old['duration_id'] ?? '') !== '')
                     <input type="hidden" name="duration_id" value="{{ $old['duration_id'] }}">
                 @else
@@ -83,6 +86,17 @@
                     </select>
                 </label>
             @endif
+            @if (($options ?? []) !== [])
+                <fieldset class="option-list">
+                    <legend>Option</legend>
+                    @foreach ($options as $option)
+                        <label>
+                            <input type="radio" name="variant_id" value="{{ $option['id'] }}" required @checked(($old['variant_id'] ?? '') === $option['id'] || (($old['variant_id'] ?? '') === '' && $loop->first))>
+                            <span>{{ $option['name'] }} ({{ \App\Support\Display::minutes($option['duration_minutes']) }})</span>
+                        </label>
+                    @endforeach
+                </fieldset>
+            @endif
             <label>Party size
                 <input name="participants" type="number" min="1" required value="{{ $old['participants'] ?? 1 }}">
             </label>
@@ -107,7 +121,17 @@
             <label>Date
                 <input name="date" type="date" required min="{{ $today }}" value="{{ $old['date'] ?? '' }}">
             </label>
-            @if ($service->durations->isNotEmpty())
+            @if (($options ?? []) !== [])
+                <fieldset class="option-list">
+                    <legend>Option</legend>
+                    @foreach ($options as $option)
+                        <label>
+                            <input type="radio" name="variant_id" value="{{ $option['id'] }}" required @checked(($old['variant_id'] ?? '') === $option['id'] || (($old['variant_id'] ?? '') === '' && $loop->first))>
+                            <span>{{ $option['name'] }} ({{ \App\Support\Display::minutes($option['duration_minutes']) }})@if ($option['total_cents'] !== null) {{ \App\Domain\Fees\Disclosures\Money::format($option['total_cents'], $option['currency']) }}@if ($option['fee_included']) <span class="optional">Booking fee included</span>@endif @endif</span>
+                        </label>
+                    @endforeach
+                </fieldset>
+            @elseif ($service->durations->isNotEmpty())
                 <fieldset>
                     <legend>Length</legend>
                     @foreach ($service->durations as $duration)
@@ -131,7 +155,9 @@
         @if ($slots !== null)
             <form method="post" action="{{ url('/book/'.$token.'/services/'.$service->id) }}" class="time-picker">
                 <input type="hidden" name="date" value="{{ $old['date'] ?? '' }}">
-                @if (($old['duration_id'] ?? '') !== '')
+                @if (($options ?? []) !== [])
+                    <input type="hidden" name="variant_id" value="{{ $old['variant_id'] ?? '' }}">
+                @elseif (($old['duration_id'] ?? '') !== '')
                     <input type="hidden" name="duration_id" value="{{ $old['duration_id'] }}">
                 @else
                     <input type="hidden" name="duration_minutes" value="{{ $old['duration_minutes'] ?? 60 }}">
@@ -167,7 +193,11 @@
                 @endif
             </form>
         @else
-            <p class="muted">Choose a date, length, and party size to see the open start times.</p>
+            @if (($options ?? []) !== [])
+                <p class="muted">Choose a date, an option, and a party size to see the open start times.</p>
+            @else
+                <p class="muted">Choose a date, length, and party size to see the open start times.</p>
+            @endif
         @endif
     @endif
 @endsection
