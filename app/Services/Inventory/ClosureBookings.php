@@ -10,6 +10,7 @@ use App\Models\Booking;
 use App\Models\Location;
 use App\Models\LocationClosure;
 use App\Models\Pool;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -39,9 +40,11 @@ final class ClosureBookings
             ->orderBy('starts_at')
             ->orderBy('id');
 
+        $zone = DisplayZone::forLocation($location);
+
         if (! $closure->recurs_yearly) {
             $window = $this->calendar->concrete(
-                $location->timezone,
+                $zone,
                 $closure->all_day,
                 $closure->starts_on->toDateString(),
                 $closure->ends_on->toDateString(),
@@ -57,10 +60,10 @@ final class ClosureBookings
         }
 
         /** @var Collection<int, Booking> $bookings */
-        $bookings = $query->get()->filter(function (Booking $booking) use ($closure, $location): bool {
+        $bookings = $query->get()->filter(function (Booking $booking) use ($closure, $zone): bool {
             return $this->calendar->covers(
                 $closure,
-                $location->timezone,
+                $zone,
                 CarbonImmutable::instance($booking->starts_at)->utc(),
                 CarbonImmutable::instance($booking->ends_at)->utc(),
             );
