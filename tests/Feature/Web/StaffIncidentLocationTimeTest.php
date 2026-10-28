@@ -25,12 +25,13 @@ use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\AssertsZoneAbbreviations;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class StaffIncidentLocationTimeTest extends TestCase
 {
-    use CreatesWorkspace, RefreshDatabase;
+    use AssertsZoneAbbreviations, CreatesWorkspace, RefreshDatabase;
 
     protected function tearDown(): void
     {
@@ -94,14 +95,13 @@ class StaffIncidentLocationTimeTest extends TestCase
             'Sun, Nov 1, 1:30 AM EDT',
         ]);
 
-        $this->get($this->tenantUrl('dock.test', '/staff/incidents?status=all&location='.$utc->location_id))
+        $utcPage = $this->get($this->tenantUrl('dock.test', '/staff/incidents?status=all&location='.$utc->location_id))
             ->assertOk()
             ->assertSee('Utc Guest')
             ->assertSee('Tue, Jun 16, 6:00 PM UTC')
             ->assertSee('data-incident="'.$utcReport->id.'"', false)
-            ->assertDontSee('EDT')
-            ->assertDontSee('CDT')
             ->assertDontSee('First Fall');
+        $this->assertOmitsZoneAbbreviations($utcPage, 'EDT', 'CDT');
 
         $this->get($this->tenantUrl('dock.test', '/staff/incidents?status=all&location='.$fallback->location_id))
             ->assertOk()

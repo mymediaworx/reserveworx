@@ -1,0 +1,1 @@
+- A check that a visit is named in the location’s timezone no longer fails when a booking id, a session token, or a widget token happens to contain the letters EDT, CDT, CST, or UTC. The page still has to show that location’s abbreviation on the time.

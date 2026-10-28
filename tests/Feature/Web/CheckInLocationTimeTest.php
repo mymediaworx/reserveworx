@@ -24,12 +24,13 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\URL;
+use Tests\Support\AssertsZoneAbbreviations;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class CheckInLocationTimeTest extends TestCase
 {
-    use CreatesWorkspace, RefreshDatabase;
+    use AssertsZoneAbbreviations, CreatesWorkspace, RefreshDatabase;
 
     protected function tearDown(): void
     {
@@ -83,9 +84,8 @@ class CheckInLocationTimeTest extends TestCase
             ->assertDontSee('10:30 PM PST')
             ->assertDontSee('Creek Kayak')
             ->assertDontSee('Creek Guest')
-            ->assertDontSee('CDT')
-            ->assertDontSee('CST')
             ->assertDontSee('America/Chicago');
+        $this->assertOmitsZoneAbbreviations($harborList, 'CDT', 'CST');
 
         $pacificList = $this->get($this->tenantUrl('dock.test', '/staff/check-in?location='.$pacific->location_id));
         $pacificList->assertOk()
@@ -108,8 +108,8 @@ class CheckInLocationTimeTest extends TestCase
             ->assertDontSee('Next Morning')
             ->assertDontSee('Mon, Mar 9, 12:30 AM EDT')
             ->assertDontSee('First Fall')
-            ->assertDontSee('CDT')
             ->assertDontSee('America/Chicago');
+        $this->assertOmitsZoneAbbreviations($springList, 'CDT');
 
         $this->get($this->tenantUrl('creek.test', '/staff/check-in?location='.$harbor->location_id))
             ->assertForbidden()
@@ -182,12 +182,11 @@ class CheckInLocationTimeTest extends TestCase
             ->assertSee('Sat, Jul 4, 10:00 AM – 11:00 AM EDT')
             ->assertDontSee('9:00 AM CDT');
 
-        $this->get($this->signedUrl('dock.test', $utcVisit->id))
+        $utcPage = $this->get($this->signedUrl('dock.test', $utcVisit->id))
             ->assertOk()
             ->assertSee('Utc Kayak')
-            ->assertSee('Tue, Jun 16, 3:00 PM – 4:00 PM UTC')
-            ->assertDontSee('EDT')
-            ->assertDontSee('CDT');
+            ->assertSee('Tue, Jun 16, 3:00 PM – 4:00 PM UTC');
+        $this->assertOmitsZoneAbbreviations($utcPage, 'EDT', 'CDT');
 
         $this->get($this->signedUrl('dock.test', $fallbackVisit->id))
             ->assertOk()
