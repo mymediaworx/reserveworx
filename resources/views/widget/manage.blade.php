@@ -5,6 +5,7 @@
 @section('content')
     @php
         $copy = app(PublicBookingCopy::class)->for($booking);
+        $repeatedStart = preg_match('/[+-]\d{2}:\d{2}$/', $localTime) === 1;
     @endphp
     <h1>Booking {{ \App\Support\BookingReference::short($booking->id) }}</h1>
     <p class="optional" style="overflow-wrap:anywhere">Full reference: {{ $booking->id }}</p>
@@ -13,7 +14,17 @@
     @if ($copy['pickupFeeNote'] !== '')
         <p>{{ $copy['pickupFeeNote'] }}</p>
     @endif
-    <p>{{ $whenLabel }}</p>
+    <style>
+        p[data-when], form[data-offer] button, input[name="start"] { overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            p[data-when], form[data-offer], form[data-offer] button, input[name="start"] {
+                max-width: 100%;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+        }
+    </style>
+    <p data-when>{{ $whenLabel }}</p>
     @if ($error)
         <p class="error" role="alert">{{ $error }}</p>
     @endif
@@ -49,16 +60,19 @@
                 <input name="date" type="date" required value="{{ $localDate }}">
             </label>
             <label>New start
-                <input name="start" type="time" required value="{{ $localTime }}">
+                <input name="start" type="{{ $repeatedStart ? 'text' : 'time' }}" required value="{{ $localTime }}" data-local-start="{{ $localTime }}" @if ($repeatedStart) inputmode="text" autocomplete="off" spellcheck="false" @endif>
             </label>
+            @if ($repeatedStart)
+                <p class="muted">This start happens twice. The offset keeps this hour. A plain time is the earlier one.</p>
+            @endif
             <button type="submit">Reschedule</button>
         </form>
         @if ($offerTimes !== [])
             <h2>Other times</h2>
             @foreach ($offerTimes as $time)
-                <form method="post" action="{{ $rescheduleUrl }}">
+                <form method="post" action="{{ $rescheduleUrl }}" data-offer>
                     <input type="hidden" name="date" value="{{ $time['date'] }}">
-                    <input type="hidden" name="start" value="{{ $time['start'] }}">
+                    <input type="hidden" name="start" value="{{ $time['start'] }}" data-offer-start="{{ $time['start'] }}">
                     <button type="submit">{{ $time['label'] }}</button>
                 </form>
             @endforeach
