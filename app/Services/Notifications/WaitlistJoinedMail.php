@@ -19,8 +19,9 @@ use Throwable;
 
 /**
  * Sends the waitlist confirmation when this workspace can deliver mail.
- * The log and array mailers leave the hook queued. A later dispatch records
- * that no provider is configured. A failure here does not remove the entry.
+ * The log and array mailers leave the hook queued. A mailer that refuses the
+ * message records that failure once and does not send it again. The party
+ * stays on the list.
  */
 final class WaitlistJoinedMail
 {
@@ -115,13 +116,22 @@ final class WaitlistJoinedMail
                 return;
             }
 
-            Notification::route('mail', $email)->notify(new WaitlistJoinedNotification(
-                $serviceName,
-                $when,
-                $entry->participants,
-                $leaveUrl,
-                $replyTo,
-            ));
+            try {
+                Notification::route('mail', $email)->notify(new WaitlistJoinedNotification(
+                    $serviceName,
+                    $when,
+                    $entry->participants,
+                    $leaveUrl,
+                    $replyTo,
+                ));
+            } catch (Throwable $exception) {
+                $hook->delivery_status = 'failed';
+                $hook->delivery_error = 'The mailer refused the message ('.class_basename($exception).').';
+                $hook->attempted_at = Carbon::now('UTC');
+                $hook->save();
+
+                return;
+            }
 
             $hook->delivery_status = 'sent';
             $hook->delivery_error = null;
