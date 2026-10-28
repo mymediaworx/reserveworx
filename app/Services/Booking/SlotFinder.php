@@ -14,6 +14,9 @@ use App\Services\Allocation\Allocator;
 use App\Services\Inventory\OpeningHours;
 use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
+use DateTimeImmutable;
+use DateTimeZone;
+use Exception;
 use Illuminate\Support\Collection;
 
 /**
@@ -24,6 +27,12 @@ final class SlotFinder
 {
     /** Start times are offered on this step, in minutes. */
     public const STEP_MINUTES = 30;
+
+    /**
+     * A posted rental start. A plain clock is H:i. A repeated fall-back hour
+     * adds the UTC offset, such as 01:30-04:00, so the two instants stay distinct.
+     */
+    public const START_PATTERN = '/^(?:[01]\d|2[0-3]):[0-5]\d(?:[+-](?:0\d|1[0-4]):[0-5]\d)?$/';
 
     /** A location with no opening hours is open all day; offer this window. */
     private const DEFAULT_OPEN = '08:00';
@@ -47,7 +56,12 @@ final class SlotFinder
      * chose an option, is passed to the hint so that option's boat or pool
      * is what the slot marks open or booked.
      *
-     * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, available: bool, closed: bool}>
+     * A fall-back morning keeps both occurrences of a repeated hour. The label
+     * names that abbreviation, and the value carries the offset. A spring-forward
+     * morning does not offer the hour that does not exist. Any other start stays
+     * a clock time, such as 10:00 AM, with an H:i value.
+     *
+     * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, value: string, available: bool, closed: bool}>
      */
     public function rentalSlots(Service $service, string $date, int $durationMinutes, int $participants, ?CarbonImmutable $notBefore = null, bool $counterSale = false, ?string $variantId = null): array
     {
@@ -69,6 +83,7 @@ final class SlotFinder
         $earliest = ($notBefore ?? CarbonImmutable::now())->utc();
         [$open, $close] = $this->window($location, $day);
         $overnight = $open->addMinutes($durationMinutes)->greaterThan($close);
+        /** @var list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, civil: string, offset: string, abbr: string, available: bool, closed: bool}> $slots */
         $slots = [];
 
         for ($start = $open; $this->offersStart($start, $close, $durationMinutes, $overnight); $start = $start->addMinutes(self::STEP_MINUTES)) {
@@ -99,12 +114,54 @@ final class SlotFinder
                 'starts_at' => $startUtc,
                 'ends_at' => $endUtc,
                 'label' => $start->format('g:i A'),
+                'civil' => $start->format('H:i'),
+                'offset' => $start->format('P'),
+                'abbr' => $start->format('T'),
                 'available' => $available,
                 'closed' => $closed,
             ];
         }
 
-        return $slots;
+        return $this->namedSlots($slots);
+    }
+
+    /**
+     * The location-local instant for a posted rental start.
+     *
+     * A plain H:i uses the only instant with that clock, or the earlier one
+     * when the hour happens twice. An offset, such as 01:30-05:00, selects
+     * that occurrence. A clock that does not exist, including 2:30 AM on a
+     * spring-forward morning, is refused instead of shifted forward.
+     */
+    public function resolveStart(string $date, string $start, string $zone): ?CarbonImmutable
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $parts) !== 1 || ! checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) {
+            return null;
+        }
+
+        $offset = null;
+        $clock = $start;
+
+        if (preg_match('/^((?:[01]\d|2[0-3]):[0-5]\d)([+-](?:0\d|1[0-4]):[0-5]\d)$/', $start, $marked) === 1) {
+            $clock = $marked[1];
+            $offset = $marked[2];
+        } elseif (preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $start) !== 1) {
+            return null;
+        }
+
+        $matches = $this->matchingInstants($date, $clock, $zone);
+
+        if ($offset !== null) {
+            foreach ($matches as $instant) {
+                if ($instant->format('P') === $offset) {
+                    return $instant;
+                }
+            }
+
+            return null;
+        }
+
+        return $matches[0] ?? null;
     }
 
     /**
@@ -280,5 +337,84 @@ final class SlotFinder
         [$hour, $minute] = array_map('intval', explode(':', $time));
 
         return $day->setTime($hour, $minute);
+    }
+
+    /**
+     * @param  list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, civil: string, offset: string, abbr: string, available: bool, closed: bool}>  $slots
+     * @return list<array{starts_at: CarbonImmutable, ends_at: CarbonImmutable, label: string, value: string, available: bool, closed: bool}>
+     */
+    private function namedSlots(array $slots): array
+    {
+        $counts = [];
+
+        foreach ($slots as $slot) {
+            $counts[$slot['civil']] = ($counts[$slot['civil']] ?? 0) + 1;
+        }
+
+        $named = [];
+
+        foreach ($slots as $slot) {
+            $repeated = ($counts[$slot['civil']] ?? 0) > 1;
+            $named[] = [
+                'starts_at' => $slot['starts_at'],
+                'ends_at' => $slot['ends_at'],
+                'label' => $repeated ? $slot['label'].' '.$slot['abbr'] : $slot['label'],
+                'value' => $repeated ? $slot['civil'].$slot['offset'] : $slot['civil'],
+                'available' => $slot['available'],
+                'closed' => $slot['closed'],
+            ];
+        }
+
+        return $named;
+    }
+
+    /**
+     * Instants on that local date whose clock is $clock, earliest first.
+     * A missing spring-forward hour returns none.
+     *
+     * @return list<CarbonImmutable>
+     */
+    private function matchingInstants(string $date, string $clock, string $timezone): array
+    {
+        try {
+            $zone = new DateTimeZone($timezone);
+            $midnight = new DateTimeImmutable($date.' 00:00:00', $zone);
+        } catch (Exception) {
+            return [];
+        }
+
+        $horizon = $midnight->modify('+36 hours');
+        $transitions = $zone->getTransitions($midnight->getTimestamp() - 3600, $horizon->getTimestamp());
+        $matches = [];
+        $count = count($transitions);
+        $wantedClock = $date.' '.$clock;
+
+        for ($index = 0; $index < $count; $index++) {
+            $offset = (int) $transitions[$index]['offset'];
+            $from = (int) $transitions[$index]['ts'];
+            $until = $index + 1 < $count ? (int) $transitions[$index + 1]['ts'] : $horizon->getTimestamp();
+            $wanted = $this->civilUtc($date, $clock.':00') - $offset;
+
+            if ($wanted < $from || $wanted >= $until) {
+                continue;
+            }
+
+            $local = CarbonImmutable::createFromTimestampUTC($wanted)->timezone($timezone);
+
+            if ($local->format('Y-m-d H:i') !== $wantedClock) {
+                continue;
+            }
+
+            $matches[$local->getTimestamp()] = $local;
+        }
+
+        ksort($matches);
+
+        return array_values($matches);
+    }
+
+    private function civilUtc(string $date, string $clock): int
+    {
+        return (new DateTimeImmutable($date.' '.$clock, new DateTimeZone('UTC')))->getTimestamp();
     }
 }
