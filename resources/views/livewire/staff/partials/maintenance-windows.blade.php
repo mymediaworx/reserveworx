@@ -15,7 +15,7 @@
                     <span @class(['badge', 'badge-held' => $window->kind->value === 'maintenance', 'badge-pending' => $window->kind->value === 'block'])>{{ $window->kind->label() }}</span>
                 </div>
                 <span>{{ $window->reason }}</span>
-                <span class="muted">{{ Display::range($window->starts_at, $window->ends_at, $zone) }}</span>
+                <span class="muted when" data-when>{{ Display::rangeWithZone($window->starts_at, $window->ends_at, $zone) }}</span>
                 @if ($canEnd ?? false)
                     <button type="button" class="button small" wire:click="endWindow('{{ $window->id }}')" wire:confirm="End this now? It can be booked again after the current time. Bookings stay where they are.">End now</button>
                 @endif
@@ -25,8 +25,8 @@
                         <ul class="overlap-list">
                             @foreach ($hits as $booking)
                                 <li data-affected-booking="{{ $booking->id }}">
-                                    <a href="/staff/bookings/{{ $booking->id }}" wire:navigate>
-                                        {{ $booking->customer?->name ?: 'Booking' }} · {{ Display::dateTime($booking->starts_at, $zone) }}
+                                    <a href="/staff/bookings/{{ $booking->id }}" wire:navigate data-when>
+                                        {{ $booking->customer?->name ?: 'Booking' }} · {{ Display::dateTimeWithZone($booking->starts_at, $zone) }}
                                     </a>
                                     @if ($booking->attention_reason)
                                         <span class="badge badge-payment">Flagged</span>
