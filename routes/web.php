@@ -28,6 +28,7 @@ use App\Livewire\Platform\Administrators;
 use App\Livewire\Platform\Demonstration;
 use App\Livewire\Platform\FeeReport;
 use App\Livewire\Platform\Handbook as PlatformHandbook;
+use App\Livewire\Platform\Limits;
 use App\Livewire\Platform\Performance;
 use App\Livewire\Platform\Readiness;
 use App\Livewire\Platform\Security;
@@ -117,6 +118,7 @@ Route::middleware('platform.host')->prefix('platform')->group(function (): void 
         Route::get('/help', PlatformHandbook::class);
         Route::get('/readiness', Readiness::class);
         Route::get('/performance', Performance::class);
+        Route::get('/limits', Limits::class);
         Route::get('/security', Security::class);
         Route::get('/upgrade', Upgrade::class);
         Route::get('/fees', FeeReport::class);
