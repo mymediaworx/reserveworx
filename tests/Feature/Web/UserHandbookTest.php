@@ -310,6 +310,63 @@ class UserHandbookTest extends TestCase
         $this->keep($owner);
     }
 
+    public function test_the_admin_handbook_links_to_stored_booking_fees_and_writes_nothing(): void
+    {
+        Tenant::factory()->create(['name' => 'Secret Harbor Name']);
+        $admin = User::factory()->create();
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        $before = $this->counts();
+
+        $page = $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/help')
+            ->assertOk()
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('Secret Harbor Name')
+            ->assertDontSee('3%')
+            ->assertDontSee('1%');
+
+        $topics = $this->handbookTopics((string) $page->getContent());
+        $fees = null;
+
+        foreach ($topics as $topic) {
+            if ($topic['href'] === '/platform/fees') {
+                $fees = $topic;
+            }
+        }
+
+        $this->assertNotNull($fees);
+        $this->assertSame('Fees', $fees['title']);
+        $this->assertStringContainsString('Stored booking fees for a UTC period, by workspace and channel.', $fees['body']);
+        $this->assertStringContainsString('Compare asks Stripe for that period.', $fees['body']);
+        $this->assertStringContainsString('Fee rates stay as they are.', $fees['body']);
+        $this->assertStringContainsString('This handbook does not change them.', $fees['body']);
+        $this->assertStringNotContainsString('Secret Harbor Name', $fees['body']);
+        $this->assertStringNotContainsString('3%', $fees['body']);
+        $this->assertStringNotContainsString('1%', $fees['body']);
+        $this->assertSame($before, $this->counts());
+
+        Livewire::actingAs($admin)->test(PlatformHandbook::class)
+            ->assertSee('href="/platform/fees"', false)
+            ->assertSee('Fee rates stay as they are.')
+            ->assertDontSee('Secret Harbor Name')
+            ->assertDontSee('3%');
+
+        $owner = $this->signedIn();
+        $staffBefore = $this->counts();
+        $staff = $this->get($this->tenantUrl('alpha.test', '/staff/help'))
+            ->assertOk()
+            ->assertDontSee('href="/platform/fees"', false)
+            ->assertDontSee('Fee rates stay as they are.');
+
+        foreach ($this->handbookTopics((string) $staff->getContent()) as $topic) {
+            $this->assertNotSame('/platform/fees', $topic['href']);
+        }
+
+        $this->assertSame($staffBefore, $this->counts());
+        $this->keep($owner);
+    }
+
     /**
      * @return array{tenant: Tenant, domain: Domain, user: User, membership: Membership}
      */
