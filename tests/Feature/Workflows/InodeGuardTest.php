@@ -493,6 +493,91 @@ class InodeGuardTest extends TestCase
         }
     }
 
+    public function test_opcache_purge_is_gated_behind_its_input_and_scoped_to_the_opcache_folder(): void
+    {
+        $workflow = (string) file_get_contents(base_path('.github/workflows/deploy.yml'));
+        $script = (string) file_get_contents(base_path('scripts/remote-deploy.sh'));
+
+        $this->assertMatchesRegularExpression('/purge_opcache:\n\s+description: [^\n]+\n\s+type: boolean\n\s+required: true\n\s+default: false/', $workflow);
+        $this->assertStringContainsString("RW_MAINTENANCE_PURGE_OPCACHE: \${{ github.event_name == 'workflow_dispatch' && inputs.action == 'maintenance' && inputs.purge_opcache || 'false' }}", $workflow);
+        $this->assertStringContainsString('RW_MAINTENANCE_PURGE_OPCACHE=%q', $workflow);
+
+        $maintenance = strpos($script, 'if [[ "$ACTION" == "maintenance" ]]; then');
+        $block = substr($script, $maintenance, strpos($script, 'exit 0', $maintenance) - $maintenance);
+        $this->assertStringContainsString('if [[ "${RW_MAINTENANCE_PURGE_OPCACHE:-false}" == "true" ]]; then', $block);
+        $this->assertSame(1, substr_count($script, 'purge_opcache || exit 1'));
+        $this->assertSame(1, substr_count($script, 'purge_opcache() {'));
+
+        $function = substr($script, strpos($script, 'purge_opcache() {'));
+        $function = substr($function, 0, strpos($function, "\n}\n") + 3);
+        $this->assertSame(1, substr_count($function, '-delete'));
+        $this->assertStringContainsString('find "$HOME/.opcache" -mindepth 1 -delete', $function);
+        $this->assertStringNotContainsString('rm -', $function);
+        $this->assertStringNotContainsString('find -L', $function);
+        $this->assertStringNotContainsString('-follow', $function);
+    }
+
+    public function test_opcache_purge_empties_only_the_opcache_folder_and_keeps_it(): void
+    {
+        $home = $this->home();
+        mkdir($home.'/.opcache/8.2/home/sub', 0777, true);
+        file_put_contents($home.'/.opcache/8.2/home/sub/a', 'x');
+        file_put_contents($home.'/.opcache/8.2/b', 'x');
+        mkdir($home.'/outside');
+        file_put_contents($home.'/outside/keep', 'x');
+        symlink($home.'/outside', $home.'/.opcache/link-out');
+        file_put_contents($home.'/www/keep', 'x');
+        $laravelBefore = $this->sh('find '.escapeshellarg($home.'/www').' '.escapeshellarg($home.'/outside').' | sort | md5sum')['output'];
+
+        $ran = $this->lib($home, 'purge_opcache');
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('opcache_inodes_before=6', $ran['output']);
+        $this->assertStringContainsString('opcache_inodes_after=0', $ran['output']);
+        $this->assertMatchesRegularExpression('/opcache_account_inodes_before=\d+/', $ran['output']);
+        $this->assertMatchesRegularExpression('/opcache_account_inodes_after=\d+/', $ran['output']);
+        $this->assertDirectoryExists($home.'/.opcache');
+        $this->assertSame([], array_values(array_diff(scandir($home.'/.opcache') ?: [], ['.', '..'])));
+        $this->assertFileExists($home.'/outside/keep');
+        $this->assertSame($laravelBefore, $this->sh('find '.escapeshellarg($home.'/www').' '.escapeshellarg($home.'/outside').' | sort | md5sum')['output']);
+    }
+
+    public function test_opcache_purge_refuses_a_symlinked_or_missing_opcache_and_deletes_nothing(): void
+    {
+        $home = $this->home();
+        $this->assertSame(1, $this->lib($home, 'purge_opcache')['exit']);
+
+        mkdir($home.'/elsewhere');
+        file_put_contents($home.'/elsewhere/keep', 'x');
+        symlink($home.'/elsewhere', $home.'/.opcache');
+
+        $ran = $this->lib($home, 'purge_opcache');
+
+        $this->assertSame(1, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('opcache_purge=refused', $ran['output']);
+        $this->assertFileExists($home.'/elsewhere/keep');
+    }
+
+    public function test_maintenance_without_the_purge_input_leaves_the_opcache_alone(): void
+    {
+        $home = $this->home();
+        mkdir($home.'/.opcache');
+        file_put_contents($home.'/.opcache/keep', 'x');
+        $command = 'export HOME='.escapeshellarg($home).' ACTION=maintenance RW_MAINTENANCE_CLEAN=false; bash '.escapeshellarg(base_path('scripts/remote-deploy.sh'));
+
+        $ran = $this->sh($command);
+
+        $this->assertSame(0, $ran['exit'], $ran['output']);
+        $this->assertStringContainsString('opcache_purge=not requested', $ran['output']);
+        $this->assertFileExists($home.'/.opcache/keep');
+
+        $purge = $this->sh('export RW_MAINTENANCE_PURGE_OPCACHE=true; '.$command);
+        $this->assertSame(0, $purge['exit'], $purge['output']);
+        $this->assertStringContainsString('opcache_inodes_after=0', $purge['output']);
+        $this->assertFileDoesNotExist($home.'/.opcache/keep');
+        $this->assertDirectoryExists($home.'/.opcache');
+    }
+
     public function test_at_most_two_database_dumps_are_kept_and_stale_client_files_are_removed(): void
     {
         $home = $this->home();

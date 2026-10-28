@@ -29,6 +29,11 @@ on:
         type: boolean
         required: true
         default: false
+      purge_opcache:
+        description: Maintenance only. Delete the contents of the account's .opcache folder (the folder itself stays). Refuses unless the path is exactly the real home's .opcache and a real directory. Touches nothing else. Off by default.
+        type: boolean
+        required: true
+        default: false
       run_migrations:
         description: Run php artisan migrate --force after a verified database dump. The job fails when that dump is missing, empty, or fails gunzip -t.
         type: boolean
@@ -130,7 +135,7 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (clean: {0})', inputs.clean) || '' }}"
+            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (clean: {0}, purge_opcache: {1})', inputs.clean, inputs.purge_opcache) || '' }}"
             echo "- Commit: ${sha}"
             echo "- Migrations requested: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -319,6 +324,7 @@ jobs:
           RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
           RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
           RW_MAINTENANCE_CLEAN: ${{ github.event_name == 'workflow_dispatch' && inputs.clean || 'false' }}
+          RW_MAINTENANCE_PURGE_OPCACHE: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'maintenance' && inputs.purge_opcache || 'false' }}
         run: |
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
@@ -343,8 +349,8 @@ jobs:
           }
           trap on_exit EXIT
           bootstrap="$(cat scripts/accept-mail-header.sh)"
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_CLEAN=%q bash -c %q' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_CLEAN" "$bootstrap")"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_CLEAN=%q RW_MAINTENANCE_PURGE_OPCACHE=%q bash -c %q' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_CLEAN" "$RW_MAINTENANCE_PURGE_OPCACHE" "$bootstrap")"
           {
             echo
             echo '```'
