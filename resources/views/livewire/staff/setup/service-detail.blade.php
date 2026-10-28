@@ -17,7 +17,10 @@
             .service-detail h1,
             .service-detail .lede,
             .service-detail .row,
+            .service-detail [data-when],
+            .service-detail fieldset,
             .service-detail .field span { overflow-wrap: anywhere; }
+            .service-detail fieldset { min-width: 0; max-width: 100%; }
             .service-detail .form-row { display: grid; grid-template-columns: minmax(0, 1fr); }
             .service-detail .row { flex-wrap: wrap; }
             .service-detail .row .grow { flex-basis: 100%; }
@@ -192,6 +195,7 @@
         @else
             <section class="panel" data-departures>
                 <h2>Departures</h2>
+                <p class="muted small" data-zone>Times are in {{ $zone }}.</p>
                 @if ($canManage)
                     <p class="muted small">An empty departure can be cancelled. One that still has a booking stays scheduled. Nothing is refunded.</p>
                 @endif
@@ -206,7 +210,7 @@
                                 $below = is_int($service->min_participants) && $count > 0 && $count < $service->min_participants;
                             @endphp
                             <li class="row" data-departure="{{ $departure->id }}" @if ($below) data-below-minimum="{{ $departure->id }}" @endif>
-                                <span class="grow">{{ Display::dateTime($departure->starts_at, $zone) }}</span>
+                                <span class="grow" data-when>{{ Display::rangeWithZone($departure->starts_at, $departure->ends_at, $zone) }}</span>
                                 <span class="muted">{{ $departure->private ? 'Private' : $count.' of '.$departure->seats }}{{ $departure->status->value === 'cancelled' ? ', cancelled' : '' }}</span>
                                 @if ($below)
                                     <span class="badge badge-below-minimum">Below minimum</span>
@@ -221,10 +225,19 @@
                 @if ($canManage)
                     <form wire:submit="addDeparture" class="stack top-gap">
                         <div class="form-row">
-                            <label class="field compact"><span>Date</span><input type="date" wire:model="departureDate" required></label>
-                            <label class="field compact"><span>Time</span><input type="time" wire:model="departureTime" required></label>
+                            <label class="field compact"><span>Date</span><input type="date" wire:model.live="departureDate" required></label>
+                            <label class="field compact"><span>Time</span><input type="time" wire:model.live="departureTime" required></label>
                             <label class="field compact"><span>Minutes</span><input type="number" min="15" max="1440" wire:model="departureMinutes" required></label>
                         </div>
+                        @error('departureTime')<p class="error" role="alert">{{ $message }}</p>@enderror
+                        @if ($departureClock['ambiguous'])
+                            <fieldset class="stack" data-departure-clock>
+                                <legend>That time happens twice.</legend>
+                                <label class="check"><input type="radio" wire:model="departureOccurrence" value="earlier"><span>{{ Display::dateTimeWithZone($departureClock['earlier'], $zone) }}</span></label>
+                                <label class="check"><input type="radio" wire:model="departureOccurrence" value="later"><span>{{ Display::dateTimeWithZone($departureClock['later'], $zone) }}</span></label>
+                            </fieldset>
+                            @error('departureOccurrence')<p class="error" role="alert">{{ $message }}</p>@enderror
+                        @endif
                         <div class="form-row">
                             <label class="check"><input type="checkbox" wire:model.live="departurePrivate"><span>Private (one group)</span></label>
                             @unless ($departurePrivate)
