@@ -79,7 +79,11 @@ fi
 
 if [[ -d "${base}/current" ]]; then
   (cd "${base}/current" && php8.3 artisan migrate --force --no-interaction | tail -n 3)
-  (cd "${base}/current" && php8.3 artisan config:cache >/dev/null && php8.3 artisan cache:clear >/dev/null 2>&1 || true)
+  # The web and worker users (www-data) must be able to read the cache file, so
+  # build it with a normal umask and the web group, not the script's umask 007.
+  (umask 022; cd "${base}/current" && php8.3 artisan config:cache >/dev/null && php8.3 artisan cache:clear >/dev/null 2>&1 || true)
+  chgrp www-data "${base}/current/bootstrap/cache/"*.php 2>/dev/null || true
+  chmod 664 "${base}/current/bootstrap/cache/"*.php 2>/dev/null || true
 fi
 
 sudo -n /usr/bin/supervisorctl start 'reserveworx-worker:*' >/dev/null 2>&1 || true
