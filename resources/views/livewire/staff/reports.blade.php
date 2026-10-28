@@ -20,7 +20,8 @@
             .reports-page .report-list,
             .reports-page .report-list li,
             .reports-page .report-list span,
-            .reports-page .report-list strong { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+            .reports-page .report-list strong,
+            .reports-page .when { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
         }
     </style>
 
@@ -220,7 +221,7 @@
                         >
                             <strong>{{ $row['service'] }}</strong>
                             <span class="muted">{{ $row['location'] }}</span>
-                            <span>{{ \Carbon\CarbonImmutable::parse($row['starts_at'])->format('D, M j, g:i A') }}</span>
+                            <span class="when" data-when>{{ $row['when'] }}</span>
                             <span>{{ $row['seats_booked'] }} of {{ $row['capacity'] }} booked</span>
                             <span>{{ $row['seats_attended'] }} attended</span>
                             <span>{{ $row['no_show_seats'] }} no-show</span>
