@@ -24,6 +24,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
+use Throwable;
 
 class SendBookingReminder implements ShouldQueue
 {
@@ -131,12 +132,25 @@ class SendBookingReminder implements ShouldQueue
                         $hook->save();
                     } else {
                         $serviceName = trim((string) $booking->service?->name);
-                        Notification::route('mail', $email)->notify(new BookingReminderNotification(
-                            $serviceName !== '' ? $serviceName : 'your booking',
-                            Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
-                            BookingReference::short($booking->id),
-                            $event->offsetMinutes,
-                        ));
+
+                        try {
+                            Notification::route('mail', $email)->notify(new BookingReminderNotification(
+                                $serviceName !== '' ? $serviceName : 'your booking',
+                                Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
+                                BookingReference::short($booking->id),
+                                $event->offsetMinutes,
+                            ));
+                        } catch (Throwable $exception) {
+                            $hook->delivery_status = 'failed';
+                            $hook->delivery_error = 'The mailer refused the message ('.class_basename($exception).').';
+                            $hook->attempted_at = $now;
+                            $hook->save();
+                            $reminder->dispatched_at = $now;
+                            $reminder->save();
+
+                            return;
+                        }
+
                         $hook->delivery_status = 'sent';
                         $hook->delivery_error = null;
                         $hook->attempted_at = $now;
