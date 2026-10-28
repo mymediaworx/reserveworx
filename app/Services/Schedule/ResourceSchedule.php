@@ -16,7 +16,9 @@ use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Models\Service;
 use App\Services\Inventory\ClosureCalendar;
+use App\Support\Display;
 use App\Support\DisplayZone;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 use Illuminate\Support\Collection;
@@ -200,7 +202,7 @@ final class ResourceSchedule
             'id' => $location->id,
             'name' => $location->name,
             'timezone' => $this->zone($location),
-            'abbreviation' => $window['start']->format('T'),
+            'abbreviation' => $this->abbreviations($window),
             'days' => array_map(fn (array $day): array => [
                 'date' => $day['date'],
                 'weekday' => $day['weekday'],
@@ -682,7 +684,7 @@ final class ResourceSchedule
         $prep = $bookStart->greaterThan($occupiedStart) ? $this->wholeMinutes($occupiedStart, $bookStart) : 0;
         $tail = $occupiedEnd->greaterThan($bookEnd) ? $this->wholeMinutes($bookEnd, $occupiedEnd) : 0;
         $kind = $entry['kind'] === 'hold' ? 'hold' : 'allocation';
-        $title = ($kind === 'hold' ? 'Hold' : 'Booking').', '.$who.', '.$service.', '.$localStart->format('g:i A').' – '.$localEnd->format('g:i A');
+        $title = ($kind === 'hold' ? 'Hold' : 'Booking').', '.$who.', '.$service.', '.Display::rangeWithZone($bookStart, $bookEnd, $zone);
 
         if ($prep > 0) {
             $title .= ', '.$prep.' minute buffer before';
@@ -709,7 +711,7 @@ final class ResourceSchedule
             'occupied_start' => $occupiedStart->timezone($zone)->format('Y-m-d\TH:i'),
             'occupied_end' => $occupiedEnd->timezone($zone)->format('Y-m-d\TH:i'),
             'who' => $who,
-            'time' => $localStart->format('g:i').'–'.$localEnd->format('g:i A'),
+            'time' => $this->visitClock($localStart, $localEnd),
             'title' => $title,
         ];
     }
@@ -733,8 +735,9 @@ final class ResourceSchedule
 
             for ($guard = 0; $guard < 30 && $cursor < $end; $guard++) {
                 $hours[] = [
-                    'label' => $cursor->format('ga'),
-                    'start' => $cursor->format('H:i'),
+                    'label' => $cursor->format('ga').' '.$cursor->format('T'),
+                    'start' => LocalClock::token($cursor),
+                    'repeated' => LocalClock::repeated($cursor),
                     'left' => $this->percent($this->minutes($start, $cursor), $minutes),
                 ];
                 $cursor = $cursor->addHour();
@@ -765,6 +768,41 @@ final class ResourceSchedule
             'end' => $days[$count - 1]['end'],
             'days' => $days,
         ];
+    }
+
+    /**
+     * @param  array{start: CarbonImmutable, end: CarbonImmutable, days: list<array<string, mixed>>}  $window
+     */
+    private function abbreviations(array $window): string
+    {
+        $marks = [];
+
+        foreach ($window['days'] as $day) {
+            $start = $day['start'];
+            $end = $day['end']->subSecond();
+
+            if ($start instanceof CarbonImmutable) {
+                $marks[$start->format('T')] = true;
+            }
+
+            if ($end instanceof CarbonImmutable) {
+                $marks[$end->format('T')] = true;
+            }
+        }
+
+        return implode(' / ', array_keys($marks));
+    }
+
+    private function visitClock(CarbonImmutable $start, CarbonImmutable $end): string
+    {
+        $fromZone = $start->format('T');
+        $toZone = $end->format('T');
+
+        if ($fromZone === $toZone) {
+            return $start->format('g:i').'–'.$end->format('g:i A').' '.$fromZone;
+        }
+
+        return $start->format('g:i A').' '.$fromZone.'–'.$end->format('g:i A').' '.$toZone;
     }
 
     private function anchor(string $date, string $zone): CarbonImmutable
