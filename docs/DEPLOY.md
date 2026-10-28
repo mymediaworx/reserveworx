@@ -134,6 +134,10 @@ Cron keeps calling laravel/current so the next minute uses the new release. Do n
 
 After a healthy upgrade, reserveworx:smoke runs. Open /platform/readiness for the same local checks. Neither one writes a price, a tax, a fee, or a refund.
 
+### First install
+
+A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.
+
 ## Secrets
 
 Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`, and optional `MAIL_PASSWORD`. The workflow masks host, user, port, passphrase, and the mail password. It does not echo the private key or the mail password. An empty `MAIL_PASSWORD` leaves the log mailer in place and does not fail the job. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
