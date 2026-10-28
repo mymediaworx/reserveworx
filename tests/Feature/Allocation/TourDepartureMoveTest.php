@@ -12,6 +12,7 @@ use App\Models\Booking;
 use App\Models\BookingLineItem;
 use App\Models\Departure;
 use App\Models\Domain;
+use App\Models\Hold;
 use App\Models\Location;
 use App\Models\Membership;
 use App\Models\NotificationHook;
@@ -437,6 +438,58 @@ class TourDepartureMoveTest extends TestCase
         app(TenantManager::class)->set($workspace['tenant']);
         $this->assertSame(0, Allocation::query()->where('booking_id', $mover)->count());
         $this->assertSame(1, Allocation::query()->where('booking_id', $resident)->count());
+        $this->assertSame(0, Payment::query()->count());
+        $this->assertSame(0, Refund::query()->count());
+    }
+
+    public function test_a_payment_exception_party_moves_onto_a_free_departure_and_becomes_confirmed(): void
+    {
+        [$workspace, $service] = $this->tour();
+        $from = $this->departure($workspace, $service, '2026-06-15T15:00:00Z', '2026-06-15T17:00:00Z');
+        $free = $this->departure($workspace, $service, '2026-06-16T15:00:00Z', '2026-06-16T17:00:00Z');
+        $full = $this->departure($workspace, $service, '2026-06-17T15:00:00Z', '2026-06-17T17:00:00Z', ['seats' => 1]);
+        $lost = $this->party($workspace, $service, $from, '2026-06-15T15:00:00Z', '2026-06-15T17:00:00Z', 1, 'lost-tour');
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertGreaterThan(0, Hold::query()->where('booking_id', $lost)->update(['expires_at' => now()->subMinute()]));
+        app(TenantManager::class)->forget();
+        $occupant = $this->party($workspace, $service, $from, '2026-06-15T15:00:00Z', '2026-06-15T17:00:00Z', 1, 'occupant-tour');
+        $this->confirm($occupant);
+        $filled = $this->party($workspace, $service, $full, '2026-06-17T15:00:00Z', '2026-06-17T17:00:00Z', 1, 'fills-tour');
+        $this->confirm($filled);
+
+        $this->actingAsWorkspace($workspace);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$lost.'/confirm'))
+            ->assertStatus(409)
+            ->assertJsonPath('data.status', 'payment_exception');
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$lost.'/reschedule'), [
+            'departure_id' => $full,
+        ])->assertStatus(409);
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->assertSame('payment_exception', Booking::query()->findOrFail($lost)->status->value);
+        $this->assertSame($from, Booking::query()->findOrFail($lost)->departure_id);
+        $this->assertSame(0, Allocation::query()->where('booking_id', $lost)->count());
+        $this->assertSame(1, Allocation::query()->where('booking_id', $occupant)->count());
+        $this->assertSame(0, NotificationHook::query()->where('dedupe_key', 'booking.confirmed:'.$lost)->count());
+        $this->assertSame(0, Payment::query()->count());
+        $this->assertSame(0, Refund::query()->count());
+        app(TenantManager::class)->forget();
+
+        $this->actingAsWorkspace($workspace);
+        $this->postJson($this->tenantUrl('dock.test', '/api/v1/bookings/'.$lost.'/reschedule'), [
+            'departure_id' => $free,
+        ])->assertOk()
+            ->assertJsonPath('data.departure_id', $free)
+            ->assertJsonPath('data.status', 'confirmed');
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        $booking = Booking::query()->findOrFail($lost);
+        $this->assertSame('confirmed', $booking->status->value);
+        $this->assertSame('2026-06-16 15:00:00', $booking->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(1, Allocation::query()->where('booking_id', $lost)->count());
+        $this->assertSame($occupant, Allocation::query()->where('booking_id', $occupant)->sole()->booking_id);
+        $this->assertSame('2026-06-15 15:00:00', Allocation::query()->where('booking_id', $occupant)->sole()->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame(1, NotificationHook::query()->where('dedupe_key', 'booking.confirmed:'.$lost)->count());
         $this->assertSame(0, Payment::query()->count());
         $this->assertSame(0, Refund::query()->count());
     }

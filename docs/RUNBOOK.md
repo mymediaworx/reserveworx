@@ -28,7 +28,7 @@ Typical causes:
 
 1. Run **Deploy** with action `rollback`. That swaps `current` and `previous` and does not change the database.
 2. If this was the first release, there is no previous symlink. Move `public_html.pre-reserveworx-<timestamp>` back to `public_html` inside `app.reserveworx.com` only.
-3. Read `$HOME/www/app.reserveworx.com/laravel/shared/storage/logs/laravel.log` on the server. Do not copy `.env` into the ticket.
+3. Read `$HOME/www/app.reserveworx.com/laravel/shared/storage/logs/laravel-<date>.log` (newest) on the server. Do not copy `.env` into the ticket.
 4. If the summary says `health_http=202`, that is SiteGround's bot check. It is not proof the app is up or down. Open the site in a browser, or curl with a normal browser user agent, before treating the deploy as failed.
 5. If the summary says `dynamic_cache=not confirmed`, flush **app.reserveworx.com** in Site Tools → Speed → Caching → Dynamic Cache. Do not flush other sites. SiteGround's knowledge base (January 29, 2025) documents that screen for non-WordPress apps. `wp sg purge` is for WordPress.
 
@@ -73,7 +73,7 @@ Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each 
 
 ## Handbook
 
-Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the performance check and the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
 
 ## Upgrade
 
@@ -83,6 +83,9 @@ A platform administrator opens `/platform/upgrade` on the platform host. The sam
 
 A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.
 
+## Performance check
+
+A platform administrator opens `/platform/performance` on the platform host. `php artisan reserveworx:performance` prints the same lines and exits 0 only when nothing fails. It renders the product page, signup, and one verified booking page, counts the queries, and rolls that work back. Durations are printed and are not pass or fail. It does not call the public internet and does not keep a price, a payment, a tax, a fee, or a refund. Run it on the SiteGround server to measure that machine. A tenant address does not serve the page.
 ## Multi-tenant demonstration
 
 A platform administrator opens `/platform/demo` on the platform host. `php artisan reserveworx:demo` prints one line for Harbor Demo, one line for Inland Demo, and `shown=yes` only when both are loaded and neither lists the other's locations, services, or bookings. A missing demo workspace is not created. The command does not print a customer email. A tenant address does not serve the page.

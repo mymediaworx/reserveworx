@@ -23,3 +23,6 @@ Schedule::command('rentals:flag-overdue')->everyMinute()->withoutOverlapping();
 Schedule::command('bookings:dispatch-reminders')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('feedback:dispatch')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('reports:build-summaries')->hourly()->withoutOverlapping();
+
+// Cheap file housekeeping so a small shared host never creeps toward its inode cap.
+Schedule::command('host:prune-files')->dailyAt('03:17')->withoutOverlapping();
