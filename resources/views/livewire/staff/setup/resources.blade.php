@@ -67,6 +67,7 @@
             .resources-page .retire-panel select,
             .resources-page .retire-panel .button,
             .resources-page .retire-offers .button { width: 100%; }
+            .resources-page .retire-offers .when { overflow-wrap: anywhere; max-width: 100%; }
             .resources-page .buffer-times { grid-template-columns: 1fr; }
             .resources-page .buffer-times input, .resources-page .buffer-times .field { width: 100%; }
             .resources-page .resource-type,
@@ -257,7 +258,7 @@
                                             <ul class="retire-offers">
                                                 @foreach ($retirement[$asset->id]['offers'] as $offer)
                                                     <li data-retire-offer="{{ $offer['booking_id'] }}">
-                                                        <a href="/staff/bookings/{{ $offer['booking_id'] }}" wire:navigate>{{ $offer['reference'] }} · {{ $offer['customer'] }} · {{ $offer['when'] }}</a>
+                                                        <a href="/staff/bookings/{{ $offer['booking_id'] }}" wire:navigate>{{ $offer['reference'] }} · {{ $offer['customer'] }} · <span class="when" data-when>{{ $offer['when'] }}</span></a>
                                                         @if ($canMoveBookings)
                                                             <button type="button" class="button small" wire:click="acceptOffer('{{ $offer['booking_id'] }}', '{{ $offer['from_asset_id'] }}', '{{ $offer['to_asset_id'] }}')">Move onto {{ $offer['to_name'] }}</button>
                                                         @endif
