@@ -382,6 +382,35 @@ class InodeGuardTest extends TestCase
         $this->assertFileExists($laravel.'/shared/backups/20260101T000000Z.sql.gz');
     }
 
+    public function test_the_script_uses_no_process_substitution_because_the_host_has_no_dev_fd(): void
+    {
+        $script = (string) file_get_contents(base_path('scripts/remote-deploy.sh'));
+
+        $this->assertDoesNotMatchRegularExpression('/<\(|>\(/', $script);
+        $this->assertDoesNotMatchRegularExpression('#/dev/fd#', preg_replace('/^\s*#.*$/m', '', $script) ?? '');
+    }
+
+    public function test_the_account_count_follows_a_symlinked_home_and_falls_back_when_du_x_stops_at_a_mount(): void
+    {
+        $home = $this->home();
+        $link = sys_get_temp_dir().'/rw-guard-link-'.bin2hex(random_bytes(4));
+        symlink($home, $link);
+        $this->homes[] = $link;
+        $real = $this->inodes($home);
+
+        $viaLink = $this->lib($link, 'count_account_inodes');
+        $this->assertSame($real, (int) trim($viaLink['output']), $viaLink['output']);
+
+        // A du that reports 1 for -x (a mount boundary at the home) and the real count without it.
+        $bin = sys_get_temp_dir().'/rw-guard-bin-'.bin2hex(random_bytes(4));
+        mkdir($bin);
+        $this->homes[] = $bin;
+        file_put_contents($bin.'/du', "#!/bin/bash\nfor a in \"\$@\"; do if [ \"\$a\" = -x ]; then echo '1\t/x'; exit 0; fi; done\nexec /usr/bin/du \"\$@\"\n");
+        chmod($bin.'/du', 0755);
+        $fallback = $this->lib($home, 'PATH='.escapeshellarg($bin).':$PATH; count_account_inodes');
+        $this->assertSame($real, (int) trim($fallback['output']), $fallback['output']);
+    }
+
     public function test_maintenance_breakdown_is_read_only_and_lists_top_paths_and_directory_totals(): void
     {
         $home = $this->home();

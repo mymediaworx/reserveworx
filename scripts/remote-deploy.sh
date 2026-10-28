@@ -1166,8 +1166,22 @@ inode_guard_cleanup() {
   prune_db_dumps
 }
 
+# du --inodes -s -x of the real home, with a trailing slash so a symlinked home
+# is followed. On a jailed SiteGround account -x can stop at a mount boundary and
+# report 1 for the whole home, so the same count without -x is taken too and the
+# larger of the two is used. Both are printed by the maintenance report.
 count_account_inodes() {
-  du --inodes -s -x "$HOME" 2>/dev/null | cut -f1 || true
+  local home x all
+  home="$(cd "$HOME" 2>/dev/null && pwd -P)" || home="$HOME"
+  x="$(du --inodes -s -x "${home}/" 2>/dev/null | cut -f1 || true)"
+  all="$(du --inodes -s "${home}/" 2>/dev/null | cut -f1 || true)"
+  [[ "$x" =~ ^[0-9]+$ ]] || x=0
+  [[ "$all" =~ ^[0-9]+$ ]] || all=0
+  if [[ "$all" -gt "$x" ]]; then
+    echo "$all"
+  elif [[ "$x" -gt 0 ]]; then
+    echo "$x"
+  fi
 }
 
 # Inode guard for deploys. SiteGround counts inodes for the whole account and
@@ -1274,7 +1288,7 @@ find_secret_files() {
 # a symlink-following scanner would count it), and counts every release with
 # and without vendor.
 maintenance_report() {
-  local label="$1" entry name target kind file webroot
+  local label="$1" entry name target kind file webroot home_real secrets
   echo "maintenance_${label}_begin"
   echo "maintenance_home_real=$(cd "$HOME" && pwd -P)"
   echo "maintenance_laravel_real=$(readlink -f "$laravel")"
@@ -1284,7 +1298,13 @@ maintenance_report() {
   echo "maintenance_du_x_laravel=$(du --inodes -s -x "$laravel" 2>/dev/null | cut -f1 || true)"
   echo "maintenance_du_laravel=$(du --inodes -s "$laravel" 2>/dev/null | cut -f1 || true)"
   echo "maintenance_find_domain=$(count_entries "$domain")"
-  echo "maintenance_du_x_home=$(count_account_inodes)"
+  home_real="$(cd "$HOME" 2>/dev/null && pwd -P)" || home_real="$HOME"
+  echo "maintenance_home_is_symlink=$([[ -L "$HOME" ]] && echo yes || echo no)"
+  echo "maintenance_du_x_home=$(du --inodes -s -x "${home_real}/" 2>/dev/null | cut -f1 || true)"
+  echo "maintenance_du_home_without_x=$(du --inodes -s "${home_real}/" 2>/dev/null | cut -f1 || true)"
+  echo "maintenance_find_xdev_home=$(cd "$HOME" 2>/dev/null && find . -xdev 2>/dev/null | wc -l | tr -d ' ')"
+  echo "maintenance_find_home=$(cd "$HOME" 2>/dev/null && find . 2>/dev/null | wc -l | tr -d ' ')"
+  echo "maintenance_home_mount=$(df -P "$home_real" 2>/dev/null | awk 'NR==2 {print $1 " " $6}')"
   for name in current previous; do
     entry="${laravel}/${name}"
     if [[ -L "$entry" ]]; then
@@ -1307,12 +1327,13 @@ maintenance_report() {
     echo "maintenance_laravel_entry=$(basename "$entry") find=$(count_entries "$entry")"
   done
   shopt -u nullglob
+  secrets="$(find_secret_files)"
   while IFS= read -r file; do
     [[ -n "$file" ]] || continue
     webroot="no"
     case "$file" in */public_html/*) webroot="YES" ;; esac
     echo "maintenance_secret_file=${file#"${HOME}/"} under_web_root=${webroot} mode=$(stat -c %a "$file" 2>/dev/null || echo ?)"
-  done < <(find_secret_files)
+  done <<< "$secrets"
   echo "maintenance_${label}_end"
 }
 
@@ -1321,14 +1342,20 @@ maintenance_report() {
 # file count, then a total per top-level directory. Nothing is changed, including
 # under www/reserveworx.com.
 maintenance_breakdown() {
-  local dir
+  local dir rows
   echo "maintenance_breakdown_begin"
-  echo "maintenance_breakdown_top_paths (files, first three path levels under home)"
-  (cd "$HOME" && find . -xdev -type f 2>/dev/null | cut -d/ -f2-4 | sort | uniq -c | sort -rn | head -40) || true
-  echo "maintenance_breakdown_per_directory (inodes, du --inodes -s -x)"
+  echo "maintenance_breakdown_top_paths (files, first three path levels under home, find -xdev)"
+  rows="$(cd "$HOME" && find . -xdev -type f 2>/dev/null | cut -d/ -f2-4 | sort | uniq -c | sort -rn | head -40)" || rows=""
+  if [[ -n "$rows" ]]; then
+    echo "$rows"
+  else
+    echo "maintenance_breakdown_xdev_empty=find -xdev found nothing, repeating without -xdev"
+    (cd "$HOME" && find . -type f 2>/dev/null | cut -d/ -f2-4 | sort | uniq -c | sort -rn | head -40) || true
+  fi
+  echo "maintenance_breakdown_per_directory (inodes with du -x, inodes without -x, name)"
   for dir in "$HOME"/* "$HOME"/.[!.]*; do
-    [[ -d "$dir" && ! -L "$dir" ]] || continue
-    printf '%s\t%s\n' "$(du --inodes -s -x "$dir" 2>/dev/null | cut -f1)" "$(basename "$dir")"
+    [[ -d "$dir" ]] || continue
+    printf '%s\t%s\t%s\n' "$(du --inodes -s -x "${dir}/" 2>/dev/null | cut -f1)" "$(du --inodes -s "${dir}/" 2>/dev/null | cut -f1)" "$(basename "$dir")"
   done | sort -rn || true
   echo "maintenance_breakdown_end"
 }
@@ -1340,7 +1367,7 @@ maintenance_breakdown() {
 # (shared/backups stays). A secret hand-off file found under
 # app.reserveworx.com/public_html is moved into laravel/shared, never read.
 maintenance_clean() {
-  local dir file moved=0
+  local dir file secrets moved=0
   shopt -s nullglob
   for dir in "$shared/storage" "$releases"/*/storage; do
     [[ -d "$dir" ]] || continue
@@ -1352,6 +1379,7 @@ maintenance_clean() {
   shopt -u nullglob
   inode_guard_cleanup
 
+  secrets="$(find_secret_files)"
   while IFS= read -r file; do
     [[ -n "$file" && ! -L "$file" ]] || continue
     case "$file" in
@@ -1366,7 +1394,7 @@ maintenance_clean() {
         fi
         ;;
     esac
-  done < <(find_secret_files)
+  done <<< "$secrets"
   echo "maintenance_secret_files_moved=${moved}"
 }
 
