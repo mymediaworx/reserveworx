@@ -203,6 +203,7 @@ class TourAttendanceTest extends TestCase
             'no_show_seats',
             'fill_rate_bps',
             'attendance_rate_bps',
+            'when',
         ], $rows[0]);
         $this->assertCount(count($json) + 1, $rows);
         foreach ($json as $index => $row) {
@@ -221,6 +222,7 @@ class TourAttendanceTest extends TestCase
                 $row['no_show_seats'],
                 $row['fill_rate_bps'],
                 $row['attendance_rate_bps'],
+                $row['when'],
             ]), $rows[$index + 1]);
         }
         $this->assertSame('Sunset, "late"', $rows[1][2]);

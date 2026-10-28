@@ -65,7 +65,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('max-width: 390px', false)
             ->assertDontSee('Beta Only Kayaks')
             ->assertDontSee('<script>', false)
-            ->assertDontSee('3%');
+            ->assertDontSee('3%')
+            ->assertDontSee('href="/platform/security"', false);
 
         $this->assertSame($before, $this->counts());
 
@@ -217,6 +218,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('does not change a workspace, a price, a payment, a tax, a fee, or a refund')
             ->assertSee('href="/platform/readiness"', false)
             ->assertSee('href="/platform/performance"', false)
+            ->assertSee('href="/platform/security"', false)
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy.')
             ->assertSee('href="/platform"', false)
@@ -237,6 +239,7 @@ class UserHandbookTest extends TestCase
         Livewire::actingAs($admin)->test(PlatformHandbook::class)
             ->assertSee('Readiness')
             ->assertSee('Performance')
+            ->assertSee('Security')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 

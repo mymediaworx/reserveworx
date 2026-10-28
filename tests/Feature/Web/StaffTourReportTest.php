@@ -125,7 +125,7 @@ class StaffTourReportTest extends TestCase
         $this->assertSame('Harbor', $row['location']);
         $this->assertSame('2026-06-16', $row['date']);
         $this->assertSame('Sunset tour', $row['service']);
-        $this->assertSame('2026-06-16T15:00:00', $row['starts_at']);
+        $this->assertSame('Tue, Jun 16, 3:00 PM – 4:00 PM UTC', $row['starts_at']);
         $this->assertSame('10', $row['capacity']);
         $this->assertSame('9', $row['seats_booked']);
         $this->assertSame('6', $row['seats_attended']);
@@ -136,7 +136,7 @@ class StaffTourReportTest extends TestCase
         $this->assertSame('', $this->csvTour($csv, $cancelled->id)['attendance_rate_bps']);
         $this->assertSame('', $this->csvTour($csv, $zero->id)['fill_rate_bps']);
         $this->assertSame('', $this->csvTour($csv, $zero->id)['attendance_rate_bps']);
-        $this->assertSame('2026-06-16T22:00:00', $this->csvTour($csv, $localEvening->id)['starts_at']);
+        $this->assertSame('Tue, Jun 16, 10:00 PM – 11:00 PM EDT', $this->csvTour($csv, $localEvening->id)['starts_at']);
 
         $harborPage = $this->get($this->tenantUrl('alpha.test', $url.'&location='.$harbor->id));
         $harborPage->assertOk()->assertSee($departure->id)->assertDontSee($localEvening->id)->assertDontSee('Creek paddle');
