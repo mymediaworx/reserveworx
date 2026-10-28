@@ -33,6 +33,7 @@
             .incidents-page select,
             .incidents-page .button { width: 100%; max-width: 100%; }
             .incidents-page .incident-photos img { width: 4.5rem; height: 4.5rem; }
+            .incidents-page .when { overflow-wrap: anywhere; max-width: 100%; }
         }
     </style>
 
@@ -99,7 +100,7 @@
                         <a href="/staff/bookings/{{ $booking->id }}">Open booking</a>
                     @endif
                     <span>{{ $booking?->location?->name }}</span>
-                    <span>Reported {{ Display::dateTime($incident->occurred_at, $zone) }}</span>
+                    <span class="when">Reported {{ Display::dateTimeWithZone($incident->occurred_at, $zone) }}</span>
                     <p>{{ $text }}</p>
                     @if (is_int($incident->damage_cents) && $incident->damage_cents > 0)
                         <span>Damage {{ Display::money($incident->damage_cents, $currency) }} on the customer total</span>
