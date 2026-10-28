@@ -11,8 +11,11 @@ use App\Models\LocationClosure;
 use App\Models\Pool;
 use App\Models\ResourceCategory;
 use App\Services\Inventory\ClosureBookings;
+use App\Services\Inventory\ClosureCalendar;
 use App\Services\Inventory\ClosureWriter;
 use App\Services\Staff\StaffUndo;
+use App\Support\Display;
+use App\Support\DisplayZone;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Attributes\Layout;
@@ -168,7 +171,7 @@ class Closures extends Component
         $this->flash = 'Closure removed. Bookings that were already confirmed stay as they are.';
     }
 
-    public function render(ClosureBookings $bookings): View
+    public function render(ClosureBookings $bookings, ClosureCalendar $calendar): View
     {
         $locations = Location::query()->orderBy('name')->get();
 
@@ -182,10 +185,14 @@ class Closures extends Component
 
         $closures = LocationClosure::query()->with(['location', 'category'])->orderBy('starts_on')->orderBy('id')->get();
         $overlaps = [];
+        $windows = [];
 
         foreach ($closures as $closure) {
             $overlaps[$closure->id] = $bookings->overlapping($closure);
+            $windows[$closure->id] = $this->windowLabel($closure, $calendar);
         }
+
+        $selected = $locations->firstWhere('id', $this->locationId);
 
         $assets = Asset::query()->orderBy('name')->get();
         $pools = Pool::query()->orderBy('name')->get();
@@ -197,10 +204,30 @@ class Closures extends Component
             'pools' => $pools->where('location_id', $this->locationId)->values(),
             'closures' => $closures,
             'overlaps' => $overlaps,
+            'windows' => $windows,
+            'formZone' => DisplayZone::forLocation($selected instanceof Location ? $selected : null),
             'assetNames' => $assets->pluck('name', 'id'),
             'poolNames' => $pools->pluck('name', 'id'),
             'canManage' => $this->allows('settings.update'),
         ]);
+    }
+
+    /**
+     * The stored window as a location-clock range, including the abbreviation.
+     */
+    private function windowLabel(LocationClosure $closure, ClosureCalendar $calendar): string
+    {
+        $zone = DisplayZone::forLocation($closure->location);
+        $window = $calendar->concrete(
+            $zone,
+            $closure->all_day,
+            $closure->starts_on->toDateString(),
+            $closure->ends_on->toDateString(),
+            $closure->starts_local,
+            $closure->ends_local,
+        );
+
+        return Display::rangeWithZone($window[0], $window[1], $zone);
     }
 
     private function closure(string $id): LocationClosure
