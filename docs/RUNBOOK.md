@@ -28,7 +28,7 @@ Typical causes:
 
 1. Run **Deploy** with action `rollback`. That swaps `current` and `previous` and does not change the database.
 2. If this was the first release, there is no previous symlink. Move `public_html.pre-reserveworx-<timestamp>` back to `public_html` inside `app.reserveworx.com` only.
-3. Read `$HOME/www/app.reserveworx.com/laravel/shared/storage/logs/laravel.log` on the server. Do not copy `.env` into the ticket.
+3. Read `$HOME/www/app.reserveworx.com/laravel/shared/storage/logs/laravel-<date>.log` (newest) on the server. Do not copy `.env` into the ticket.
 4. If the summary says `health_http=202`, that is SiteGround's bot check. It is not proof the app is up or down. Open the site in a browser, or curl with a normal browser user agent, before treating the deploy as failed.
 5. If the summary says `dynamic_cache=not confirmed`, flush **app.reserveworx.com** in Site Tools → Speed → Caching → Dynamic Cache. Do not flush other sites. SiteGround's knowledge base (January 29, 2025) documents that screen for non-WordPress apps. `wp sg purge` is for WordPress.
 
@@ -74,6 +74,7 @@ Staff open a booking at `/staff/bookings/{booking}` on the workspace host. Each 
 ## Handbook
 
 Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the performance check, the security check, and the upgrade page. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
+Staff open `/staff/help` on the workspace host. An owner’s handbook also links All businesses and Add a business. A platform administrator opens `/platform/help` on the platform host, which links the performance check, the upgrade page, and the multi-tenant demonstration at `/platform/demo`. Staff do not see that demonstration link. The pages explain where the existing tools are. They do not change a booking, a price, a payment, a tax, a fee, or a refund.
 
 ## Upgrade
 

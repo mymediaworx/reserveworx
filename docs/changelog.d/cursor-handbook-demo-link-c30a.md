@@ -1,0 +1,1 @@
+- The admin handbook at `/platform/help` links to the multi-tenant demonstration. The link names Harbor Demo and Inland Demo and does not read another workspace. Staff do not see it. Opening the handbook still writes no booking, price, payment, tax, fee, or refund. Spec Section 17.

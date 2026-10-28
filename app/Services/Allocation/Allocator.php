@@ -353,161 +353,207 @@ class Allocator
         }));
     }
 
+    /**
+     * Move a confirmed rental, or a payment-exception rental that never received
+     * its time, onto a new interval. A payment exception that lands becomes
+     * confirmed. The price, payments, taxes, fees, and refunds stay.
+     */
     public function reschedule(Booking $booking, CarbonImmutable $newStart, CarbonImmutable $newEnd): Booking
     {
-        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $newStart, $newEnd): Booking {
-            $this->enterTenant($booking->tenant_id);
-            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+        $recovered = false;
+        $saved = $this->retry(function () use ($booking, $newStart, $newEnd, &$recovered): Booking {
+            $recovered = false;
 
-            if ($booking->status !== BookingStatus::Confirmed) {
-                throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
-            }
+            return $this->transaction(function () use ($booking, $newStart, $newEnd, &$recovered): Booking {
+                $this->enterTenant($booking->tenant_id);
+                $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+                $recovering = $booking->status === BookingStatus::PaymentException;
 
-            if ($booking->departure_id !== null) {
-                throw new AllocationUnavailableException('Choose another departure to move a tour booking.');
-            }
-
-            $newStart = $newStart->utc();
-            $newEnd = $newEnd->utc();
-
-            if ($newEnd->lessThanOrEqualTo($newStart)) {
-                throw new AllocationUnavailableException('Choose a valid interval.');
-            }
-
-            if (CarbonImmutable::instance($booking->starts_at)->utc()->equalTo($newStart)
-                && CarbonImmutable::instance($booking->ends_at)->utc()->equalTo($newEnd)) {
-                return $booking->load(['allocations', 'lineItems', 'service']);
-            }
-
-            $intent = new AllocationIntent(
-                $booking->tenant_id,
-                $booking->service_id,
-                $newStart,
-                $newEnd,
-                $booking->participants,
-                null,
-                null,
-                null,
-                null,
-                $booking->guide_user_id,
-                variantId: $booking->service_variant_id,
-            );
-            $this->assertDuration($intent);
-            $plan = $this->plan($intent);
-            $this->lock($plan);
-
-            try {
-                $this->recheck($plan, $booking->id);
-            } catch (AllocationUnavailableException $unavailable) {
-                throw new AllocationUnavailableException($unavailable->getMessage(), [
-                    'authoritative' => false,
-                    'other_asset_ids' => $this->otherAssets($booking->id, $plan),
-                ]);
-            }
-
-            $booking->starts_at = Carbon::instance($newStart);
-            $booking->ends_at = Carbon::instance($newEnd);
-            $booking->save();
-            Allocation::query()->where('booking_id', $booking->id)->delete();
-            BookingLineItem::query()->where('booking_id', $booking->id)->delete();
-            $this->writeRows($booking, $plan, hold: false);
-            $this->refreshCounters($plan);
-            $this->webhooks->bookingChanged($booking);
-
-            return $booking->load(['allocations', 'lineItems', 'service']);
-        }));
-    }
-
-    /**
-     * Move a confirmed tour booking onto another scheduled departure of the same
-     * service. The party size and the pricing snapshot stay. A conflict rolls
-     * the whole move back, including any boat handed to the party that stays.
-     */
-    public function moveToDeparture(Booking $booking, string $departureId): Booking
-    {
-        return $this->retry(fn (): Booking => $this->transaction(function () use ($booking, $departureId): Booking {
-            $this->enterTenant($booking->tenant_id);
-            $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
-
-            if ($booking->status !== BookingStatus::Confirmed) {
-                throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
-            }
-
-            if ($this->presentId($booking->departure_id) === null) {
-                throw new AllocationUnavailableException('Choose a time to move a rental.');
-            }
-
-            $target = Departure::query()->with('service')->find($departureId);
-
-            if (! $target instanceof Departure) {
-                throw new AllocationUnavailableException('That departure is not available.');
-            }
-
-            if ($target->id === $booking->departure_id) {
-                return $booking->load(['allocations', 'lineItems', 'service']);
-            }
-
-            $this->assertSameTour($target, $booking);
-            $this->lockDepartures([(string) $booking->departure_id, $target->id]);
-            $target = Departure::query()->with('service')->find($target->id);
-
-            if (! $target instanceof Departure) {
-                throw new AllocationUnavailableException('That departure is not available.');
-            }
-
-            $this->assertSameTour($target, $booking);
-            $this->assertTargetSeats($target, $booking);
-
-            $starts = CarbonImmutable::instance($target->starts_at)->utc();
-            $ends = CarbonImmutable::instance($target->ends_at)->utc();
-            $guide = $this->guideForMovedDeparture($booking, $target);
-            $occupied = $this->departureHasResourceHolder($target, $booking->id);
-
-            if (! $this->seatOnly($booking)) {
-                $inheritor = $this->resourceInheritor($booking);
-
-                if ($inheritor instanceof Booking) {
-                    $this->handResources($booking, $inheritor);
-                } else {
-                    $this->releaseResources($booking);
+                if ($booking->status !== BookingStatus::Confirmed && ! $recovering) {
+                    throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
                 }
-            }
 
-            $booking->departure_id = $target->id;
-            $booking->starts_at = Carbon::instance($starts);
-            $booking->ends_at = Carbon::instance($ends);
-            $booking->guide_user_id = $guide;
-            $booking->save();
+                if ($booking->departure_id !== null) {
+                    throw new AllocationUnavailableException('Choose another departure to move a tour booking.');
+                }
 
-            if (! $occupied) {
+                $newStart = $newStart->utc();
+                $newEnd = $newEnd->utc();
+
+                if ($newEnd->lessThanOrEqualTo($newStart)) {
+                    throw new AllocationUnavailableException('Choose a valid interval.');
+                }
+
+                if (! $recovering
+                    && CarbonImmutable::instance($booking->starts_at)->utc()->equalTo($newStart)
+                    && CarbonImmutable::instance($booking->ends_at)->utc()->equalTo($newEnd)) {
+                    return $booking->load(['allocations', 'lineItems', 'service']);
+                }
+
                 $intent = new AllocationIntent(
                     $booking->tenant_id,
                     $booking->service_id,
-                    $starts,
-                    $ends,
+                    $newStart,
+                    $newEnd,
                     $booking->participants,
                     null,
                     null,
                     null,
-                    $target->id,
-                    $guide,
+                    null,
+                    $booking->guide_user_id,
                     variantId: $booking->service_variant_id,
                 );
                 $this->assertDuration($intent);
                 $plan = $this->plan($intent);
                 $this->lock($plan);
-                $this->recheck($plan, $booking->id);
+
+                try {
+                    $this->recheck($plan, $booking->id);
+                } catch (AllocationUnavailableException $unavailable) {
+                    throw new AllocationUnavailableException($unavailable->getMessage(), [
+                        'authoritative' => false,
+                        'other_asset_ids' => $this->otherAssets($booking->id, $plan),
+                    ]);
+                }
+
+                $booking->starts_at = Carbon::instance($newStart);
+                $booking->ends_at = Carbon::instance($newEnd);
+
+                if ($recovering) {
+                    $this->saveConfirmed($booking);
+                } else {
+                    $booking->save();
+                }
+
+                Allocation::query()->where('booking_id', $booking->id)->delete();
+                BookingLineItem::query()->where('booking_id', $booking->id)->delete();
                 $this->writeRows($booking, $plan, hold: false);
                 $this->refreshCounters($plan);
-            } else {
-                $this->lockGuide($guide);
-                $this->assertGuideFree($guide, $starts, $ends, $target->id, $booking->id);
-            }
+                $this->webhooks->bookingChanged($booking);
+                $loaded = $booking->load(['allocations', 'lineItems', 'service']);
+                $recovered = $recovering;
 
-            $this->webhooks->bookingChanged($booking);
+                return $loaded;
+            });
+        });
 
-            return $booking->load(['allocations', 'lineItems', 'service']);
-        }));
+        if ($recovered) {
+            $this->events->confirmed($saved);
+        }
+
+        return $saved;
+    }
+
+    /**
+     * Move a confirmed tour, or a payment-exception tour that never received its
+     * time, onto another scheduled departure of the same service. The party size
+     * and the pricing snapshot stay. A payment exception that lands becomes
+     * confirmed. A conflict rolls the whole move back, including any boat handed
+     * to the party that stays. The price, payments, taxes, fees, and refunds stay.
+     */
+    public function moveToDeparture(Booking $booking, string $departureId): Booking
+    {
+        $recovered = false;
+        $saved = $this->retry(function () use ($booking, $departureId, &$recovered): Booking {
+            $recovered = false;
+
+            return $this->transaction(function () use ($booking, $departureId, &$recovered): Booking {
+                $this->enterTenant($booking->tenant_id);
+                $booking = Booking::query()->lockForUpdate()->findOrFail($booking->id);
+                $recovering = $booking->status === BookingStatus::PaymentException;
+
+                if ($booking->status !== BookingStatus::Confirmed && ! $recovering) {
+                    throw new AllocationUnavailableException('Only a confirmed booking can be rescheduled.');
+                }
+
+                if ($this->presentId($booking->departure_id) === null) {
+                    throw new AllocationUnavailableException('Choose a time to move a rental.');
+                }
+
+                $target = Departure::query()->with('service')->find($departureId);
+
+                if (! $target instanceof Departure) {
+                    throw new AllocationUnavailableException('That departure is not available.');
+                }
+
+                if (! $recovering && $target->id === $booking->departure_id) {
+                    return $booking->load(['allocations', 'lineItems', 'service']);
+                }
+
+                $this->assertSameTour($target, $booking);
+                $this->lockDepartures([(string) $booking->departure_id, $target->id]);
+                $target = Departure::query()->with('service')->find($target->id);
+
+                if (! $target instanceof Departure) {
+                    throw new AllocationUnavailableException('That departure is not available.');
+                }
+
+                $this->assertSameTour($target, $booking);
+                $this->assertTargetSeats($target, $booking);
+
+                $starts = CarbonImmutable::instance($target->starts_at)->utc();
+                $ends = CarbonImmutable::instance($target->ends_at)->utc();
+                $guide = $this->guideForMovedDeparture($booking, $target);
+                $occupied = $this->departureHasResourceHolder($target, $booking->id);
+
+                if (! $this->seatOnly($booking)) {
+                    $inheritor = $this->resourceInheritor($booking);
+
+                    if ($inheritor instanceof Booking) {
+                        $this->handResources($booking, $inheritor);
+                    } else {
+                        $this->releaseResources($booking);
+                    }
+                }
+
+                $booking->departure_id = $target->id;
+                $booking->starts_at = Carbon::instance($starts);
+                $booking->ends_at = Carbon::instance($ends);
+                $booking->guide_user_id = $guide;
+                $booking->save();
+
+                if (! $occupied) {
+                    $intent = new AllocationIntent(
+                        $booking->tenant_id,
+                        $booking->service_id,
+                        $starts,
+                        $ends,
+                        $booking->participants,
+                        null,
+                        null,
+                        null,
+                        $target->id,
+                        $guide,
+                        variantId: $booking->service_variant_id,
+                    );
+                    $this->assertDuration($intent);
+                    $plan = $this->plan($intent);
+                    $this->lock($plan);
+                    $this->recheck($plan, $booking->id);
+                    $this->writeRows($booking, $plan, hold: false);
+                    $this->refreshCounters($plan);
+                } else {
+                    $this->lockGuide($guide);
+                    $this->assertGuideFree($guide, $starts, $ends, $target->id, $booking->id);
+                }
+
+                if ($recovering) {
+                    $this->saveConfirmed($booking);
+                }
+
+                $this->webhooks->bookingChanged($booking);
+                $loaded = $booking->load(['allocations', 'lineItems', 'service']);
+                $recovered = $recovering;
+
+                return $loaded;
+            });
+        });
+
+        if ($recovered) {
+            $this->events->confirmed($saved);
+        }
+
+        return $saved;
     }
 
     public function reassignAsset(Booking $booking, string $fromAssetId, string $toAssetId): Booking
