@@ -1,0 +1,1 @@
+- Added a separate manual-only `Deploy DigitalOcean` workflow and `scripts/remote-deploy-digitalocean.sh` for the reserveworx-prod-1 server. It builds a release, uploads it, switches the `current` link, keeps current plus one rollback, and reloads php-fpm and the queue workers. The SiteGround Deploy workflow is unchanged and nothing runs automatically.

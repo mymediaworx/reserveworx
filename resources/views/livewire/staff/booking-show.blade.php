@@ -37,7 +37,7 @@
 
     @if ($status === 'payment_exception')
         <section class="notice attention" role="alert" data-needs-attention="payment_exception">
-            <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time, or cancel it with a full refund, and let the customer know.</p>
+            <p><strong>Paid, but the time was no longer free.</strong> The customer's payment went through after their hold ended, and someone else had booked that time. Move this booking to a free time below. The price and the payment stay as they are. A time that is taken leaves this booking where it was.</p>
         </section>
     @elseif ($booking->attention_reason && in_array($status, ['held', 'pending_payment', 'confirmed'], true))
         <section class="notice attention" role="alert" data-needs-attention="flagged">
@@ -237,6 +237,35 @@
                 @endif
             </section>
 
+            <section class="panel" id="fee-ledger" data-fee-ledger="{{ count($feeLedger['fees']) }}">
+                <h2>Booking fee ledger</h2>
+                <style>
+                    .fee-ledger, .fee-ledger li, .fee-ledger p { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+                </style>
+                @if ($feeLedger['fees'] === [])
+                    <p class="muted">No booking fee has been charged on this booking.</p>
+                @else
+                    <p data-ledger-charged="{{ $feeLedger['charged_cents'] }}" data-ledger-refunded="{{ $feeLedger['refunded_cents'] }}">
+                        Charged {{ \App\Support\Display::money($feeLedger['charged_cents'], $currency) }}.
+                        Refunded {{ \App\Support\Display::money($feeLedger['refunded_cents'], $currency) }}.
+                    </p>
+                    <ul class="plain-list fee-ledger">
+                        @foreach ($feeLedger['fees'] as $fee)
+                            <li data-platform-fee="{{ $fee['id'] }}" data-fee-charged="{{ $fee['charged_cents'] }}">
+                                <strong>Charged {{ \App\Support\Display::money($fee['charged_cents'], $currency) }}</strong>
+                                <span class="muted">{{ \App\Support\FeeLedgerCopy::channel($fee['channel']) }}</span>
+                                @foreach ($fee['refunds'] as $refund)
+                                    <span data-fee-refund="{{ $refund['id'] }}" data-fee-refunded="{{ $refund['amount_cents'] }}">
+                                        Refunded {{ \App\Support\Display::money($refund['amount_cents'], $currency) }}.
+                                        {{ \App\Support\FeeLedgerCopy::reason($refund['reason'], $refund['rule']) }}
+                                    </span>
+                                @endforeach
+                            </li>
+                        @endforeach
+                    </ul>
+                @endif
+            </section>
+
             @if ($canReport)
                 <section class="panel" id="damage-report">
                     <h2>Damage report</h2>
@@ -297,8 +326,10 @@
                             </label>
                         </div>
                     </section>
+                @endif
 
-                    <section class="panel">
+                @if ($open || $status === 'payment_exception')
+                    <section class="panel recover-time">
                         <h2>Change time</h2>
                         @if ($booking->departure_id)
                             @if ($departures === [])
@@ -341,7 +372,9 @@
                             @endforeach
                         @endif
                     </section>
+                @endif
 
+                @if ($open)
                     <section class="panel">
                         <h2>Close out</h2>
                         <div class="actions">
