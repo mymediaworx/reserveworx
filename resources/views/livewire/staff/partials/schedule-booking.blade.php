@@ -25,7 +25,7 @@
         @endif
 
         <p class="lede">{{ $booking['resourceName'] }}</p>
-        <p>{{ $booking['when'] }} <span class="muted small">{{ $booking['zone'] }}</span></p>
+        <p data-when>{{ $booking['when'] }} <span class="muted small">{{ $booking['zone'] }}</span></p>
 
         @if ($booking['services']->isEmpty())
             <p class="empty">No service uses this resource.</p>
@@ -62,7 +62,7 @@
                         @else
                             <div class="choice-picks" role="group" aria-label="Departure">
                                 @foreach ($booking['departures'] as $departure)
-                                    <button type="button" class="button choice-pick {{ $bookDeparture === $departure->id ? 'primary' : '' }}" wire:click="chooseDeparture('{{ $departure->id }}')" @disabled($booking['placed'])>{{ Display::time($departure->starts_at, $booking['zone']) }}</button>
+                                    <button type="button" class="button choice-pick {{ $bookDeparture === $departure->id ? 'primary' : '' }}" wire:click="chooseDeparture('{{ $departure->id }}')" @disabled($booking['placed']) data-departure="{{ $departure->id }}">{{ Display::rangeWithZone($departure->starts_at, $departure->ends_at, $booking['zone']) }}</button>
                                 @endforeach
                             </div>
                         @endif
