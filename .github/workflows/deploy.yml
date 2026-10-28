@@ -15,13 +15,14 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy the current main commit, roll back to the previous release, or run maintenance (read-only inode report, plus a clean when clean is true)
+        description: Deploy the current main commit, roll back to the previous release, run maintenance (read-only inode report, plus a clean when clean is true), or copy a fresh database dump and the public storage to the DigitalOcean rehearsal server (export-to-digitalocean, read-only on SiteGround apart from one new dump file)
         type: choice
         required: true
         options:
           - deploy
           - rollback
           - maintenance
+          - export-to-digitalocean
         default: deploy
       clean:
         description: Maintenance only. Clear regenerable files (views, file cache, sessions, logs older than 7 days, stale archives, dumps beyond two). Never deletes or creates a release. Off means report only.
@@ -97,7 +98,7 @@ jobs:
   deploy:
     name: Deploy main
     needs: gate
-    if: needs.gate.outputs.go == 'true'
+    if: needs.gate.outputs.go == 'true' && (github.event_name == 'workflow_run' || inputs.action != 'export-to-digitalocean')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -395,3 +396,120 @@ jobs:
             scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/hosting-check-artisan.sh
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  export-to-digitalocean:
+    name: Export database and storage to the DigitalOcean rehearsal server
+    needs: gate
+    if: needs.gate.outputs.go == 'true' && github.event_name == 'workflow_dispatch' && inputs.action == 'export-to-digitalocean'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+        run: |
+          set -euo pipefail
+          for v in "$SG_HOST" "$SG_USER" "$SG_PORT" "$SG_SSH_PASSPHRASE" "$DO_HOST" "$DO_USER"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+
+      - name: Prepare DigitalOcean SSH
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DO_SSH_KEY" > ~/.ssh/do_deploy
+          ssh-keyscan -T 10 -t ed25519 "$DO_HOST" > ~/.ssh/known_hosts_do 2>/dev/null
+          test -s ~/.ssh/known_hosts_do
+
+      - name: Back up the application database
+        id: dbbackup
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          remote_cmd="$(printf 'ACTION=%q bash -s' backup)"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/backup-out.txt
+          path="$(sed -n 's/^backup_path=//p' /tmp/backup-out.txt | tail -n 1)"
+          bytes="$(sed -n 's/^backup_bytes=//p' /tmp/backup-out.txt | tail -n 1)"
+          gunzip_ok="$(sed -n 's/^gunzip_test=//p' /tmp/backup-out.txt | tail -n 1)"
+          if [[ -z "$path" || "$gunzip_ok" != "ok" || ! "$bytes" =~ ^[0-9]+$ || "$bytes" -lt 1 ]]; then
+            echo "Database dump was not verified. Nothing was exported." >&2
+            exit 1
+          fi
+          case "$path" in
+            */www/app.reserveworx.com/laravel/shared/backups/*.sql.gz) ;;
+            *)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          case "$path" in
+            *public_html*|*www/reserveworx.com/*)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          echo "path=${path}" >> "$GITHUB_OUTPUT"
+          echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
+
+      - name: Stream the dump and public storage to the droplet
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DUMP_PATH: ${{ steps.dbbackup.outputs.path }}
+        run: |
+          set -euo pipefail
+          do_ssh() { ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "$@"; }
+          do_ssh "mkdir -p /var/www/reserveworx/incoming && rm -f /var/www/reserveworx/incoming/import.sql.gz /var/www/reserveworx/incoming/storage.tgz"
+          # Read-only on SiteGround: cat the dump this run just wrote, tar the public storage.
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat '${DUMP_PATH}'" | do_ssh "cat > /var/www/reserveworx/incoming/import.sql.gz"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "if [ -d www/app.reserveworx.com/laravel/shared/storage/app/public ]; then tar -czf - -C www/app.reserveworx.com/laravel/shared/storage/app public; fi" | do_ssh "cat > /var/www/reserveworx/incoming/storage.tgz"
+          timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+
+      - name: Import on the droplet and report
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          EXPECT_BYTES: ${{ steps.dbbackup.outputs.bytes }}
+        run: |
+          set -euo pipefail
+          remote_cmd="$(printf 'EXPECT_BYTES=%q bash -s' "$EXPECT_BYTES")"
+          {
+            echo "## Export to DigitalOcean"
+            echo
+            echo '```'
+            ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "$remote_cmd" < scripts/import-dump-digitalocean.sh
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove transfer material
+        if: always()
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+        run: |
+          ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "rm -f /var/www/reserveworx/incoming/import.sql.gz /var/www/reserveworx/incoming/storage.tgz" || true
+          rm -f ~/.ssh/do_deploy /tmp/backup-out.txt
