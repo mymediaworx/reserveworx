@@ -27,12 +27,13 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\URL;
+use Tests\Support\AssertsZoneAbbreviations;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class WaiverVisitTimeTest extends TestCase
 {
-    use CreatesWorkspace, RefreshDatabase;
+    use AssertsZoneAbbreviations, CreatesWorkspace, RefreshDatabase;
 
     private const TEXT = 'I understand paddling has risks and I accept them for myself.';
 
@@ -95,12 +96,11 @@ class WaiverVisitTimeTest extends TestCase
             ->assertSee('Sat, Jul 4, 10:00 AM – 11:00 AM EDT')
             ->assertDontSee('9:00 AM CDT');
 
-        $this->get($this->link('dock.test', $utcVisit))
+        $utcPage = $this->get($this->link('dock.test', $utcVisit))
             ->assertOk()
             ->assertSee('Utc Kayak')
-            ->assertSee('Tue, Jun 16, 3:00 PM – 4:00 PM UTC')
-            ->assertDontSee('EDT')
-            ->assertDontSee('CDT');
+            ->assertSee('Tue, Jun 16, 3:00 PM – 4:00 PM UTC');
+        $this->assertOmitsZoneAbbreviations($utcPage, 'EDT', 'CDT');
 
         $this->get($this->link('dock.test', $fallbackVisit))
             ->assertOk()

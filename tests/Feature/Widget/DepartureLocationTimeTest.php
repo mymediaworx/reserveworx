@@ -28,13 +28,14 @@ use App\Tenancy\TenantScope;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\AssertsZoneAbbreviations;
 use Tests\Support\BuildsRentalShop;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class DepartureLocationTimeTest extends TestCase
 {
-    use BuildsRentalShop, CreatesWorkspace, RefreshDatabase;
+    use AssertsZoneAbbreviations, BuildsRentalShop, CreatesWorkspace, RefreshDatabase;
 
     protected function tearDown(): void
     {
@@ -166,17 +167,15 @@ class DepartureLocationTimeTest extends TestCase
             'name' => 'Website',
         ])->assertCreated()->json('data.token');
 
-        $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$invalidService->id))
+        $fallbackPage = $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$invalidService->id))
             ->assertOk()
             ->assertSee('Wed, Oct 28, 6:00 PM – 8:00 PM CDT · 5 seats left')
-            ->assertDontSee('Not/AZone')
-            ->assertDontSee('EDT')
-            ->assertDontSee('UTC');
-        $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$utcService->id))
+            ->assertDontSee('Not/AZone');
+        $this->assertOmitsZoneAbbreviations($fallbackPage, 'EDT', 'UTC');
+        $utcPage = $this->get($this->tenantUrl('dock.test', '/book/'.$token.'/services/'.$utcService->id))
             ->assertOk()
-            ->assertSee('Wed, Oct 28, 6:00 PM – 8:00 PM UTC · 5 seats left')
-            ->assertDontSee('CDT')
-            ->assertDontSee('EDT');
+            ->assertSee('Wed, Oct 28, 6:00 PM – 8:00 PM UTC · 5 seats left');
+        $this->assertOmitsZoneAbbreviations($utcPage, 'CDT', 'EDT');
     }
 
     public function test_guest_manage_lists_other_departures_in_the_location_zone(): void
