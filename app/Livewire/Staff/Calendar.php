@@ -323,7 +323,7 @@ class Calendar extends Component
     {
         [$start, $end] = $this->queryBounds($start, $end);
         $query = Booking::query()
-            ->with('service')
+            ->with(['service', 'location'])
             ->where('starts_at', '<', $end)
             ->where('ends_at', '>', $start)
             ->orderBy('starts_at')
@@ -340,7 +340,7 @@ class Calendar extends Component
     {
         [$start, $end] = $this->queryBounds($start, $end);
         $query = Departure::query()
-            ->with('service')
+            ->with(['service', 'location'])
             ->where('starts_at', '<', $end)
             ->where('ends_at', '>', $start)
             ->when($this->location !== '', fn (Builder $query) => $query->where('location_id', $this->location))

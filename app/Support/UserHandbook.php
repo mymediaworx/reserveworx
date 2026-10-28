@@ -64,6 +64,11 @@ final class UserHandbook
                         'href' => '/platform',
                     ],
                     [
+                        'title' => 'Administrators',
+                        'body' => 'Remove someone else’s platform access. Their account, password, and workspace memberships stay. The last administrator cannot be removed, and you cannot remove yourself while another administrator remains. Opening the page does not write a row.',
+                        'href' => '/platform/administrators',
+                    ],
+                    [
                         'title' => 'Readiness',
                         'body' => 'Whether this server passes the local checks. The same lines are printed by reserveworx:readiness. It does not call Stripe.',
                         'href' => '/platform/readiness',
@@ -72,6 +77,11 @@ final class UserHandbook
                         'title' => 'Performance',
                         'body' => 'How many database queries the product page, signup, and one booking page use on this server, and whether memory is at least 128M. The same lines are printed by reserveworx:performance. It does not call the public internet and does not keep a row.',
                         'href' => '/platform/performance',
+                    ],
+                    [
+                        'title' => 'Security',
+                        'body' => 'Whether stored credentials are encrypted, card columns are absent, the session cookie is HTTP-only, and form posts use the CSRF check. The same lines are printed by reserveworx:security. A sample token is thrown away. It does not call Stripe and does not keep a row.',
+                        'href' => '/platform/security',
                     ],
                     [
                         'title' => 'Upgrade',
@@ -113,7 +123,7 @@ final class UserHandbook
                     $this->topic('Check in', 'Today\'s arrivals for one location.', '/staff/check-in', 'bookings.check_in'),
                     $this->topic('Returns', 'Rentals due back today, and anything still out.', '/staff/returns', 'bookings.check_in'),
                     $this->topic('Incidents', 'Damage reports. A serious one can schedule maintenance. The booking stays booked.', '/staff/incidents', 'bookings.view'),
-                    $this->topic('Maintenance', 'Take a '.$unit.' or a pool out of service, end that window early, or mark an inspection done.', '/staff/maintenance', 'inventory.view'),
+                    $this->topic('Maintenance', 'Take a '.$unit.' or a pool out of service, end that window early, or mark an inspection done. Times use that location’s time zone.', '/staff/maintenance', 'inventory.view'),
                     $this->topic('Manifest', 'The day\'s dispatch sheet. Print it, or download the same rows.', '/staff/manifest', 'bookings.view'),
                     $this->topic('Load sheet', 'How many of each shared fleet item go to each location that day.', '/staff/load-sheet', 'bookings.view'),
                     $this->topic('Reports', 'Figures for a date range you choose, and the same download.', '/staff/reports', 'bookings.view'),

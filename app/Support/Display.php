@@ -49,6 +49,16 @@ final class Display
     }
 
     /**
+     * A clock time in the location zone, with that zone's abbreviation.
+     */
+    public static function clockWithZone(DateTimeInterface $at, string $zone): string
+    {
+        $local = CarbonImmutable::instance($at)->timezone($zone);
+
+        return $local->format('g:i A').' '.$local->format('T');
+    }
+
+    /**
      * Start and end in the location zone, with the zone abbreviation.
      * A span that crosses a daylight-saving change names both abbreviations.
      */

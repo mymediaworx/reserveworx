@@ -1,4 +1,15 @@
 <div class="page closure-page">
+    <style>
+        .closure-page { min-width: 0; }
+        @media (max-width: 390px) {
+            .closure-page { min-width: 0; }
+            .closure-page .when { overflow-wrap: anywhere; max-width: 100%; }
+            .closure-page .row,
+            .closure-page h1,
+            .closure-page h2 { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+        }
+    </style>
+
     <header class="page-head">
         <div>
             <h1>Closures</h1>
@@ -106,7 +117,7 @@
                     @error('starts_on')<p class="error">{{ $message }}</p>@enderror
                     @error('ends_on')<p class="error">{{ $message }}</p>@enderror
                     @error('ends_local')<p class="error">{{ $message }}</p>@enderror
-                    <p class="muted small">Times use that location’s time zone. The end is not included. A booking that only touches the end can still start.</p>
+                    <p class="muted small">Times are in {{ $formZone }}. The end is not included. A booking that only touches the end can still start.</p>
 
                     <div class="actions">
                         <button type="submit" class="button primary">{{ $editingId !== '' ? 'Save closure' : 'Add closure' }}</button>
@@ -125,7 +136,7 @@
             @else
                 <ul class="rows">
                     @foreach ($closures as $closure)
-                        <li class="row" wire:key="closure-{{ $closure->id }}">
+                        <li class="row" wire:key="closure-{{ $closure->id }}" data-closure="{{ $closure->id }}">
                             <div class="grow">
                                 <strong>{{ $closure->reason }}</strong>
                                 <span class="muted">
@@ -144,15 +155,15 @@
                                     @else
                                         Once
                                     @endif
-                                    ·
-                                    {{ $closure->starts_on->format('M j, Y') }}@if ($closure->ends_on->toDateString() !== $closure->starts_on->toDateString()) – {{ $closure->ends_on->format('M j, Y') }}@endif
-                                    @unless ($closure->all_day)
-                                        · {{ substr((string) $closure->starts_local, 0, 5) }}–{{ substr((string) $closure->ends_local, 0, 5) }}
-                                    @else
+                                    @if ($closure->all_day)
                                         · All day
-                                    @endunless
+                                    @endif
                                 </span>
-                                @php $hits = $overlaps[$closure->id] ?? collect(); @endphp
+                                <span class="when" data-when>{{ $windows[$closure->id] }}</span>
+                                @php
+                                    $hits = $overlaps[$closure->id] ?? collect();
+                                    $zone = \App\Support\DisplayZone::forLocation($closure->location);
+                                @endphp
                                 @if ($hits->isNotEmpty())
                                     <p class="muted small">Confirmed bookings that overlap. They stay booked.</p>
                                     <ul class="overlap-list">
@@ -160,7 +171,7 @@
                                             <li>
                                                 <a href="/staff/bookings/{{ $booking->id }}" wire:navigate>
                                                     {{ $booking->customer?->name ?: 'Booking' }}
-                                                    · {{ \App\Support\Display::dateTime($booking->starts_at, \App\Support\DisplayZone::forLocation($closure->location)) }}
+                                                    · <span class="when" data-when>{{ \App\Support\Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</span>
                                                 </a>
                                             </li>
                                         @endforeach

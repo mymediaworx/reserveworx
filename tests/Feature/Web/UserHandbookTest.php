@@ -67,7 +67,8 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('<script>', false)
             ->assertDontSee('3%')
             ->assertDontSee('reserveworx:restore-backup')
-            ->assertDontSee('/platform/upgrade');
+            ->assertDontSee('/platform/upgrade')
+            ->assertDontSee('href="/platform/security"', false);
 
         $this->assertSame($before, $this->counts());
 
@@ -219,6 +220,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('does not change a workspace, a price, a payment, a tax, a fee, or a refund')
             ->assertSee('href="/platform/readiness"', false)
             ->assertSee('href="/platform/performance"', false)
+            ->assertSee('href="/platform/security"', false)
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
@@ -239,6 +241,7 @@ class UserHandbookTest extends TestCase
         Livewire::actingAs($admin)->test(PlatformHandbook::class)
             ->assertSee('Readiness')
             ->assertSee('Performance')
+            ->assertSee('Security')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
@@ -258,6 +261,56 @@ class UserHandbookTest extends TestCase
         $this->actingAs($workspace['user'])
             ->get($this->tenantUrl('alpha.test', '/platform/help'))
             ->assertNotFound();
+    }
+
+    public function test_the_admin_handbook_links_to_administrators_and_writes_nothing(): void
+    {
+        $admin = User::factory()->create(['email' => 'secret-admin@example.com', 'name' => 'Secret Admin Name']);
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        $before = $this->counts();
+
+        $page = $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/help')
+            ->assertOk()
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('secret-admin@example.com')
+            ->assertDontSee('3%');
+
+        $topics = $this->handbookTopics((string) $page->getContent());
+        $administrators = null;
+
+        foreach ($topics as $topic) {
+            if ($topic['href'] === '/platform/administrators') {
+                $administrators = $topic;
+            }
+        }
+
+        $this->assertNotNull($administrators);
+        $this->assertSame('Administrators', $administrators['title']);
+        $this->assertStringContainsString('Remove someone else’s platform access.', $administrators['body']);
+        $this->assertStringContainsString('The last administrator cannot be removed', $administrators['body']);
+        $this->assertStringContainsString('you cannot remove yourself while another administrator remains', $administrators['body']);
+        $this->assertStringContainsString('Opening the page does not write a row.', $administrators['body']);
+        $this->assertStringNotContainsString('secret-admin@example.com', $administrators['body']);
+        $this->assertStringNotContainsString('Secret Admin Name', $administrators['body']);
+        $this->assertSame($before, $this->counts());
+
+        Livewire::actingAs($admin)->test(PlatformHandbook::class)
+            ->assertSee('Administrators')
+            ->assertSee('href="/platform/administrators"', false);
+
+        $this->signedIn('staff');
+        $staff = $this->get($this->tenantUrl('alpha.test', '/staff/help'))
+            ->assertOk()
+            ->assertDontSee('href="/platform/administrators"', false)
+            ->assertDontSee('secret-admin@example.com');
+
+        foreach ($this->handbookTopics((string) $staff->getContent()) as $topic) {
+            $this->assertNotSame('/platform/administrators', $topic['href']);
+        }
+
+        $this->assertSame($before, $this->counts());
     }
 
     public function test_the_admin_handbook_links_to_the_demonstration_and_writes_nothing(): void
@@ -350,9 +403,9 @@ class UserHandbookTest extends TestCase
 
         foreach ($matches as $match) {
             $topics[] = [
-                'href' => $match[1],
-                'title' => $match[2],
-                'body' => $match[3],
+                'href' => html_entity_decode($match[1]),
+                'title' => trim(html_entity_decode(strip_tags($match[2]))),
+                'body' => trim(html_entity_decode(strip_tags($match[3]))),
             ];
         }
 
