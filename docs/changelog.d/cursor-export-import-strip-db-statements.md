@@ -1,0 +1,1 @@
+- The DigitalOcean import script now drops `CREATE DATABASE` and `USE` lines from the dump before loading it into the rehearsal database. The first export run stopped on a `USE` line for the source database name.
