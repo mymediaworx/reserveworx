@@ -38,12 +38,18 @@ reload_services() {
 }
 
 health() {
-  local code
+  # EnsureKnownHost returns 404 for hosts that are not platform domains, so the
+  # probe sends the platform host. Laravel's /up page contains "Application up".
+  local code body
+  body="$(mktemp)"
   for _ in 1 2 3 4 5; do
-    code="$(curl -s -o /dev/null -m 10 -w '%{http_code}' http://127.0.0.1/up || true)"
-    [[ "$code" == "200" ]] && { echo "health=ok"; return 0; }
+    code="$(curl -s -o "$body" -m 10 -w '%{http_code}' -H 'Host: app.reserveworx.com' http://127.0.0.1/up || true)"
+    if [[ "$code" == "200" ]] && grep -q "Application up" "$body"; then
+      rm -f "$body"; echo "health=ok"; return 0
+    fi
     sleep 2
   done
+  rm -f "$body"
   echo "health=failed (http ${code})"
   return 1
 }
