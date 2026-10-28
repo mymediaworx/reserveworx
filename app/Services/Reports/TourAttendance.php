@@ -238,18 +238,7 @@ final class TourAttendance
 
     private function when(Departure $departure, string $zone): string
     {
-        $start = $departure->starts_at;
-        $end = $departure->ends_at;
-
-        if (! $start instanceof DateTimeInterface) {
-            return '';
-        }
-
-        if (! $end instanceof DateTimeInterface) {
-            return Display::dateTimeWithZone($start, $zone);
-        }
-
-        return Display::rangeWithZone($start, $end, $zone);
+        return Display::rangeWithZone($departure->starts_at, $departure->ends_at, $zone);
     }
 
     private function localStart(mixed $instant, string $zone): ?CarbonImmutable
