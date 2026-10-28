@@ -15,10 +15,15 @@
             .home-page .checked-out-list a,
             .home-page .time-rail,
             .home-page .time-rail li,
+            .home-page .time-rail .rail-time,
+            .home-page .home-when,
             .home-page .today-departures,
             .home-page .today-departures li { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
             .home-page .below-minimum-list .badge { white-space: normal; }
         }
+        .home-page .time-rail .rail-item.with-zone { grid-template-columns: minmax(0, 1fr) auto; }
+        .home-page .time-rail .rail-item.with-zone .rail-time,
+        .home-page .home-when { min-width: 0; overflow-wrap: anywhere; }
     </style>
     <div class="welcome">
         <h1>Welcome{{ $firstName !== '' ? ', '.$firstName : '' }}</h1>
@@ -153,7 +158,7 @@
                         <strong>{{ $resource }}</strong>
                         <span>{{ $who }}</span>
                         @if ($due !== null)
-                            <span>Due {{ Display::dateTime($due, $checkoutZone) }}</span>
+                            <span class="home-when">Due {{ Display::dateTimeWithZone($due, $checkoutZone) }}</span>
                         @endif
                         @if ($booking instanceof Booking)
                             <a href="/staff/bookings/{{ $booking->id }}">Open booking</a>
@@ -209,10 +214,11 @@
                     @php
                         $fact = $departureSummary[$departure->id] ?? ['participants' => 0, 'minimum' => null, 'belowMinimum' => false];
                         $departureZone = $zones->get($departure->location_id, $zone);
+                        $departureZone = is_string($departureZone) && $departureZone !== '' ? $departureZone : $zone;
                         $departureDate = \Carbon\CarbonImmutable::instance($departure->starts_at)->timezone($departureZone)->toDateString();
                     @endphp
                     <li data-below-minimum="{{ $departure->id }}">
-                        <strong>{{ Display::dateTime($departure->starts_at, $departureZone) }}</strong>
+                        <strong class="home-when">{{ Display::rangeWithZone($departure->starts_at, $departure->ends_at, $departureZone) }}</strong>
                         <span>{{ $departure->service?->name }}</span>
                         <span class="muted">{{ $fact['participants'] }} of {{ $fact['minimum'] }}</span>
                         <span class="badge badge-below-minimum">Below minimum</span>
@@ -250,7 +256,7 @@
                         $bookingZone = is_string($bookingZone) && $bookingZone !== '' ? $bookingZone : $zone;
                         $bookingDate = \Carbon\CarbonImmutable::instance($booking->starts_at)->timezone($bookingZone)->toDateString();
                     @endphp
-                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$bookingZone" :showDate="$bookingDate !== $now->toDateString()" />
+                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$bookingZone" :showDate="$bookingDate !== $now->toDateString()" :with-zone="true" />
                 @endforeach
             </ol>
             @if ($departures->isNotEmpty())
@@ -261,10 +267,9 @@
                             $fact = $departureSummary[$departure->id] ?? ['participants' => $departure->headcount(), 'minimum' => $departure->service?->min_participants, 'belowMinimum' => false];
                             $departureZone = $zones->get($departure->location_id, $zone);
                             $departureZone = is_string($departureZone) && $departureZone !== '' ? $departureZone : $zone;
-                            $departureDate = \Carbon\CarbonImmutable::instance($departure->starts_at)->timezone($departureZone)->toDateString();
                         @endphp
                         <li data-departure="{{ $departure->id }}" @if ($fact['belowMinimum']) data-below-minimum="{{ $departure->id }}" @endif>
-                            <strong>{{ $departureDate === $now->toDateString() ? Display::time($departure->starts_at, $departureZone) : Display::dateTime($departure->starts_at, $departureZone) }}</strong>
+                            <strong class="home-when">{{ Display::rangeWithZone($departure->starts_at, $departure->ends_at, $departureZone) }}</strong>
                             {{ $departure->service?->name }}
                             <span class="muted">
                                 @if ($fact['belowMinimum'] && is_int($fact['minimum']))
