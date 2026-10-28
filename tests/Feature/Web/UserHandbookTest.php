@@ -67,7 +67,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('max-width: 390px', false)
             ->assertDontSee('Beta Only Kayaks')
             ->assertDontSee('<script>', false)
-            ->assertDontSee('3%');
+            ->assertDontSee('3%')
+            ->assertDontSee('href="/platform/security"', false);
 
         $this->assertSame($before, $this->counts());
 
@@ -221,6 +222,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('href="/platform/performance"', false)
             ->assertSee('href="/platform/limits"', false)
             ->assertSee('The same lines are printed by reserveworx:limits.')
+            ->assertSee('href="/platform/security"', false)
+            ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy.')
             ->assertSee('href="/platform"', false)
@@ -243,6 +246,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('Performance')
             ->assertSee('Limits')
             ->assertSee('The same lines are printed by reserveworx:limits.')
+            ->assertSee('Security')
+            ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 

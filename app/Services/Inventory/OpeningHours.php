@@ -91,7 +91,7 @@ class OpeningHours
                 continue;
             }
 
-            if ($this->closures->covers($row, $location->timezone, $startUtc, $endUtc)) {
+            if ($this->closures->covers($row, DisplayZone::forLocation($location), $startUtc, $endUtc)) {
                 return true;
             }
         }
