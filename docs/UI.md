@@ -114,12 +114,13 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 - `EnsureTenantMembership` and `EnsurePlatformAdmin` are persistent middleware, so they re-run on every component update.
 - Components read the tenant from `TenantManager`, never from component state, and authorize each action with the existing policies.
 - `StaffPagesTest` replays a component snapshot from one workspace on another workspace's domain and expects a refusal, with a control that the same call succeeds on the right domain.
+- `EveryWebEndpointIsolationTest` calls every application web route as a member of another workspace, on both hosts and on the platform host. The other customer’s name and email are absent. Staff routes on the other host are refused. Signing out there ends the session and does not write an audit row for that workspace. The scan does not write a payment, refund, fee, price, tax, booking, or customer.
 
 ## Behaviour mirrors the API
 
 Each staff action calls the same service as the matching API endpoint (Allocator, BookingPricer, CheckoutService, Waitlist, WaitlistPromoter) and writes the same audit action. When an endpoint's orchestration changes, change the matching component too.
 
-When a hosted booking hold is refused because the time is taken, and that service has the waitlist on, the form offers Join waitlist with name, email, an optional phone, and party size. A closed time does not. The confirmation email uses the same mailer as other transactional mail and includes a signed link to `/waitlist/{entry}/leave`.
+When a hosted booking hold is refused because the time is taken, and that service has the waitlist on, the form offers Join waitlist with name, email, an optional phone, and party size. A closed time does not. The confirmation email uses the same mailer as other transactional mail and includes a signed link to `/waitlist/{entry}/leave`. A mailer that refuses that message records the failure once and does not send it again. The party stays on the list. The log and array mailers still leave the notice queued.
 
 `App\Services\Booking\SlotFinder` lists bookable start times. It steps every 30 minutes within the location's opening hours (08:00–20:00 when none are set) and asks `Allocator::hint` for each slot. When the guest chose an option, that hint uses the option's boat or pool. A slot inside a closure is marked closed and is not offered, including when the waitlist is on. Its answers are hints. The hold transaction is the real check. When that hold is refused because the time is taken, the booking form lists the same nearby times and same-category assets the API returns in `offers`. A closed time says "That time is closed." and does not list those hints.
 
