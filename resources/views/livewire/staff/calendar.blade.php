@@ -1,4 +1,4 @@
-@php use App\Support\Display; @endphp
+@php use App\Support\Display; use App\Support\DisplayZone; @endphp
 <div class="page calendar-page" wire:poll.60s="refreshCalendar">
     <style>
         @media (max-width: 390px) {
@@ -19,7 +19,11 @@
             .calendar-page .agenda-day { min-width: 0; max-width: 100%; }
             .calendar-page .departure-chip,
             .calendar-page .month-event,
-            .calendar-page .agenda-day { overflow-wrap: anywhere; }
+            .calendar-page .agenda-day,
+            .calendar-page .rail-time,
+            .calendar-page .rail-meta { overflow-wrap: anywhere; }
+            .calendar-page .rail-item { min-width: 0; max-width: 100%; }
+            .calendar-page .rail-meta { overflow: visible; text-overflow: unset; white-space: normal; }
             .calendar-page .badge { white-space: normal; }
             .calendar-page .lede,
             .calendar-page .zone-note { overflow-wrap: anywhere; }
@@ -182,15 +186,15 @@
                                 <a class="daynum" href="{{ $dayHref }}" wire:navigate>{{ $day['date']->format('j') }}</a>
                             </h2>
                             @foreach ($flagged as $row)
-                                <a class="month-event is-below" href="/staff/manifest?date={{ $day['date']->toDateString() }}&amp;location={{ $row['departure']->location_id }}" wire:navigate data-departure="{{ $row['departure']->id }}" data-below-minimum="{{ $row['departure']->id }}" title="{{ $row['departure']->service?->name }} is below its minimum, {{ $row['participants'] }} of {{ $row['minimum'] }}">
+                                <a class="month-event is-below" href="/staff/manifest?date={{ $day['date']->toDateString() }}&amp;location={{ $row['departure']->location_id }}" wire:navigate data-departure="{{ $row['departure']->id }}" data-below-minimum="{{ $row['departure']->id }}" title="{{ $row['departure']->service?->name }} is below its minimum, {{ $row['participants'] }} of {{ $row['minimum'] }}. {{ Display::rangeWithZone($row['departure']->starts_at, $row['departure']->ends_at, DisplayZone::forLocation($row['departure']->location)) }}">
                                     <span class="sr-only">Below minimum. </span>{{ $row['departure']->service?->name ?? 'Tour' }}
                                 </a>
                             @endforeach
                             @foreach ($shown as $item)
                                 @if ($item['kind'] === 'booking')
-                                    <a class="month-event" href="/staff/bookings/{{ $item['booking']->id }}" wire:navigate data-booking="{{ $item['booking']->id }}">{{ $customers->get($item['booking']->customer_id)?->name ?? ($item['booking']->service?->name ?? 'Booking') }}</a>
+                                    <a class="month-event" href="/staff/bookings/{{ $item['booking']->id }}" wire:navigate data-booking="{{ $item['booking']->id }}" title="{{ Display::rangeWithZone($item['booking']->starts_at, $item['booking']->ends_at, DisplayZone::forLocation($item['booking']->location)) }}">{{ $customers->get($item['booking']->customer_id)?->name ?? ($item['booking']->service?->name ?? 'Booking') }}</a>
                                 @else
-                                    <a class="month-event" href="/staff/manifest?date={{ $day['date']->toDateString() }}&amp;location={{ $item['row']['departure']->location_id }}" wire:navigate data-departure="{{ $item['row']['departure']->id }}">{{ $item['row']['departure']->service?->name ?? 'Tour' }}</a>
+                                    <a class="month-event" href="/staff/manifest?date={{ $day['date']->toDateString() }}&amp;location={{ $item['row']['departure']->location_id }}" wire:navigate data-departure="{{ $item['row']['departure']->id }}" title="{{ Display::rangeWithZone($item['row']['departure']->starts_at, $item['row']['departure']->ends_at, DisplayZone::forLocation($item['row']['departure']->location)) }}">{{ $item['row']['departure']->service?->name ?? 'Tour' }}</a>
                                 @endif
                             @endforeach
                             @if ($extra > 0)
@@ -220,7 +224,7 @@
                         @if ($day['bookings']->isNotEmpty())
                             <ol class="time-rail">
                                 @foreach ($day['bookings'] as $booking)
-                                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$zones->get($booking->location_id, $zone)" :show-date="false" />
+                                    @include('livewire.staff.partials.calendar-visit', ['booking' => $booking, 'customer' => $customers->get($booking->customer_id), 'zone' => $zones->get($booking->location_id, $zone)])
                                 @endforeach
                             </ol>
                         @endif
@@ -249,7 +253,7 @@
                         @if ($day['bookings']->isNotEmpty())
                             <ol class="time-rail compact">
                                 @foreach ($day['bookings'] as $booking)
-                                    <x-booking-row :booking="$booking" :customer="$customers->get($booking->customer_id)" :zone="$zones->get($booking->location_id, $zone)" />
+                                    @include('livewire.staff.partials.calendar-visit', ['booking' => $booking, 'customer' => $customers->get($booking->customer_id), 'zone' => $zones->get($booking->location_id, $zone)])
                                 @endforeach
                             </ol>
                         @endif

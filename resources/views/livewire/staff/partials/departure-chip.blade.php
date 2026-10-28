@@ -1,10 +1,15 @@
 @props(['row', 'zone'])
 @php
+    use App\Models\Location;
     use App\Support\Display;
+    use App\Support\DisplayZone;
     $departure = $row['departure'];
     $below = $row['belowMinimum'];
     $minimum = $row['minimum'];
     $participants = $row['participants'];
+    $zone = $departure->location instanceof Location
+        ? DisplayZone::forLocation($departure->location)
+        : DisplayZone::resolve($zone);
     $date = \Carbon\CarbonImmutable::instance($departure->starts_at)->timezone($zone)->toDateString();
 @endphp
 <a
@@ -14,7 +19,7 @@
     data-departure="{{ $departure->id }}"
     @if ($below) data-below-minimum="{{ $departure->id }}" @endif
 >
-    <strong>{{ Display::time($departure->starts_at, $zone) }}</strong>
+    <strong>{{ Display::rangeWithZone($departure->starts_at, $departure->ends_at, $zone) }}</strong>
     {{ $departure->service?->name ?? 'Tour' }}
     <span class="muted">
         @if ($below && is_int($minimum))
