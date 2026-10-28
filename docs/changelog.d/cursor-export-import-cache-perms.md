@@ -1,0 +1,1 @@
+- The DigitalOcean import script now builds the config cache with a readable mode and the web group, so the web and queue users can read it. The first successful import left it unreadable and stopped the app and workers until it was fixed by hand.

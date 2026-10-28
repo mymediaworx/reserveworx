@@ -12,7 +12,7 @@
     <header class="page-head">
         <div>
             <h1>Check in</h1>
-            <p class="lede">Today's arrivals</p>
+            <p class="lede">Today's arrivals. Times are in {{ $zone }}.</p>
         </div>
     </header>
 
@@ -40,7 +40,7 @@
             @foreach ($bookings as $booking)
                 @php $customer = $customers->get($booking->customer_id); @endphp
                 <li class="booking-card">
-                    <span class="when">{{ Display::dateTime($booking->starts_at, $zone) }}</span>
+                    <span class="when" data-when>{{ Display::dateTimeWithZone($booking->starts_at, $zone) }}</span>
                     <strong>{{ $booking->service?->name }}</strong>
                     <span>{{ $customer?->name ?: ($customer?->email ?: 'Walk-in') }}</span>
                     <span class="badge badge-{{ $booking->operational_status->value }}">{{ Display::status($booking->operational_status->value) }}</span>
@@ -65,7 +65,7 @@
                     @foreach ($bookings as $booking)
                         @php $customer = $customers->get($booking->customer_id); @endphp
                         <tr>
-                            <td>{{ Display::dateTime($booking->starts_at, $zone) }}</td>
+                            <td data-when>{{ Display::dateTimeWithZone($booking->starts_at, $zone) }}</td>
                             <td>{{ $booking->service?->name }}</td>
                             <td>{{ $customer?->name ?: ($customer?->email ?: 'Walk-in') }}</td>
                             <td>{{ Display::status($booking->operational_status->value) }}</td>

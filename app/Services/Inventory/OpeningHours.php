@@ -7,6 +7,7 @@ use App\Models\AvailabilitySchedule;
 use App\Models\Blackout;
 use App\Models\Location;
 use App\Models\LocationClosure;
+use App\Support\DisplayZone;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -19,6 +20,7 @@ class OpeningHours
      * A resource with no rows adds no extra limit. A blackout covers each local date the
      * half-open interval touches. A closure covers the customer interval itself.
      * A category or single-resource closure does not close the rest of the location.
+     * A location zone that is not a real name uses the business zone.
      *
      * @return array{open: bool, blackout: bool, closed: bool}
      */
@@ -26,8 +28,9 @@ class OpeningHours
     {
         $start = $startUtc->utc();
         $end = $endUtc->utc();
-        $pickup = $start->timezone($location->timezone);
-        $return = $end->subSecond()->timezone($location->timezone);
+        $zone = DisplayZone::forLocation($location);
+        $pickup = $start->timezone($zone);
+        $return = $end->subSecond()->timezone($zone);
 
         $blackout = $this->coversBlackout($location, $pickup, $return);
         $closed = $this->coversClosure($location, $start, $end, $resourceType, $resourceId);
