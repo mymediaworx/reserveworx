@@ -24,6 +24,7 @@ use App\Models\CustomerAccount;
 use App\Models\CustomerDataDeletion;
 use App\Models\CustomerDataExport;
 use App\Models\Departure;
+use App\Models\DepartureMutation;
 use App\Models\DisclosureVersion;
 use App\Models\Domain;
 use App\Models\FeedbackRequest;
@@ -325,6 +326,7 @@ class TenantExporter
             Allocation::class,
             CapacityLedger::class,
             Departure::class,
+            DepartureMutation::class,
             WaitlistEntry::class,
             WaitlistMutation::class,
             CorporateAccount::class,

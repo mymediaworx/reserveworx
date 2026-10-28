@@ -24,7 +24,8 @@ use Throwable;
 /**
  * Sends the confirmation email when this workspace can actually deliver mail.
  * The log and array mailers leave the hook queued. A later dispatch still records
- * that no provider is configured. A failure here does not undo the confirmation.
+ * that no provider is configured. A mailer that refuses the message records that
+ * failure and does not send again. The failure does not undo the confirmation.
  */
 final class BookingConfirmationMail
 {
@@ -110,17 +111,26 @@ final class BookingConfirmationMail
                 return;
             }
 
-            Notification::route('mail', $email)->notify(new BookingConfirmedNotification(
-                $serviceName,
-                $url,
-                $svg,
-                $replyTo,
-                $when,
-                $reference,
-                $this->waivers->urlIfNeeded($booking),
-                $receiptHtml,
-                $receiptText,
-            ));
+            try {
+                Notification::route('mail', $email)->notify(new BookingConfirmedNotification(
+                    $serviceName,
+                    $url,
+                    $svg,
+                    $replyTo,
+                    $when,
+                    $reference,
+                    $this->waivers->urlIfNeeded($booking),
+                    $receiptHtml,
+                    $receiptText,
+                ));
+            } catch (Throwable $exception) {
+                $hook->delivery_status = 'failed';
+                $hook->delivery_error = 'The mailer refused the message ('.class_basename($exception).').';
+                $hook->attempted_at = Carbon::now('UTC');
+                $hook->save();
+
+                return;
+            }
 
             $hook->delivery_status = 'sent';
             $hook->delivery_error = null;
