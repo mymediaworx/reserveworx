@@ -79,6 +79,11 @@ final class UserHandbook
                         'href' => '/platform/performance',
                     ],
                     [
+                        'title' => 'Limits',
+                        'body' => 'Whether scheduled work stays inside the shared-host window. The same lines are printed by reserveworx:limits. It does not print secrets and does not keep a row.',
+                        'href' => '/platform/limits',
+                    ],
+                    [
                         'title' => 'Security',
                         'body' => 'Whether stored credentials are encrypted, card columns are absent, the session cookie is HTTP-only, and form posts use the CSRF check. The same lines are printed by reserveworx:security. A sample token is thrown away. It does not call Stripe and does not keep a row.',
                         'href' => '/platform/security',
