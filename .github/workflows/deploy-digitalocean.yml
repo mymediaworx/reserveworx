@@ -1,0 +1,157 @@
+name: Deploy DigitalOcean
+
+# Separate from the SiteGround Deploy workflow. Manual only: nothing here runs
+# on push, on CI completion, or on a schedule. Target: reserveworx-prod-1.
+# Release layout on the server (/var/www/reserveworx):
+#   releases/<sha>   one directory per release
+#   current          symlink to the live release
+#   previous         symlink to the one rollback release
+#   shared/.env      production environment, written on the server only
+#   shared/storage   linked into every release
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Deploy the chosen ref, or roll back to the previous release
+        type: choice
+        required: true
+        options:
+          - deploy
+          - rollback
+        default: deploy
+      ref:
+        description: Branch, tag or commit to deploy (ignored for rollback)
+        type: string
+        required: true
+        default: main
+      run_migrations:
+        description: Run php artisan migrate --force after a verified database dump. The job fails when the dump is missing or empty.
+        type: boolean
+        required: true
+        default: false
+
+concurrency:
+  group: digitalocean-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: ${{ inputs.action }} reserveworx-prod-1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.action == 'deploy' && inputs.ref || github.sha }}
+
+      - name: Mask connection secrets
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+        run: |
+          set -euo pipefail
+          for v in "$DO_HOST" "$DO_USER"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+
+      - name: Resolve release
+        id: release
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Deploy DigitalOcean"
+            echo
+            echo "- Action: ${{ inputs.action }}"
+            echo "- Commit: ${sha}"
+            echo "- Migrations requested: ${{ inputs.run_migrations }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: shivammathur/setup-php@v2
+        if: inputs.action == 'deploy'
+        with:
+          php-version: "8.3"
+          coverage: none
+          tools: composer:v2
+          extensions: mbstring, xml, curl, mysql, zip, bcmath, intl, gd
+
+      - name: Install production dependencies
+        if: inputs.action == 'deploy'
+        run: composer install --no-dev --prefer-dist --no-interaction --no-progress --optimize-autoloader --ignore-platform-req=php
+
+      - name: Pack one release archive
+        if: inputs.action == 'deploy'
+        env:
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refusing to pack because the release id is not a commit sha." >&2
+            exit 1
+          fi
+          tar -czf "/tmp/reserveworx-${RELEASE}.tar.gz" \
+            --exclude '.git' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            --exclude 'node_modules' \
+            --exclude 'tests' \
+            --exclude '.github' \
+            --exclude '.cursor' \
+            --exclude 'docs' \
+            --exclude 'phpunit.xml' \
+            --exclude 'phpstan.neon' \
+            --exclude 'pint.json' \
+            --exclude 'storage/logs' \
+            --exclude 'storage/framework/cache/data' \
+            --exclude 'storage/framework/sessions' \
+            --exclude 'storage/framework/views' \
+            --exclude 'storage/pail' \
+            .
+
+      - name: Prepare SSH
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DO_SSH_KEY" > ~/.ssh/do_deploy
+          ssh-keyscan -T 10 -t ed25519 "$DO_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          test -s ~/.ssh/known_hosts
+
+      - name: Upload release archive
+        if: inputs.action == 'deploy'
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/do_deploy "${DO_USER}@${DO_HOST}" "mkdir -p /var/www/reserveworx/incoming && cat > /var/www/reserveworx/incoming/${RELEASE}.tar.gz" < "/tmp/reserveworx-${RELEASE}.tar.gz"
+          rm -f "/tmp/reserveworx-${RELEASE}.tar.gz"
+
+      - name: Activate release
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          ACTION: ${{ inputs.action }}
+          RELEASE: ${{ steps.release.outputs.sha }}
+          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
+        run: |
+          set -euo pipefail
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q bash -s' "$ACTION" "$RELEASE" "$RUN_MIGRATIONS")"
+          {
+            echo
+            echo '```'
+            ssh -i ~/.ssh/do_deploy "${DO_USER}@${DO_HOST}" "$remote_cmd" < scripts/remote-deploy-digitalocean.sh
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/do_deploy

@@ -20,6 +20,7 @@ use App\Services\Booking\TourDepartureChoices;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Payments\CheckoutService;
 use App\Services\Schedule\ResourceSchedule;
+use App\Support\Display;
 use App\Support\DisplayZone;
 use App\Tenancy\StaffLocationScope;
 use Carbon\CarbonImmutable;
@@ -313,7 +314,7 @@ class Schedule extends Component
             'id' => $booking->id,
             'who' => $this->who($booking),
             'service' => $booking->service->name ?? 'Booking',
-            'when' => $starts->format('D, M j, g:i A').' – '.$ends->format('g:i A'),
+            'when' => Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
             'length' => $this->lengthLabel($seconds),
             'href' => '/staff/bookings/'.$booking->id,
             'confirmed' => $confirmed,
