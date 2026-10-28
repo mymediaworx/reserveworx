@@ -55,7 +55,9 @@ ls -1t "${shared}"/backups/*.sql.gz | tail -n +6 | xargs -r rm -f --
   mysql --defaults-extra-file="$cnf" -N -B -e "SELECT CONCAT('DROP TABLE IF EXISTS \`', table_name, '\`;') FROM information_schema.tables WHERE table_schema='${db}' AND table_type='BASE TABLE'"
   echo 'SET FOREIGN_KEY_CHECKS=1;'
 } | mysql --defaults-extra-file="$cnf" "$db"
-gunzip -c "$dump" | mysql --defaults-extra-file="$cnf" "$db"
+# The dump may carry CREATE DATABASE / USE lines for the source database name.
+# The rehearsal user only owns its own database, so load into it and drop those.
+gunzip -c "$dump" | sed -E '/^(CREATE DATABASE|USE |\/\*!40000 ALTER DATABASE)/d' | mysql --defaults-extra-file="$cnf" "$db"
 echo "import=ok"
 
 # The imported queue belongs to production. Drop it so the rehearsal never runs it.

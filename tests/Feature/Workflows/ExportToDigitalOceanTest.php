@@ -29,6 +29,7 @@ class ExportToDigitalOceanTest extends TestCase
         $this->assertStringContainsString('trap cleanup EXIT', $script);
         $this->assertStringContainsString('rm -f "$dump" "$storage"', $script);
         $this->assertStringContainsString('TRUNCATE TABLE', $script);
+        $this->assertStringContainsString('CREATE DATABASE|USE ', $script);
         $this->assertStringContainsString('--defaults-extra-file', $script);
         $this->assertStringContainsString('STRIPE_SECRET', $script);
         $this->assertStringNotContainsString('echo "$password', $script);
