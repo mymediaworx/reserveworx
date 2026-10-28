@@ -122,7 +122,11 @@ class Waitlist extends Component
     {
         $zone = $entry->service?->location?->timezone;
 
-        return Display::dateTime($entry->starts_at, $this->zone(is_string($zone) ? $zone : null));
+        return Display::rangeWithZone(
+            $entry->starts_at,
+            $entry->ends_at,
+            $this->zone(is_string($zone) ? $zone : null),
+        );
     }
 
     public function statusLabel(WaitlistEntry $entry): string
@@ -163,14 +167,26 @@ class Waitlist extends Component
                 return;
             }
 
+            $matched = false;
+
             foreach ($locations as $location) {
-                $start = CarbonImmutable::parse($date.' 00:00:00', $this->zone($location->timezone))->utc();
-                $end = $start->addDay();
+                $window = $this->localDay($date, $location->timezone);
+
+                if ($window === null) {
+                    continue;
+                }
+
+                $matched = true;
+                [$start, $end] = $window;
                 $outer->orWhere(function ($inner) use ($location, $start, $end): void {
                     $inner->where('location_id', $location->id)
                         ->where('starts_at', '>=', $start)
                         ->where('starts_at', '<', $end);
                 });
+            }
+
+            if (! $matched) {
+                $outer->whereRaw('1 = 0');
             }
         });
 
@@ -206,5 +222,25 @@ class Waitlist extends Component
     private function zone(?string $timezone): string
     {
         return DisplayZone::resolve($timezone, $this->tenant());
+    }
+
+    /**
+     * Half-open local day: midnight in this location through the next midnight.
+     * A fall-back day is 25 hours. A spring-forward day is 23.
+     *
+     * @return array{0: CarbonImmutable, 1: CarbonImmutable}|null
+     */
+    private function localDay(string $date, mixed $timezone): ?array
+    {
+        $zone = $this->zone(is_string($timezone) ? $timezone : null);
+        $start = CarbonImmutable::createFromFormat('!Y-m-d', $date, $zone);
+
+        if (! $start instanceof CarbonImmutable) {
+            return null;
+        }
+
+        $start = $start->startOfDay();
+
+        return [$start->utc(), $start->addDay()->utc()];
     }
 }
