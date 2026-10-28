@@ -10,6 +10,10 @@
         .maintenance-page .inspection-row { display: grid; gap: 0.5rem; }
         .maintenance-page .inspection-row .done-form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
         .maintenance-page .inspection-row .done-form .field { flex: 1 1 12rem; }
+        @media (max-width: 390px) {
+            .maintenance-page .when,
+            .maintenance-page .when * { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+        }
         @media (max-width: 480px) {
             .maintenance-page .window-card,
             .maintenance-page .window-card *,
@@ -24,7 +28,7 @@
     <header class="page-head">
         <div>
             <h1>Maintenance</h1>
-            <p class="lede">Take a boat or pool out of service for a set time, and keep repeating inspections on schedule. Bookings that overlap are flagged for you to follow up. Nothing is cancelled or moved for you.</p>
+            <p class="lede">Take a boat or pool out of service for a set time, and keep repeating inspections on schedule. Bookings that overlap are flagged for you to follow up. Nothing is cancelled or moved for you. @if ($zoneName)Times are in {{ $zoneName }}.@else Times use each location's time zone.@endif</p>
         </div>
     </header>
 
@@ -136,9 +140,9 @@
                                 <li class="row" wire:key="past-{{ $window->id }}">
                                     <span class="grow">
                                         <strong>{{ ($window->asset ?? $window->pool)?->name }}</strong>
-                                        <span class="muted">{{ $window->reason }} · {{ Display::range($window->starts_at, $window->ends_at, $zone) }}</span>
+                                        <span class="muted when" data-when>{{ $window->reason }} · {{ Display::rangeWithZone($window->starts_at, $window->ends_at, $zone) }}</span>
                                         @if ($window->ended_at !== null && $window->ended_at->lessThan($window->ends_at))
-                                            <span class="muted">Ended {{ Display::dateTime($window->ended_at, $zone) }}</span>
+                                            <span class="muted when" data-when>Ended {{ Display::dateTimeWithZone($window->ended_at, $zone) }}</span>
                                         @endif
                                     </span>
                                     <span class="badge">{{ $window->kind->label() }}</span>
@@ -194,7 +198,7 @@
                             </label>
                             @error('windowReason')<p class="error">{{ $message }}</p>@enderror
 
-                            <p class="muted small">Times use that boat’s location time zone. New bookings can’t use it during this time. Existing bookings stay booked and are flagged.</p>
+                            <p class="muted small">Times use that boat’s location time zone. A repeated hour starts at the earlier time and ends at the later time. A time that does not exist is not saved. New bookings can’t use it during this time. Existing bookings stay booked and are flagged.</p>
                             <button type="submit" class="button primary" wire:loading.attr="disabled">Save</button>
                         </form>
                     </section>
