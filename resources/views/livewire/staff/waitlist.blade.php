@@ -4,7 +4,8 @@
         @media (max-width: 390px) {
             .waitlist-page { min-width: 0; }
             .waitlist-page .waitlist-card,
-            .waitlist-page .waitlist-card * { min-width: 0; overflow-wrap: anywhere; }
+            .waitlist-page .waitlist-card *,
+            .waitlist-page .when { min-width: 0; overflow-wrap: anywhere; }
             .waitlist-page .waitlist-actions { display: grid; }
             .waitlist-page .waitlist-actions .button { width: 100%; }
         }
@@ -12,7 +13,7 @@
     <header class="page-head">
         <div>
             <h1>Waitlist</h1>
-            <p class="lede">People waiting for a full time.</p>
+            <p class="lede">People waiting for a full time. Each time uses that location’s clock.</p>
         </div>
     </header>
 
@@ -42,12 +43,12 @@
     @else
         <div class="stack">
             @foreach ($entries as $entry)
-                <article class="panel waitlist-card">
+                <article class="panel waitlist-card" data-entry="{{ $entry->id }}">
                     <div class="panel-head">
                         <h2>{{ $entry->customer_name ?: 'Guest' }}</h2>
                         <p class="muted">{{ $this->statusLabel($entry) }}</p>
                     </div>
-                    <p>{{ $entry->service?->name }} · {{ $this->whenLabel($entry) }}</p>
+                    <p class="when" data-when>{{ $entry->service?->name }} · {{ $this->whenLabel($entry) }}</p>
                     <p class="muted">{{ $entry->participants }} {{ $entry->participants === 1 ? 'person' : 'people' }}
                         @if ($entry->customer_email) · {{ $entry->customer_email }}@endif
                         @if ($entry->customer_phone) · {{ $entry->customer_phone }}@endif

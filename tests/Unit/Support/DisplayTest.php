@@ -21,6 +21,10 @@ class DisplayTest extends TestCase
             'Tue, Nov 3, 10:00 AM EST',
             Display::dateTimeWithZone($start, 'America/New_York'),
         );
+        $this->assertSame(
+            '10:00 AM EST',
+            Display::clockWithZone($start, 'America/New_York'),
+        );
     }
 
     public function test_a_utc_date_that_is_the_next_local_day_stays_on_the_local_calendar(): void
