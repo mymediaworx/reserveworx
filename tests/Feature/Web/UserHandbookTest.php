@@ -264,6 +264,58 @@ class UserHandbookTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_the_admin_handbook_links_to_the_demonstration_and_writes_nothing(): void
+    {
+        Tenant::factory()->create(['name' => 'Secret Harbor Name']);
+        $admin = User::factory()->create();
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        $before = $this->counts();
+
+        $page = $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/help')
+            ->assertOk()
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('Secret Harbor Name')
+            ->assertDontSee('3%')
+            ->assertDontSee('avery.cole@harbor-demo.test');
+
+        $topics = $this->handbookTopics((string) $page->getContent());
+        $demo = null;
+
+        foreach ($topics as $topic) {
+            if ($topic['href'] === '/platform/demo') {
+                $demo = $topic;
+            }
+        }
+
+        $this->assertNotNull($demo);
+        $this->assertSame('Demo', $demo['title']);
+        $this->assertStringContainsString('Harbor Demo and Inland Demo', $demo['body']);
+        $this->assertStringContainsString('reserveworx:demo', $demo['body']);
+        $this->assertStringContainsString('A missing demo workspace is not created.', $demo['body']);
+        $this->assertStringNotContainsString('Secret Harbor Name', $demo['body']);
+        $this->assertSame($before, $this->counts());
+
+        Livewire::actingAs($admin)->test(PlatformHandbook::class)
+            ->assertSee('href="/platform/demo"', false)
+            ->assertDontSee('Secret Harbor Name');
+
+        $owner = $this->signedIn();
+        $staffBefore = $this->counts();
+        $staff = $this->get($this->tenantUrl('alpha.test', '/staff/help'))
+            ->assertOk()
+            ->assertDontSee('href="/platform/demo"', false)
+            ->assertDontSee('reserveworx:demo');
+
+        foreach ($this->handbookTopics((string) $staff->getContent()) as $topic) {
+            $this->assertNotSame('/platform/demo', $topic['href']);
+        }
+
+        $this->assertSame($staffBefore, $this->counts());
+        $this->keep($owner);
+    }
+
     /**
      * @return array{tenant: Tenant, domain: Domain, user: User, membership: Membership}
      */
@@ -284,6 +336,31 @@ class UserHandbookTest extends TestCase
         app(TenantManager::class)->forget();
         app(TenantManager::class)->set($workspace['tenant']);
         $this->actingAs($workspace['user']);
+    }
+
+    /**
+     * @return list<array{href: string, title: string, body: string}>
+     */
+    private function handbookTopics(string $html): array
+    {
+        preg_match_all(
+            '/<li class="handbook-topic">\s*<a href="([^"]+)" wire:navigate>(.*?)<\/a>\s*<p>(.*?)<\/p>/s',
+            $html,
+            $matches,
+            PREG_SET_ORDER,
+        );
+
+        $topics = [];
+
+        foreach ($matches as $match) {
+            $topics[] = [
+                'href' => $match[1],
+                'title' => $match[2],
+                'body' => $match[3],
+            ];
+        }
+
+        return $topics;
     }
 
     /**
