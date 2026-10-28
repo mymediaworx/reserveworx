@@ -79,6 +79,11 @@ final class UserHandbook
                         'href' => '/platform/upgrade',
                     ],
                     [
+                        'title' => 'Demo',
+                        'body' => 'Harbor Demo and Inland Demo, each with its own locations, services, and bookings. The same lines are printed by reserveworx:demo. A missing demo workspace is not created.',
+                        'href' => '/platform/demo',
+                    ],
+                    [
                         'title' => 'A workspace',
                         'body' => 'From the list, open a workspace for its industry, domains, and owners. The GoHighLevel Location ID is saved there. The private token is typed once and is not shown again. Export the workspace before closing it for good. Booking fee rates are on that page. This handbook does not change them.',
                         'href' => '/platform',
