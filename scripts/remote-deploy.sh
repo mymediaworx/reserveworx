@@ -1360,6 +1360,41 @@ maintenance_breakdown() {
   echo "maintenance_breakdown_end"
 }
 
+# Opt-in purge of the PHP opcache folder. It deletes only the contents of
+# <real home>/.opcache and keeps the folder. It refuses unless the path is
+# exactly <real home>/.opcache and is a real directory (not a symlink), and it
+# never follows a symlink out of it. Nothing else is touched.
+purge_opcache() {
+  local home_real target resolved before after account_before account_after status=0
+  home_real="$(cd "$HOME" 2>/dev/null && pwd -P)" || home_real=""
+  if [[ -z "$home_real" ]]; then
+    echo "opcache_purge=refused reason=home-not-resolvable" >&2
+    return 1
+  fi
+  target="${home_real}/.opcache"
+  if [[ -L "$HOME/.opcache" || -L "$target" || ! -d "$target" ]]; then
+    echo "opcache_purge=refused reason=not-a-real-directory path=${target}" >&2
+    return 1
+  fi
+  resolved="$(cd "$target" 2>/dev/null && pwd -P)" || resolved=""
+  if [[ "$resolved" != "${home_real}/.opcache" ]]; then
+    echo "opcache_purge=refused reason=path-mismatch resolved=${resolved}" >&2
+    return 1
+  fi
+  account_before="$(count_account_inodes)"
+  before="$(find "$HOME/.opcache" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  echo "opcache_path=${resolved}"
+  echo "opcache_inodes_before=${before}"
+  echo "opcache_account_inodes_before=${account_before}"
+  find "$HOME/.opcache" -mindepth 1 -delete || status=$?
+  after="$(find "$HOME/.opcache" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')"
+  account_after="$(count_account_inodes)"
+  echo "opcache_inodes_after=${after}"
+  echo "opcache_account_inodes_after=${account_after}"
+  echo "opcache_purge_exit=${status}"
+  return "$status"
+}
+
 # Clean without touching any release. It never deletes, creates, links or
 # uploads a release. It clears regenerable files only: compiled views, file
 # cache and sessions older than 2 days in shared storage and in each release's own storage, logs
@@ -1590,6 +1625,11 @@ if [[ "$ACTION" == "maintenance" ]]; then
     echo "maintenance_inodes_after=$(count_account_inodes)"
   else
     echo "maintenance_clean=not requested, report only"
+  fi
+  if [[ "${RW_MAINTENANCE_PURGE_OPCACHE:-false}" == "true" ]]; then
+    purge_opcache || exit 1
+  else
+    echo "opcache_purge=not requested"
   fi
   exit 0
 fi
