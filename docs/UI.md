@@ -114,6 +114,7 @@ An owner of the current workspace sees **All businesses** and **Add a business**
 - `EnsureTenantMembership` and `EnsurePlatformAdmin` are persistent middleware, so they re-run on every component update.
 - Components read the tenant from `TenantManager`, never from component state, and authorize each action with the existing policies.
 - `StaffPagesTest` replays a component snapshot from one workspace on another workspace's domain and expects a refusal, with a control that the same call succeeds on the right domain.
+- `EveryWebEndpointIsolationTest` calls every application web route as a member of another workspace, on both hosts and on the platform host. The other customer’s name and email are absent. Staff routes on the other host are refused. Signing out there ends the session and does not write an audit row for that workspace. The scan does not write a payment, refund, fee, price, tax, booking, or customer.
 
 ## Behaviour mirrors the API
 

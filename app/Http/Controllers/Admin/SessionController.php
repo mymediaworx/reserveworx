@@ -37,10 +37,14 @@ class SessionController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $email = strtolower((string) $request->input('email'));
+        $validated = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
+        ]);
+        $email = strtolower($validated['email']);
         $user = User::query()->where('email', $email)->first();
         $tenantId = $this->tenants->id();
-        $password = (string) $request->input('password');
+        $password = $validated['password'];
 
         if (! $user instanceof User || ! is_string($tenantId) || ! Hash::check($password, $user->password) || ! $this->access->hasActiveMembership($user, $tenantId)) {
             $this->audit->log(
