@@ -155,7 +155,20 @@ class WorkflowSafetyTest extends TestCase
         $this->assertIsArray($workflows);
         $names = array_map('basename', $workflows);
         sort($names);
-        $this->assertSame(['ci.yml', 'deploy.yml', 'hosting-check.yml'], $names);
+        $this->assertSame(['ci.yml', 'deploy-digitalocean.yml', 'deploy.yml', 'hosting-check.yml'], $names);
+    }
+
+    public function test_the_digitalocean_deploy_is_manual_only_and_reads_keys_from_secrets(): void
+    {
+        $contents = (string) file_get_contents(base_path('.github/workflows/deploy-digitalocean.yml'));
+
+        $this->assertStringContainsString("on:\n  workflow_dispatch:", $contents);
+        $this->assertStringNotContainsString('workflow_run', $contents);
+        $this->assertStringNotContainsString('pull_request', $contents);
+        $this->assertStringNotContainsString('schedule:', $contents);
+        $this->assertStringNotContainsString('BEGIN OPENSSH PRIVATE KEY', $contents);
+        $this->assertStringContainsString('secrets.DO_SSH_KEY', $contents);
+        $this->assertStringNotContainsString('SG_', $contents);
     }
 
     public function test_the_hosting_check_runs_on_the_active_release_without_printing_secrets(): void
