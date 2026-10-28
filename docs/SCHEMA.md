@@ -178,7 +178,7 @@ A pricing snapshot may store `charged_basis_cents`, the subtotal the booking fee
 
 ## GoHighLevel sub-account link
 
-`ghl_connections` stores one BrandWorx sub-account per workspace. `tenant_id` is unique. `location_id` is that sub-account's Location ID. `private_integration_token` is encrypted with the application key and is hidden from array and JSON serialization. Platform administrators link, replace, and remove it. Tenant staff cannot. The workspace export includes the location id and omits the token. The customer export includes neither the connection, the sync log, nor the token.
+`ghl_connections` stores one BrandWorx sub-account per workspace. `tenant_id` is unique. `location_id` is that sub-account's Location ID. `private_integration_token` is encrypted with the application key and is hidden from array and JSON serialization. Platform administrators link, replace, and remove it. Tenant staff cannot. The workspace export includes the location id and omits the token. The customer export includes neither the connection, the sync log, nor the token. `/platform/security` writes one sample token and one sample webhook secret, checks the stored text is not that sample, and rolls both rows back. It does not call Stripe and does not keep the row.
 
 `ghl_sync_logs` is one row per attempt: `booking.created`, `booking.confirmed`, `booking.changed`, `booking.cancelled`, `booking.checked_in`, `booking.returned`, `booking.overdue`, `booking.completed`, `payment.succeeded`, `payment.failed`, or `connection.test`. It stores `attempt`, `status` (`succeeded`, `failed`, or `skipped`), `http_status`, `location_id`, and a short `error`. It does not store request or response bodies. Nothing is queued when the workspace has no link.
 
