@@ -1,0 +1,1 @@
+- Added `docs/CUTOVER.md`, the runbook for moving ReserveWorx from SiteGround to DigitalOcean: freeze, final database and storage sync, nameserver switch, wildcard certificate plan, verification and rollback. It is a plan only and changes no code or DNS.

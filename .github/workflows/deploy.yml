@@ -15,13 +15,25 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: Deploy the current main commit, or roll back to the previous release
+        description: Deploy the current main commit, roll back to the previous release, run maintenance (read-only inode report, plus a clean when clean is true), or copy a fresh database dump and the public storage to the DigitalOcean rehearsal server (export-to-digitalocean, read-only on SiteGround apart from one new dump file)
         type: choice
         required: true
         options:
           - deploy
           - rollback
+          - maintenance
+          - export-to-digitalocean
         default: deploy
+      clean:
+        description: Maintenance only. Clear regenerable files (views, file cache, sessions, logs older than 7 days, stale archives, dumps beyond two). Never deletes or creates a release. Off means report only.
+        type: boolean
+        required: true
+        default: false
+      purge_opcache:
+        description: Maintenance only. Delete the contents of the account's .opcache folder (the folder itself stays). Refuses unless the path is exactly the real home's .opcache and a real directory. Touches nothing else. Off by default.
+        type: boolean
+        required: true
+        default: false
       run_migrations:
         description: Run php artisan migrate --force after a verified database dump. The job fails when that dump is missing, empty, or fails gunzip -t.
         type: boolean
@@ -91,7 +103,7 @@ jobs:
   deploy:
     name: Deploy main
     needs: gate
-    if: needs.gate.outputs.go == 'true'
+    if: needs.gate.outputs.go == 'true' && (github.event_name == 'workflow_run' || inputs.action != 'export-to-digitalocean')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -123,7 +135,7 @@ jobs:
           {
             echo "## Deploy"
             echo
-            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}"
+            echo "- Action: ${{ github.event_name == 'workflow_run' && 'deploy' || inputs.action }}${{ inputs.action == 'maintenance' && format(' (clean: {0}, purge_opcache: {1})', inputs.clean, inputs.purge_opcache) || '' }}"
             echo "- Commit: ${sha}"
             echo "- Migrations requested: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -170,6 +182,55 @@ jobs:
             --exclude 'storage/framework/views' \
             --exclude 'storage/pail' \
             .
+
+      - name: Inode budget pre-flight
+        id: inodes
+        if: github.event_name == 'workflow_run' || inputs.action == 'deploy'
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          # Inodes used on this SiteGround account outside the SSH user's home
+          # (main site, mail, backups). Set the repo variable RW_INODE_EXTERNAL
+          # from Site Tools. Unset counts as 0.
+          RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          close_ssh_master() {
+            timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+          }
+          on_exit() {
+            status=$?
+            if [[ "$status" -ne 0 ]]; then
+              close_ssh_master
+            fi
+            exit "$status"
+          }
+          trap on_exit EXIT
+          # Warns at 450000 and aborts at 540000 of the 600000 cap, counting
+          # the whole account with du --inodes -s -x "$HOME" plus the external
+          # allowance. It runs before the backup and the upload, so an
+          # over-budget account receives nothing. Rollback never runs it.
+          remote_cmd="$(printf 'ACTION=%q RW_INODE_EXTERNAL=%q bash -s' preflight "${RW_INODE_EXTERNAL:-0}")"
+          status=0
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh > /tmp/inode-preflight.txt 2>&1 || status=$?
+          cat /tmp/inode-preflight.txt
+          {
+            echo '### Inode budget'
+            echo '```'
+            grep '^inode_guard' /tmp/inode-preflight.txt || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if grep -q '^inode_guard=warn' /tmp/inode-preflight.txt; then
+            echo "::warning::Account inode usage is at or above 450000 of the 600000 cap."
+          fi
+          if [[ "$status" -ne 0 ]]; then
+            echo "::error::Inode guard stopped this deploy before upload. See the Inode budget summary."
+            exit "$status"
+          fi
 
       - name: Back up the application database
         id: dbbackup
@@ -237,6 +298,9 @@ jobs:
           on_exit() {
             status=$?
             if [[ "$status" -ne 0 ]]; then
+              # A failed or cut-off upload must not leave a partial archive in
+              # incoming. Reuse the open connection once, no retry.
+              timeout 30 scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "rm -f www/app.reserveworx.com/laravel/incoming/${RELEASE}.tar.gz" >/dev/null 2>&1 || true
               close_ssh_master
             fi
             exit "$status"
@@ -258,6 +322,9 @@ jobs:
           RUN_MIGRATIONS: ${{ github.event_name == 'workflow_run' && 'true' || inputs.run_migrations }}
           BACKUP_PATH: ${{ steps.dbbackup.outputs.path }}
           RW_MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          RW_INODE_EXTERNAL: ${{ vars.RW_INODE_EXTERNAL }}
+          RW_MAINTENANCE_CLEAN: ${{ github.event_name == 'workflow_dispatch' && inputs.clean || 'false' }}
+          RW_MAINTENANCE_PURGE_OPCACHE: ${{ github.event_name == 'workflow_dispatch' && inputs.action == 'maintenance' && inputs.purge_opcache || 'false' }}
         run: |
           set -euo pipefail
           if [[ -n "${RW_MAIL_PASSWORD}" ]]; then echo "::add-mask::${RW_MAIL_PASSWORD}"; fi
@@ -282,8 +349,8 @@ jobs:
           }
           trap on_exit EXIT
           bootstrap="$(cat scripts/accept-mail-header.sh)"
-          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q bash -c %q' \
-            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "$bootstrap")"
+          remote_cmd="$(printf 'ACTION=%q RELEASE=%q RUN_MIGRATIONS=%q BACKUP_PATH=%q RW_INODE_EXTERNAL=%q RW_MAINTENANCE_CLEAN=%q RW_MAINTENANCE_PURGE_OPCACHE=%q bash -c %q' \
+            "$ACTION" "$RELEASE" "$RUN_MIGRATIONS" "$BACKUP_PATH" "${RW_INODE_EXTERNAL:-0}" "$RW_MAINTENANCE_CLEAN" "$RW_MAINTENANCE_PURGE_OPCACHE" "$bootstrap")"
           {
             echo
             echo '```'
@@ -335,3 +402,120 @@ jobs:
             scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" bash -s < scripts/hosting-check-artisan.sh
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  export-to-digitalocean:
+    name: Export database and storage to the DigitalOcean rehearsal server
+    needs: gate
+    if: needs.gate.outputs.go == 'true' && github.event_name == 'workflow_dispatch' && inputs.action == 'export-to-digitalocean'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - name: Mask connection secrets
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+        run: |
+          set -euo pipefail
+          for v in "$SG_HOST" "$SG_USER" "$SG_PORT" "$SG_SSH_PASSPHRASE" "$DO_HOST" "$DO_USER"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+
+      - name: Prepare DigitalOcean SSH
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          umask 077
+          printf '%s\n' "$DO_SSH_KEY" > ~/.ssh/do_deploy
+          ssh-keyscan -T 10 -t ed25519 "$DO_HOST" > ~/.ssh/known_hosts_do 2>/dev/null
+          test -s ~/.ssh/known_hosts_do
+
+      - name: Back up the application database
+        id: dbbackup
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ssh-siteground.sh scripts/prepare-siteground-ssh.sh
+          remote_cmd="$(printf 'ACTION=%q bash -s' backup)"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "$remote_cmd" < scripts/remote-deploy.sh | tee /tmp/backup-out.txt
+          path="$(sed -n 's/^backup_path=//p' /tmp/backup-out.txt | tail -n 1)"
+          bytes="$(sed -n 's/^backup_bytes=//p' /tmp/backup-out.txt | tail -n 1)"
+          gunzip_ok="$(sed -n 's/^gunzip_test=//p' /tmp/backup-out.txt | tail -n 1)"
+          if [[ -z "$path" || "$gunzip_ok" != "ok" || ! "$bytes" =~ ^[0-9]+$ || "$bytes" -lt 1 ]]; then
+            echo "Database dump was not verified. Nothing was exported." >&2
+            exit 1
+          fi
+          case "$path" in
+            */www/app.reserveworx.com/laravel/shared/backups/*.sql.gz) ;;
+            *)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          case "$path" in
+            *public_html*|*www/reserveworx.com/*)
+              echo "Database dump path was rejected." >&2
+              exit 1
+              ;;
+          esac
+          echo "path=${path}" >> "$GITHUB_OUTPUT"
+          echo "bytes=${bytes}" >> "$GITHUB_OUTPUT"
+
+      - name: Stream the dump and public storage to the droplet
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
+          SG_SSH_KEY: ${{ secrets.SG_SSH_KEY }}
+          SG_SSH_PASSPHRASE: ${{ secrets.SG_SSH_PASSPHRASE }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DUMP_PATH: ${{ steps.dbbackup.outputs.path }}
+        run: |
+          set -euo pipefail
+          do_ssh() { ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "$@"; }
+          do_ssh "mkdir -p /var/www/reserveworx/incoming && rm -f /var/www/reserveworx/incoming/import.sql.gz /var/www/reserveworx/incoming/storage.tgz"
+          # Read-only on SiteGround: cat the dump this run just wrote, tar the public storage.
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "cat '${DUMP_PATH}'" | do_ssh "cat > /var/www/reserveworx/incoming/import.sql.gz"
+          scripts/ssh-siteground.sh "${SG_USER}@${SG_HOST}" "if [ -d www/app.reserveworx.com/laravel/shared/storage/app/public ]; then tar -czf - -C www/app.reserveworx.com/laravel/shared/storage/app public; fi" | do_ssh "cat > /var/www/reserveworx/incoming/storage.tgz"
+          timeout 15 scripts/ssh-siteground.sh -O exit "${SG_USER}@${SG_HOST}" >/dev/null 2>&1 || true
+
+      - name: Import on the droplet and report
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          EXPECT_BYTES: ${{ steps.dbbackup.outputs.bytes }}
+        run: |
+          set -euo pipefail
+          remote_cmd="$(printf 'EXPECT_BYTES=%q bash -s' "$EXPECT_BYTES")"
+          {
+            echo "## Export to DigitalOcean"
+            echo
+            echo '```'
+            ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "$remote_cmd" < scripts/import-dump-digitalocean.sh
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove transfer material
+        if: always()
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+        run: |
+          ssh -i ~/.ssh/do_deploy -o UserKnownHostsFile="$HOME/.ssh/known_hosts_do" -o StrictHostKeyChecking=yes "${DO_USER}@${DO_HOST}" "rm -f /var/www/reserveworx/incoming/import.sql.gz /var/www/reserveworx/incoming/storage.tgz" || true
+          rm -f ~/.ssh/do_deploy /tmp/backup-out.txt
