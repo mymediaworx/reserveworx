@@ -122,6 +122,10 @@ Migrations, the role sync, and the config, route, and view caches run on the new
 
 The previous release stays on disk. Rollback swaps that code back and does not undo migrations.
 
+### Restore the database
+
+reserveworx:restore-backup replays one private dump into this site's database. The file has to be mode 600 and a MySQL or MariaDB dump that names this database and no other. Nothing is written until --force is passed. A path under public_html or www/reserveworx.com is refused. The command does not print the password or the SQL. This page does not run a restore. A restore has not been run on the live SiteGround database.
+
 ### Check the public health URL
 
 The health check requests https://app.reserveworx.com/up. A failed check swaps the code back once and does not roll migrations back.

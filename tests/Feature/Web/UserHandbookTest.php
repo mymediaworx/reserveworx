@@ -65,7 +65,9 @@ class UserHandbookTest extends TestCase
             ->assertSee('max-width: 390px', false)
             ->assertDontSee('Beta Only Kayaks')
             ->assertDontSee('<script>', false)
-            ->assertDontSee('3%');
+            ->assertDontSee('3%')
+            ->assertDontSee('reserveworx:restore-backup')
+            ->assertDontSee('/platform/upgrade');
 
         $this->assertSame($before, $this->counts());
 
@@ -218,7 +220,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('href="/platform/readiness"', false)
             ->assertSee('href="/platform/performance"', false)
             ->assertSee('href="/platform/upgrade"', false)
-            ->assertSee('The page does not run a deploy.')
+            ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
             ->assertSee('The private token is typed once and is not shown again.')
             ->assertSee('This handbook does not change them.')
