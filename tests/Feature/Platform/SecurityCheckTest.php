@@ -21,6 +21,8 @@ class SecurityCheckTest extends TestCase
 
     private const KEPT_TOKEN = 'kept-ghl-token-value';
 
+    private const SAME_SITE_CANARY = 'rw-samesite-canary-secret';
+
     public function test_a_secure_server_passes_without_showing_a_token_or_keeping_a_row(): void
     {
         $admin = $this->admin();
@@ -38,6 +40,7 @@ class SecurityCheckTest extends TestCase
             ->expectsOutputToContain('card_columns=pass')
             ->expectsOutputToContain('csrf=pass')
             ->expectsOutputToContain('session_http_only=pass')
+            ->expectsOutputToContain('session_same_site=pass')
             ->expectsOutputToContain('audit_log=pass')
             ->expectsOutputToContain('secure=yes')
             ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
@@ -55,6 +58,9 @@ class SecurityCheckTest extends TestCase
             ->assertSee('Payments and connected accounts do not store a card number or a CVC.')
             ->assertSee('Form posts use Laravel\'s CSRF check.')
             ->assertSee('The session cookie is HTTP-only.')
+            ->assertSee('The session cookie is SameSite lax.')
+            ->assertSee('data-check="session_same_site"', false)
+            ->assertSee('data-state="pass"', false)
             ->assertSee('The audit log table is present.')
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
@@ -92,6 +98,98 @@ class SecurityCheckTest extends TestCase
             ->assertSee('The session cookie is not HTTP-only.')
             ->assertSee('The GoHighLevel private token is encrypted at rest.')
             ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        $this->assertSame($before, $this->counts());
+    }
+
+    public function test_the_session_cookie_must_be_samesite_lax_or_strict(): void
+    {
+        $admin = $this->admin();
+        $before = $this->counts();
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=pass')
+            ->expectsOutputToContain('session_http_only=pass')
+            ->expectsOutputToContain('secure=yes')
+            ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
+            ->assertSuccessful();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('The session cookie is SameSite lax.')
+            ->assertSee('data-secure="yes"', false)
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/help')
+            ->assertOk()
+            ->assertSee('SameSite lax or strict')
+            ->assertDontSee('3%');
+
+        config(['session.same_site' => 'Strict']);
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=pass')
+            ->expectsOutputToContain('secure=yes')
+            ->assertSuccessful();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('The session cookie is SameSite strict.')
+            ->assertSee('data-secure="yes"', false)
+            ->assertDontSee('The session cookie is not SameSite lax or strict.');
+
+        config(['session.same_site' => 'none']);
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=fail')
+            ->expectsOutputToContain('session_http_only=pass')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain('none')
+            ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('Not secure')
+            ->assertSee('data-secure="no"', false)
+            ->assertSee('data-check="session_same_site" data-state="fail"', false)
+            ->assertSee('The session cookie is not SameSite lax or strict.')
+            ->assertSee('The session cookie is HTTP-only.')
+            ->assertDontSee('SameSite none')
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        config(['session.same_site' => self::SAME_SITE_CANARY]);
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=fail')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain(self::SAME_SITE_CANARY)
+            ->assertFailed();
+
+        config(['session.same_site' => ' lax ']);
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=fail')
+            ->expectsOutputToContain('secure=no')
+            ->assertFailed();
+
+        config(['session.same_site' => null]);
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_same_site=fail')
+            ->expectsOutputToContain('secure=no')
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('The session cookie is not SameSite lax or strict.')
+            ->assertSee('data-secure="no"', false)
+            ->assertDontSee(self::SAME_SITE_CANARY);
 
         $this->assertSame($before, $this->counts());
     }

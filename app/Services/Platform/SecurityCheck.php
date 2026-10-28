@@ -16,6 +16,7 @@ use Throwable;
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
  * and the session cookie. A sample token is written and rolled back.
+ * SameSite must be lax or strict. A different value is not printed.
  * Nothing here calls Stripe or keeps a row.
  */
 final class SecurityCheck
@@ -34,6 +35,7 @@ final class SecurityCheck
             $this->cardColumns(),
             $this->csrf(),
             $this->httpOnly(),
+            $this->sameSite(),
             $this->auditLog(),
         ];
 
@@ -187,6 +189,31 @@ final class SecurityCheck
             'Session cookie',
             $only ? 'pass' : 'fail',
             $only ? 'The session cookie is HTTP-only.' : 'The session cookie is not HTTP-only.',
+        );
+    }
+
+    /**
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sameSite(): array
+    {
+        $value = config('session.same_site');
+        $token = is_string($value) ? strtolower($value) : '';
+
+        if ($token === 'lax' || $token === 'strict') {
+            return $this->check(
+                'session_same_site',
+                'Session cookie',
+                'pass',
+                'The session cookie is SameSite '.$token.'.',
+            );
+        }
+
+        return $this->check(
+            'session_same_site',
+            'Session cookie',
+            'fail',
+            'The session cookie is not SameSite lax or strict.',
         );
     }
 
