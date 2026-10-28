@@ -29,7 +29,9 @@ use App\Services\Booking\GuideRoster;
 use App\Services\Catalog\BookingAddOnLines;
 use App\Services\Payments\CheckoutService;
 use App\Services\Pricing\BookingPricer;
+use App\Support\Display;
 use App\Support\DisplayZone;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -107,7 +109,7 @@ trait BooksFromSchedule
     {
         $this->authorize('create', Booking::class);
         $model = $this->bookResourceModel($resource);
-        abort_unless($this->validBookDate($date) && $this->validBookTime($start), 422);
+        abort_unless(LocalClock::parse($date, $start, $this->bookZone($model)) instanceof CarbonImmutable, 422);
         $this->closeMove();
         $this->closeBooking();
         $this->bookResource = $resource;
@@ -222,7 +224,7 @@ trait BooksFromSchedule
             return;
         }
 
-        abort_unless($this->validBookTime($start), 422);
+        abort_unless(LocalClock::parse($this->bookDate, $start, $this->bookZone($this->bookResourceModel($this->bookResource))) instanceof CarbonImmutable, 422);
         $this->bookStart = $start;
         $this->bookProblem = null;
         $service = $this->selectedService();
@@ -675,13 +677,9 @@ trait BooksFromSchedule
             ];
         }
 
-        if (! $this->validBookTime($this->bookStart) || $this->bookDuration < 1) {
-            return null;
-        }
+        $start = LocalClock::parse($this->bookDate, $this->bookStart, $this->bookZone($resource));
 
-        $start = CarbonImmutable::createFromFormat('Y-m-d H:i', $this->bookDate.' '.$this->bookStart, $this->bookZone($resource));
-
-        if (! $start instanceof CarbonImmutable) {
+        if (! $start instanceof CarbonImmutable || $this->bookDuration < 1) {
             return null;
         }
 
@@ -860,8 +858,8 @@ trait BooksFromSchedule
 
         for ($cursor = $day, $guard = 0; $guard < 60 && $cursor < $end; $guard++, $cursor = $cursor->addMinutes(30)) {
             $choices[] = [
-                'start' => $cursor->format('H:i'),
-                'label' => $cursor->format('g:i A'),
+                'start' => LocalClock::token($cursor),
+                'label' => $cursor->format('g:i A').' '.$cursor->format('T'),
             ];
         }
 
@@ -883,13 +881,15 @@ trait BooksFromSchedule
             return collect();
         }
 
-        $from = $day->startOfDay()->utc();
+        $localStart = $day->startOfDay();
+        $from = $localStart->utc();
+        $until = $localStart->addDay()->utc();
 
         return Departure::query()
             ->where('service_id', $service->id)
             ->where('status', 'scheduled')
             ->where('starts_at', '>=', $from)
-            ->where('starts_at', '<', $from->addDay())
+            ->where('starts_at', '<', $until)
             ->orderBy('starts_at')
             ->get();
     }
@@ -903,8 +903,10 @@ trait BooksFromSchedule
         }
 
         $zone = $this->bookZone($resource);
+        $wanted = LocalClock::parse($this->bookDate, $this->bookStart, $zone);
         $match = $this->departuresFor($service, $zone)->first(
-            fn (Departure $departure): bool => CarbonImmutable::instance($departure->starts_at)->timezone($zone)->format('H:i') === $this->bookStart,
+            fn (Departure $departure): bool => $wanted instanceof CarbonImmutable
+                && CarbonImmutable::instance($departure->starts_at)->utc()->equalTo($wanted->utc()),
         );
 
         if ($match instanceof Departure) {
@@ -949,13 +951,9 @@ trait BooksFromSchedule
 
     private function slotLabel(string $zone): string
     {
-        if (! $this->validBookDate($this->bookDate) || ! $this->validBookTime($this->bookStart)) {
-            return '';
-        }
+        $start = LocalClock::parse($this->bookDate, $this->bookStart, $zone);
 
-        $start = CarbonImmutable::createFromFormat('Y-m-d H:i', $this->bookDate.' '.$this->bookStart, $zone);
-
-        return $start instanceof CarbonImmutable ? $start->format('D, M j, g:i A') : '';
+        return $start instanceof CarbonImmutable ? Display::dateTimeWithZone($start, $zone) : '';
     }
 
     private function validBookDate(string $value): bool
@@ -965,10 +963,5 @@ trait BooksFromSchedule
         }
 
         return checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1]);
-    }
-
-    private function validBookTime(string $value): bool
-    {
-        return preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $value) === 1;
     }
 }
