@@ -2,6 +2,7 @@
 
 namespace App\Services\Platform;
 
+use App\Support\DeployBackupPresence;
 use App\Support\SchedulerHeartbeat;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\RateLimiter;
@@ -14,7 +15,10 @@ use Throwable;
  */
 final class ReadinessReport
 {
-    public function __construct(private readonly SchedulerHeartbeat $scheduler) {}
+    public function __construct(
+        private readonly SchedulerHeartbeat $scheduler,
+        private readonly DeployBackupPresence $deployBackups = new DeployBackupPresence,
+    ) {}
 
     /**
      * @return array{ready: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -30,6 +34,7 @@ final class ReadinessReport
             $this->queue(),
             $this->debug(),
             $this->restoreCommand(),
+            $this->deployBackup(),
             $this->migrations(),
             $this->sessionSecure(),
             $this->https(),
@@ -204,6 +209,35 @@ final class ReadinessReport
             'Restore command',
             $registered ? 'pass' : 'fail',
             $registered ? 'reserveworx:restore-backup is registered.' : 'The restore command is not registered.',
+        );
+    }
+
+    /**
+     * Spec Section 12 and Section 14 item 15. Looks for one private deploy gzip.
+     * The path and the SQL are not shown. This does not restore a dump.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function deployBackup(): array
+    {
+        if (config('app.env') !== 'production') {
+            return $this->check(
+                'deploy_backup',
+                'Deploy backup',
+                'note',
+                'A private deploy backup is checked when the app is in production.',
+            );
+        }
+
+        $present = $this->deployBackups->status() === 'present';
+
+        return $this->check(
+            'deploy_backup',
+            'Deploy backup',
+            $present ? 'pass' : 'fail',
+            $present
+                ? 'A private deploy backup is present.'
+                : 'A private deploy backup was not found.',
         );
     }
 
