@@ -30,7 +30,7 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
 | Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed |
 | Wildcard subdomains and wildcard SSL | Unverified |
-| Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
+| Outbound HTTPS to Stripe and HighLevel | `reserveworx:hosting-check` prints `stripe_tls` and `ghl_tls` as `verified` or `failed`, and `stripe_https` and `ghl_https` as a three-digit status or `unreachable`. The response, the address, and any error text are not printed. A failed probe does not fail the check. The October 23 session saw HTTP 404 with a verified certificate on both hosts. A 404 on the bare host is not an API call. The October 24, 2026 log did not include these lines. This read has not been run on the SiteGround account |
 | Inbound webhook WAF or rate limits | Not observable from SSH. An external curl that receives HTTP 202 is SiteGround's bot check, not proof the application answered |
 
 ## Deploy hosting check, October 24, 2026
