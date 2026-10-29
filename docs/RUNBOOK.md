@@ -91,7 +91,7 @@ A platform administrator opens `/platform/performance` on the platform host. `ph
 
 ## Security check
 
-A platform administrator opens `/platform/security` on the platform host. `php artisan reserveworx:security` prints the same lines and exits 0 only when nothing fails. It writes one sample GoHighLevel token and one sample webhook secret, checks that the stored text is not that sample, and rolls both rows back. Owner, manager, and staff have to match the role catalog. A mismatch fails the check and does not change those roles. The session cookie has to stay on the current host, and SameSite has to be lax or strict. A parent domain fails the check. The configured domain is not printed. It does not print the sample, does not call Stripe, and does not keep a price, a payment, a tax, a fee, or a refund. A tenant address does not serve the page.
+A platform administrator opens `/platform/security` on the platform host. `php artisan reserveworx:security` prints the same lines and exits 0 only when nothing fails. It writes one sample GoHighLevel token and one sample webhook secret, checks that the stored text is not that sample, and rolls both rows back. Owner, manager, and staff have to match the role catalog. A mismatch fails the check and does not change those roles. The session cookie has to stay on the current host, and SameSite has to be lax or strict. Sign-in pages cannot be framed. The booking page can. A parent domain fails the check. The configured domain is not printed. It does not print the sample, does not call Stripe, and does not keep a price, a payment, a tax, a fee, or a refund. A tenant address does not serve the page.
 
 ## Isolation check
 
