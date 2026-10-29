@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Support\HostCrontab;
 use App\Support\HostPlanName;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
@@ -57,7 +58,8 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('schedule=* * * * * rentals:flag-overdue withoutOverlapping=yes', $output);
         $this->assertStringContainsString('schedule=0 * * * * reports:build-summaries withoutOverlapping=yes', $output);
         $this->assertStringContainsString('cron_command=schedule:run', $output);
-        $this->assertStringContainsString('host_crontab=not read', $output);
+        $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
+        $this->assertStringNotContainsString('host_crontab=not read', $output);
         $this->assertPlanNameLine($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
@@ -197,5 +199,72 @@ class HostingCheckTest extends TestCase
             'refunds' => DB::table('refunds')->count(),
             'taxes' => DB::table('location_tax_rules')->count(),
         ];
+    }
+
+    public function test_a_schedule_run_crontab_reports_the_shortest_gap_and_hides_the_command(): void
+    {
+        $output = $this->checkWithCrontab(<<<'CRON'
+            # reserveworx super-secret-token
+            MAIL_PASSWORD=super-secret-token
+            * * * * * cd /home/reserveworx && DB_PASSWORD=super-secret-token php artisan schedule:run
+            0 * * * * echo super-secret-token
+            */30 * * * * php /home/reserveworx/artisan schedule:run
+            15 4 * * * php artisan schedule:run --secret=super-secret-token
+            CRON);
+
+        $this->assertStringContainsString('host_crontab=read', $output);
+        $this->assertStringContainsString('host_crontab_schedule=yes', $output);
+        $this->assertStringContainsString('host_crontab_expression=* * * * *', $output);
+        $this->assertStringContainsString('host_crontab_expression=*/30 * * * *', $output);
+        $this->assertStringContainsString('host_crontab_expression=15 4 * * *', $output);
+        $this->assertStringContainsString('host_crontab_interval_minutes=1', $output);
+        $this->assertStringContainsString('plan_name=not_measured', $output);
+        $this->assertStringNotContainsString('super-secret-token', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertStringNotContainsString('MAIL_PASSWORD', $output);
+        $this->assertStringNotContainsString('DB_PASSWORD', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+    }
+
+    public function test_pinned_and_hourly_schedules_are_sixty_minutes(): void
+    {
+        $hourly = $this->checkWithCrontab("0 * * * * php artisan schedule:run\n");
+        $alias = $this->checkWithCrontab("@hourly php artisan schedule:run\n");
+        $step = $this->checkWithCrontab("*/5 * * * * php artisan schedule:run\n");
+
+        $this->assertStringContainsString('host_crontab_expression=0 * * * *', $hourly);
+        $this->assertStringContainsString('host_crontab_interval_minutes=60', $hourly);
+        $this->assertStringContainsString('host_crontab_expression=@hourly', $alias);
+        $this->assertStringContainsString('host_crontab_interval_minutes=60', $alias);
+        $this->assertStringContainsString('host_crontab_expression=*/5 * * * *', $step);
+        $this->assertStringContainsString('host_crontab_interval_minutes=5', $step);
+    }
+
+    public function test_a_line_that_is_not_a_user_schedule_does_not_claim_an_interval(): void
+    {
+        $extra = $this->checkWithCrontab("* * * * * * php artisan schedule:run\n");
+        $other = $this->checkWithCrontab("*/15 * * * * php artisan queue:work\n");
+        $empty = $this->checkWithCrontab('');
+        $missing = $this->checkWithCrontab(null);
+
+        $this->assertStringContainsString('host_crontab_expression=unparsed', $extra);
+        $this->assertStringContainsString('host_crontab_interval_minutes=unparsed', $extra);
+        $this->assertStringContainsString('host_crontab=read', $other);
+        $this->assertStringContainsString('host_crontab_schedule=no', $other);
+        $this->assertStringNotContainsString('host_crontab_interval_minutes=', $other);
+        $this->assertStringContainsString('host_crontab=empty', $empty);
+        $this->assertStringNotContainsString('host_crontab_schedule=', $empty);
+        $this->assertStringContainsString('host_crontab=unavailable', $missing);
+        $this->assertStringNotContainsString('host_crontab_schedule=', $missing);
+    }
+
+    private function checkWithCrontab(?string $text): string
+    {
+        $this->app->instance(HostCrontab::class, new HostCrontab(fn (): ?string => $text));
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+        $this->assertSame(0, $exitCode, $output);
+
+        return $output;
     }
 }

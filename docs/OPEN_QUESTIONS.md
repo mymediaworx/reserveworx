@@ -20,7 +20,7 @@ Seeded from spec Section 18.2 on October 23, 2026. New questions discovered whil
 ## Found while scaffolding
 
 13. **PHP on this site.** Managed PHP 8.2.35 was reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site. The app is Laravel 12 because of that report. Hosting check must still print the binary, `memory_limit`, and `max_execution_time`.
-14. **Cron minimum.** The same report says Site Tools cron runs every minute on GoGeek. SiteGround's public fair-use note for shared plans still says at least 30 minutes between cron runs. Hosting check must show the real crontab. Hold expiry still has to be enforced at read time.
+14. **Cron minimum.** The same report says Site Tools cron runs every minute on GoGeek. SiteGround's public fair-use note for shared plans still says at least 30 minutes between cron runs. `reserveworx:hosting-check` now reads the user crontab and prints each `schedule:run` expression and the shortest gap in minutes. It does not print the command text. The October 24, 2026 log still says `host_crontab=not read`, so the live interval is unknown until that command runs on this account. Hold expiry still has to be enforced at read time.
 15. **MySQL or MariaDB on the host.** The exact version, InnoDB, transactions, and `SELECT … FOR UPDATE` are unverified until hosting-check runs. CI uses MySQL 8.0 and MariaDB 11.8.
 16. **Outbound HTTPS and inbound WAF.** The hosting check can probe outbound TLS to Stripe and HighLevel. It cannot see WAF rules that would block inbound webhooks.
 17. **Process limits and long-running processes.** Assumed unavailable until the check says otherwise. No persistent workers and no WebSockets.
