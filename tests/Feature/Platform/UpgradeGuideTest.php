@@ -42,6 +42,11 @@ class UpgradeGuideTest extends TestCase
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
             ->assertDontSee('<script>', false)
+            ->assertSee('Restore the database')
+            ->assertSee('reserveworx:restore-backup')
+            ->assertSee('Nothing is written until --force is passed.')
+            ->assertSee('This page does not run a restore.')
+            ->assertSee('A restore has not been run on the live SiteGround database.')
             ->assertDontSee('sk_live')
             ->assertDontSee('whsec_')
             ->assertDontSee('SG_SSH_KEY')
@@ -74,6 +79,7 @@ class UpgradeGuideTest extends TestCase
         }
 
         $this->assertStringContainsString('/platform/upgrade', $runbook);
+        $this->assertStringContainsString('does not run that command', $runbook);
         $this->assertStringNotContainsString('sk_live', $deploy);
         $this->assertStringNotContainsString('whsec_', $deploy);
     }

@@ -90,7 +90,7 @@ final class UserHandbook
                     ],
                     [
                         'title' => 'Upgrade',
-                        'body' => 'How a later release replaces the live one. The page does not run a deploy. Rollback swaps the previous release and does not undo migrations.',
+                        'body' => 'How a later release replaces the live one, and how a private database dump is restored. The page does not run a deploy or a restore. Rollback swaps the previous release and does not undo migrations.',
                         'href' => '/platform/upgrade',
                     ],
                     [

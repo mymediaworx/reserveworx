@@ -19,11 +19,13 @@ use App\Services\Booking\CancellationSettlement;
 use App\Services\Booking\RentalExtensions;
 use App\Services\Booking\TourDepartureChoices;
 use App\Services\Integrations\GhlMessages;
+use App\Services\Inventory\ClosureCalendar;
 use App\Services\Notifications\NotificationHooks;
 use App\Services\Widget\WidgetTokens;
 use App\Support\BookingReference;
 use App\Support\Display;
 use App\Support\DisplayZone;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -31,6 +33,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
+use InvalidArgumentException;
 
 class GuestBookingController extends Controller
 {
@@ -43,6 +46,7 @@ class GuestBookingController extends Controller
         private readonly CancellationSettlement $settlement,
         private readonly CancellationPolicies $policies,
         private readonly TourDepartureChoices $departures,
+        private readonly ClosureCalendar $clocks,
     ) {}
 
     public function lookupForm(Request $request, string $token): View
@@ -153,7 +157,7 @@ class GuestBookingController extends Controller
 
         $validator = Validator::make($request->all(), [
             'date' => ['required', 'date_format:Y-m-d'],
-            'start' => ['required', 'date_format:H:i'],
+            'start' => ['required', 'string', 'max:11'],
             'duration_minutes' => ['sometimes', 'nullable', 'integer', 'min:1'],
         ]);
 
@@ -177,10 +181,19 @@ class GuestBookingController extends Controller
         $service = $booking->service;
         $location = $service instanceof Service ? $service->location : null;
         $zone = DisplayZone::forLocation($location instanceof Location ? $location : null);
-        $starts = CarbonImmutable::createFromFormat('Y-m-d H:i', $data['date'].' '.$data['start'], $zone);
+        $date = $data['date'] ?? null;
+        $start = $data['start'] ?? null;
+        $starts = is_string($date) && is_string($start) ? $this->guestStart($date, $start, $zone) : null;
 
         if (! $starts instanceof CarbonImmutable) {
-            return $this->manageResponse($token, $booking, 'Choose a valid date and time.', 422);
+            $plain = is_string($start) && preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $start) === 1;
+
+            return $this->manageResponse(
+                $token,
+                $booking,
+                $plain ? 'That time does not exist in '.$zone.'.' : 'Choose a valid date and time.',
+                422,
+            );
         }
 
         try {
@@ -385,7 +398,7 @@ class GuestBookingController extends Controller
             'departures' => $this->departures->forBooking($booking),
             'whenLabel' => Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone),
             'localDate' => $localStart->format('Y-m-d'),
-            'localTime' => $localStart->format('H:i'),
+            'localTime' => LocalClock::token($localStart),
             'shorterEndLabel' => is_string($shorterEnd) && $shorterEnd !== ''
                 ? Display::dateTimeWithZone(CarbonImmutable::parse($shorterEnd), $zone)
                 : null,
@@ -434,7 +447,7 @@ class GuestBookingController extends Controller
                 : null;
             $listed[] = [
                 'date' => $local->format('Y-m-d'),
-                'start' => $local->format('H:i'),
+                'start' => LocalClock::token($local),
                 'label' => $end instanceof CarbonImmutable
                     ? Display::rangeWithZone($start, $end, $zone)
                     : Display::dateTimeWithZone($start, $zone),
@@ -442,6 +455,37 @@ class GuestBookingController extends Controller
         }
 
         return $listed;
+    }
+
+    /**
+     * A plain clock is the earlier instant on a fall-back morning. An offset
+     * clock is that exact instant. A missing spring-forward hour is null.
+     */
+    private function guestStart(string $date, string $token, string $zone): ?CarbonImmutable
+    {
+        if (preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d[+-]\d{2}:\d{2}$/', $token) === 1) {
+            $parsed = LocalClock::parse($date, $token, $zone);
+
+            return $parsed instanceof CarbonImmutable ? $parsed : null;
+        }
+
+        if (preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $token) !== 1) {
+            return null;
+        }
+
+        try {
+            $instant = $this->clocks->localInstant($date, $token, $zone, false);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+
+        $local = $instant->timezone($zone);
+
+        if ($local->format('H:i') !== $token || $local->toDateString() !== $date) {
+            return null;
+        }
+
+        return $local;
     }
 
     private function canExtend(Booking $booking): bool

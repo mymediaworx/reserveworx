@@ -79,7 +79,7 @@ Staff open `/staff/help` on the workspace host. An owner’s handbook also links
 
 ## Upgrade
 
-A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
+A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. It names `reserveworx:restore-backup` and does not run that command. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
 
 ## Production readiness
 
@@ -108,3 +108,7 @@ One Site Tools cron job calls `schedule:run`, which runs `queue:work database --
 ## Secrets in a log
 
 Audit logging strips values whose keys look like passwords, tokens, secrets, authorization headers, client secrets, SSH keys, or passphrases. If a secret still appears in a GitHub Actions log, revoke it at the source and store a replacement. Do not echo the old value in the revocation note.
+
+## First install
+
+A platform administrator reads the first install on `/platform/upgrade`. A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.

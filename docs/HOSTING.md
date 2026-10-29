@@ -22,7 +22,7 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | PHP extensions | `reserveworx:hosting-check` prints `php_extension` for bcmath, ctype, curl, dom, fileinfo, gd, intl, mbstring, openssl, pdo_mysql, tokenizer, xml, and zip, then `php_extensions=ok` or `missing`. A missing extension does not fail the check. The October 23 CLI list included those extensions. The October 24 log did not print `php_extension`. That command has not been run again on this account |
 | MySQL or MariaDB version | The application connection printed `db_version=8.4.11-11` on October 24, 2026. The October 23 SSH client was MySQL 8.4.10 and could not log in (error 1045, using password NO). There is no `~/.my.cnf` |
 | InnoDB, transactions, and `SELECT … FOR UPDATE` | 57 application tables, all `engine=InnoDB`. `for_update=ok`. `transaction_rollback=ok`. Measured October 24, 2026 by `reserveworx:hosting-check` |
-| Minimum cron interval | `host_crontab=not read`. The application schedule uses `queue_connection=database`, `queue_work_max_time=20`, and `cron_command=schedule:run`. The every-minute Site Tools schedule remains a report, not a measurement |
+| Minimum cron interval | `reserveworx:hosting-check` reads the user crontab. `host_crontab` is `read`, `empty`, or `unavailable`. Each `schedule:run` line prints its five-field expression, or a known `@` alias, and the shortest gap in minutes. A line that is not that kind of schedule is `unparsed`, and then the interval is `unparsed`. The command text, a path, and an assignment are not printed. The October 24, 2026 run printed `host_crontab=not read` and has not been repeated on this account |
 | SSH | Opened October 23, 2026. Host key fingerprint `SHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A`. See the install section below |
 | Git on the server | git 2.56.0. Deploys do not use it |
 | Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
@@ -144,7 +144,7 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` and the host crontab are still unread.
+Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` is still unread. The hosting check can read the user crontab. The October 24, 2026 log printed `host_crontab=not read` and has not been repeated on this account.
 
 ## First install, October 23, 2026
 
