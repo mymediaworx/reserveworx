@@ -15,7 +15,7 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 
 | Check | Result |
 |---|---|
-| Plan name (StartUp, GrowBig, GoGeek, or Cloud) | GoGeek, reported by BrandWorx Dev, distrosku.com, Oct 23 2026; not yet verified for this site |
+| Plan name (StartUp, GrowBig, GoGeek, or Cloud) | `reserveworx:hosting-check` prints `plan_name=not_measured`. The command does not guess from a hostname, a limit, git, or this report. GoGeek was reported by BrandWorx Dev for distrosku.com on October 23, 2026, and is not a measurement of this site. The October 24, 2026 log did not include this line. This read has not been run on the SiteGround account |
 | PHP versions this account can run | CLI `/usr/bin/php` and `/usr/local/bin/php` are 8.2.35. CGI binaries exist at `/usr/local/php74`, `php82`, `php83`, `php84`, `php85`, and `php86`. The `php82` CGI binary is also 8.2.35. Those CGI binaries reject `php -r`. Deploy run 40080763617 printed `php_version=8.2.35` for the binary that runs artisan |
 | `memory_limit` | The artisan process printed `memory_limit=768M` on October 24, 2026. The October 23 `php82` CGI probe reported 128M. The per-site PHP selection in Site Tools was not read |
 | `max_execution_time` | The artisan process printed `max_execution_time=0` on October 24, 2026. The October 23 `php82` CGI probe printed an empty value. The web limit is still unverified |
