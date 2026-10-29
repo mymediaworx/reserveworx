@@ -68,6 +68,7 @@ class ReadinessReportTest extends TestCase
             ->expectsOutputToContain('session_secure=note')
             ->expectsOutputToContain('https=note')
             ->expectsOutputToContain('scheduler=pass')
+            ->expectsOutputToContain('release=pass')
             ->expectsOutputToContain('ready=yes')
             ->doesntExpectOutputToContain(self::KEY_CANARY)
             ->assertSuccessful();
@@ -90,6 +91,7 @@ class ReadinessReportTest extends TestCase
             ->assertSee('Secure cookies are checked when the app is in production.')
             ->assertSee('HTTPS is checked when the app is in production.')
             ->assertSee('The scheduler has run in the last 10 minutes.')
+            ->assertSee('This build is 0.0.0. The release tag is v0.0.0.')
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
             ->assertSee('/platform/readiness', false)
