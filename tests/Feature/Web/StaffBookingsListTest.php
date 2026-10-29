@@ -408,7 +408,7 @@ class StaffBookingsListTest extends TestCase
         $this->assertStringContainsString('Ada Lovelace', $csv);
         $this->assertStringContainsString("'=Ada", $csv);
         $this->assertStringContainsString('Kayak rental', $csv);
-        $this->assertStringContainsString('2026-06-15 15:00', $csv);
+        $this->assertStringContainsString('2026-06-15 15:00 UTC', $csv);
         $this->assertStringNotContainsString('Left Out', $csv);
         $this->assertStringNotContainsString('Beta Customer', $csv);
         $this->assertNotNull($leftOut->id);
