@@ -4,11 +4,14 @@ namespace App\Support;
 
 /**
  * The upgrade procedure from Spec Section 17.
+ * The release line is Spec Section 16.
  * The sentences are the same ones docs/DEPLOY.md publishes.
  * Reading them does not deploy, restore a database, or write a price, tax, fee, or refund.
  */
 final class UpgradeGuide
 {
+    public function __construct(private readonly ApplicationRelease $release) {}
+
     public function intro(): string
     {
         return 'An upgrade replaces the live release with a newer commit of this same application. It is not a first install. Reading this procedure does not run a deploy and does not write a booking, a price, a payment, a tax, a fee, or a refund.';
@@ -20,6 +23,7 @@ final class UpgradeGuide
     public function steps(): array
     {
         return [
+            $this->nameTheRelease(),
             [
                 'title' => 'Wait for CI',
                 'body' => 'Deploy starts after CI passes for that commit, and only while that commit is still the tip of main. A failed CI run deploys nothing.',
@@ -74,6 +78,19 @@ final class UpgradeGuide
         return [
             'title' => 'First install',
             'body' => 'A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.',
+        ];
+    }
+
+    /**
+     * @return array{title: string, body: string}
+     */
+    private function nameTheRelease(): array
+    {
+        $detail = $this->release->check()['detail'];
+
+        return [
+            'title' => 'Name the release',
+            'body' => $detail.' A version that is not major.minor.patch fails readiness and is not printed. This page does not create the tag.',
         ];
     }
 }

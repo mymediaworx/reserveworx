@@ -79,11 +79,11 @@ Staff open `/staff/help` on the workspace host. An owner’s handbook also links
 
 ## Upgrade
 
-A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. It names `reserveworx:restore-backup` and does not run that command. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
+A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. It names `reserveworx:restore-backup` and does not run that command. This build is 0.0.0. The release tag is v0.0.0. The page does not create the tag. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
 
 ## Production readiness
 
-A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It fails when a migration has not run, and it does not run migrations. It does not print the application key, a migration name, or other secrets, and it does not call Stripe. A tenant address does not serve the page.
+A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It fails when a migration has not run, and it does not run migrations. It fails when the release version is not major.minor.patch, and it does not print that value. It does not print the application key, a migration name, or other secrets, and it does not call Stripe. A tenant address does not serve the page.
 
 ## Performance check
 
