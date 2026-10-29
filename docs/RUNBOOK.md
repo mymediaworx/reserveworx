@@ -79,7 +79,7 @@ Staff open `/staff/help` on the workspace host. An owner’s handbook also links
 
 ## Upgrade
 
-A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
+A platform administrator opens `/platform/upgrade` on the platform host. The same steps are in [`DEPLOY.md`](DEPLOY.md). The page does not run a deploy. It names `reserveworx:restore-backup` and does not run that command. Rollback swaps the previous release and does not undo migrations. A tenant address does not serve the page.
 
 ## Production readiness
 
