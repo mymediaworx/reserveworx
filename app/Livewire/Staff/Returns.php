@@ -14,9 +14,12 @@ use App\Models\TenantSetting;
 use App\Services\Allocation\AllocationUnavailableException;
 use App\Services\Booking\WaitlistPromoter;
 use App\Services\Operations\ResourceReturn;
+use App\Support\Display;
 use App\Support\DisplayZone;
 use App\Support\LateFee;
 use App\Support\Lateness;
+use App\Support\LocalClock;
+use App\Support\LocationClock;
 use App\Tenancy\StaffLocationAccess;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -79,16 +82,38 @@ class Returns extends Component
         $this->fillDefaults($checkouts);
 
         $setting = $this->settings();
+        $clock = app(LocationClock::class);
 
         return view('livewire.staff.returns', [
             'locations' => $locations,
             'selected' => $selected,
             'checkouts' => $checkouts,
+            'previews' => $this->previews($checkouts, $clock),
             'now' => CarbonImmutable::now('UTC'),
             'graceMinutes' => LateFee::graceMinutes($setting),
             'lateFeeRate' => $setting instanceof TenantSetting ? $setting->late_fee_per_minute_cents : null,
             'currency' => $setting instanceof TenantSetting && $setting->currency !== '' ? $setting->currency : 'USD',
         ]);
+    }
+
+    public function useReturnTime(string $checkoutId, string $value): void
+    {
+        $this->reset('flash', 'problem');
+        $checkout = RentalCheckout::query()->with('booking.location')->find($checkoutId);
+        abort_unless($checkout instanceof RentalCheckout, 404);
+        $booking = $checkout->booking;
+        abort_unless($booking instanceof Booking, 404);
+        $this->authorize('checkIn', $booking);
+        $zone = $this->zone($booking->location);
+        $parsed = $this->parsedReturn(app(LocationClock::class), $value, $zone);
+
+        if (! $parsed instanceof CarbonImmutable) {
+            $this->addError('returnedAt.'.$checkoutId, 'That time does not exist in this location.');
+
+            return;
+        }
+
+        $this->returnedAt[$checkoutId] = $parsed->timezone($zone)->format('Y-m-d\TH:iP');
     }
 
     public function recordReturn(string $checkoutId, ResourceReturn $returns, WaitlistPromoter $promoter): void
@@ -101,11 +126,13 @@ class Returns extends Component
         $this->authorize('checkIn', $booking);
 
         $rules = [
-            'returnedAt.'.$checkoutId => ['required', 'date_format:Y-m-d\TH:i'],
+            'returnedAt.'.$checkoutId => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
             'condition.'.$checkoutId => ['required', 'string', Rule::in(ReturnCondition::staffValues())],
             'note.'.$checkoutId => ['nullable', 'string', 'max:500'],
         ];
         $messages = [
+            'returnedAt.'.$checkoutId.'.regex' => 'Enter the time it came back.',
+            'returnedAt.'.$checkoutId.'.required' => 'Enter the time it came back.',
             'condition.'.$checkoutId.'.in' => 'Condition must be good, needs attention, or damaged.',
         ];
         $zone = $this->zone($booking->location);
@@ -127,10 +154,10 @@ class Returns extends Component
 
         $this->validate($rules, $messages);
 
-        $parsed = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $rawTime, $zone);
+        $parsed = $this->parsedReturn(app(LocationClock::class), $rawTime, $zone);
 
         if (! $parsed instanceof CarbonImmutable) {
-            $this->addError('returnedAt.'.$checkoutId, 'Enter the time it came back.');
+            $this->addError('returnedAt.'.$checkoutId, 'That time does not exist in this location.');
 
             return;
         }
@@ -221,7 +248,7 @@ class Returns extends Component
      */
     private function assess(RentalCheckout $checkout, string $rawTime, string $zone): array
     {
-        $parsed = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $rawTime, $zone);
+        $parsed = $this->parsedReturn(app(LocationClock::class), $rawTime, $zone);
 
         if (! $parsed instanceof CarbonImmutable) {
             return ['cents' => 0];
@@ -233,6 +260,69 @@ class Returns extends Component
         $rate = $setting instanceof TenantSetting ? $setting->late_fee_per_minute_cents : null;
 
         return ['cents' => LateFee::amountCents($minutes, $rate)];
+    }
+
+    /**
+     * @param  Collection<int, RentalCheckout>  $checkouts
+     * @return array<string, array{parsed: ?CarbonImmutable, choices: list<array{value: string, label: string}>}>
+     */
+    private function previews(Collection $checkouts, LocationClock $clock): array
+    {
+        $previews = [];
+
+        foreach ($checkouts as $checkout) {
+            $booking = $checkout->booking;
+            $zone = $booking instanceof Booking ? $this->zone($booking->location) : DisplayZone::forTenant($this->tenant());
+            $raw = $this->returnedAt[$checkout->id] ?? '';
+            $previews[$checkout->id] = [
+                'parsed' => $this->parsedReturn($clock, $raw, $zone),
+                'choices' => $this->returnChoices($clock, $raw, $zone),
+            ];
+        }
+
+        return $previews;
+    }
+
+    private function parsedReturn(LocationClock $clock, string $raw, string $zone): ?CarbonImmutable
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/', $raw) !== 1) {
+            return null;
+        }
+
+        return $clock->parse($raw, $zone, false);
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    private function returnChoices(LocationClock $clock, string $raw, string $zone): array
+    {
+        if (preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $raw) === 1) {
+            return [];
+        }
+
+        $earlier = $this->parsedReturn($clock, $raw, $zone);
+        $later = $clock->parse($raw, $zone, true);
+
+        if (! $earlier instanceof CarbonImmutable || ! $later instanceof CarbonImmutable || $later->equalTo($earlier)) {
+            return [];
+        }
+
+        return [
+            $this->choice($earlier, $zone),
+            $this->choice($later, $zone),
+        ];
+    }
+
+    /**
+     * @return array{value: string, label: string}
+     */
+    private function choice(CarbonImmutable $instant, string $zone): array
+    {
+        return [
+            'value' => $instant->timezone($zone)->format('Y-m-d\TH:iP'),
+            'label' => Display::dateTimeWithZone($instant, $zone),
+        ];
     }
 
     /**
@@ -297,7 +387,14 @@ class Returns extends Component
             $zone = $booking instanceof Booking ? $this->zone($booking->location) : DisplayZone::forTenant($this->tenant());
 
             if (! isset($this->returnedAt[$checkout->id]) || $this->returnedAt[$checkout->id] === '') {
-                $this->returnedAt[$checkout->id] = CarbonImmutable::now($zone)->format('Y-m-d\TH:i');
+                $now = CarbonImmutable::now($zone);
+                $value = $now->format('Y-m-d\TH:i');
+
+                if (LocalClock::repeated($now)) {
+                    $value .= $now->format('P');
+                }
+
+                $this->returnedAt[$checkout->id] = $value;
             }
 
             if (! isset($this->condition[$checkout->id]) || $this->condition[$checkout->id] === '') {

@@ -17,8 +17,10 @@
             <p class="lede" data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</p>
             <style>
                 p[data-when], p[data-hold-until] { max-width: 100%; overflow-wrap: anywhere; }
+                button[data-extend-until] { max-width: 100%; }
                 @media (max-width: 390px) {
                     p[data-when], p[data-hold-until] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+                    button[data-extend-until] { width: 100%; white-space: normal; overflow-wrap: anywhere; }
                 }
             </style>
         </div>
@@ -365,7 +367,7 @@
                                 <button type="submit" class="button">Extend rental</button>
                             </form>
                             @if ($extensionShorterLabel)
-                                <button type="button" class="button top-gap" wire:click="acceptShorterExtension">Extend until {{ $extensionShorterLabel }}</button>
+                                <button type="button" class="button top-gap" data-extend-until wire:click="acceptShorterExtension">Extend until {{ $extensionShorterLabel }}</button>
                             @endif
                             @foreach ($extensionAssets as $offerAsset)
                                 <button type="button" class="button top-gap" wire:click="acceptAssetExtension('{{ $offerAsset['id'] }}')">Use {{ $offerAsset['name'] }} instead</button>
