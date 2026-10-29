@@ -13,6 +13,7 @@ use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\User;
+use App\Support\DeployBackupPresence;
 use App\Support\SchedulerHeartbeat;
 use Carbon\Carbon;
 use Database\Factories\UserFactory;
@@ -34,11 +35,32 @@ class ReadinessReportTest extends TestCase
 
     private const NAME_CANARY = 'canary-secret-name';
 
+    private const PATH_CANARY = 'rw-backup-path-canary';
+
+    /** @var list<string> */
+    private array $scratchFiles = [];
+
+    /** @var list<string> */
+    private array $scratchDirectories = [];
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();
         $property = new ReflectionProperty(UserFactory::class, 'password');
         $property->setValue(null, null);
+
+        foreach ($this->scratchFiles as $file) {
+            if (is_file($file)) {
+                unlink($file);
+            }
+        }
+
+        foreach (array_reverse($this->scratchDirectories) as $directory) {
+            if (is_dir($directory)) {
+                @rmdir($directory);
+            }
+        }
+
         parent::tearDown();
     }
 
@@ -64,6 +86,7 @@ class ReadinessReportTest extends TestCase
             ->expectsOutputToContain('queue=pass')
             ->expectsOutputToContain('debug=pass')
             ->expectsOutputToContain('restore_command=pass')
+            ->expectsOutputToContain('deploy_backup=note')
             ->expectsOutputToContain('migrations=pass')
             ->expectsOutputToContain('session_secure=note')
             ->expectsOutputToContain('https=note')
@@ -86,6 +109,7 @@ class ReadinessReportTest extends TestCase
             ->assertSee('The queue uses the database driver and the jobs table is present.')
             ->assertSee('Debug is off.')
             ->assertSee('reserveworx:restore-backup is registered.')
+            ->assertSee('A private deploy backup is checked when the app is in production.')
             ->assertSee('Migrations are current.')
             ->assertSee('Secure cookies are checked when the app is in production.')
             ->assertSee('HTTPS is checked when the app is in production.')
@@ -181,6 +205,7 @@ class ReadinessReportTest extends TestCase
         $this->readyConfig();
         $this->lockEncryption();
         app(SchedulerHeartbeat::class)->beat();
+        $this->bindPresentDeployBackup();
         config([
             'app.env' => 'production',
             'app.url' => 'http://app.reserveworx.com',
@@ -190,6 +215,7 @@ class ReadinessReportTest extends TestCase
         $this->artisan('reserveworx:readiness')
             ->expectsOutputToContain('session_secure=fail')
             ->expectsOutputToContain('https=fail')
+            ->expectsOutputToContain('deploy_backup=pass')
             ->expectsOutputToContain('ready=no')
             ->doesntExpectOutputToContain('app.reserveworx.com')
             ->assertFailed();
@@ -202,6 +228,7 @@ class ReadinessReportTest extends TestCase
         $this->artisan('reserveworx:readiness')
             ->expectsOutputToContain('session_secure=pass')
             ->expectsOutputToContain('https=pass')
+            ->expectsOutputToContain('deploy_backup=pass')
             ->expectsOutputToContain('ready=yes')
             ->doesntExpectOutputToContain('app.reserveworx.com')
             ->assertSuccessful();
@@ -211,7 +238,119 @@ class ReadinessReportTest extends TestCase
             ->assertOk()
             ->assertSee('The session cookie is marked secure.')
             ->assertSee('The application URL uses HTTPS.')
+            ->assertSee('A private deploy backup is present.')
             ->assertDontSee('https://app.reserveworx.com');
+    }
+
+    public function test_a_private_deploy_backup_is_required_in_production_and_the_path_stays_hidden(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-27 16:00:00', 'UTC'));
+        $this->readyConfig();
+        $this->lockEncryption();
+        app(SchedulerHeartbeat::class)->beat();
+        $admin = $this->admin();
+        $audits = AuditLog::query()->count();
+        $directory = $this->scratchDirectory(self::PATH_CANARY);
+        config([
+            'app.env' => 'production',
+            'app.url' => 'https://app.reserveworx.com',
+            'session.secure' => true,
+        ]);
+        $this->bindDeployBackupDirectory($directory);
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain(self::PATH_CANARY)
+            ->doesntExpectOutputToContain('shared/backups')
+            ->doesntExpectOutputToContain('.sql.gz')
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/readiness')
+            ->assertOk()
+            ->assertSee('Not ready')
+            ->assertSee('data-check="deploy_backup"', false)
+            ->assertSee('data-state="fail"', false)
+            ->assertSee('A private deploy backup was not found.')
+            ->assertDontSee(self::PATH_CANARY)
+            ->assertDontSee('shared/backups')
+            ->assertDontSee('.sql.gz');
+
+        $open = $this->scratchGzip($directory, '20261027T160000Z.sql.gz', 0644);
+        $this->assertNotSame(0600, fileperms($open) & 0777);
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain(self::PATH_CANARY)
+            ->doesntExpectOutputToContain('20261027T160000Z')
+            ->assertFailed();
+
+        unlink($open);
+        $this->scratchFiles = array_values(array_filter(
+            $this->scratchFiles,
+            fn (string $path): bool => $path !== $open,
+        ));
+
+        $plain = $directory.'/20261027T160100Z.sql.gz';
+        file_put_contents($plain, 'not-a-gzip');
+        chmod($plain, 0600);
+        $this->scratchFiles[] = $plain;
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain('not-a-gzip')
+            ->assertFailed();
+
+        unlink($plain);
+        $this->scratchFiles = array_values(array_filter(
+            $this->scratchFiles,
+            fn (string $path): bool => $path !== $plain,
+        ));
+
+        $this->scratchGzip($directory, '20261027T160200Z.sql.gz', 0600);
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=pass')
+            ->expectsOutputToContain('ready=yes')
+            ->doesntExpectOutputToContain(self::PATH_CANARY)
+            ->doesntExpectOutputToContain('20261027T160200Z')
+            ->doesntExpectOutputToContain('-- MySQL dump')
+            ->assertSuccessful();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/readiness')
+            ->assertOk()
+            ->assertSee('Ready')
+            ->assertSee('data-check="deploy_backup"', false)
+            ->assertSee('data-state="pass"', false)
+            ->assertSee('A private deploy backup is present.')
+            ->assertDontSee(self::PATH_CANARY)
+            ->assertDontSee('20261027T160200Z')
+            ->assertDontSee('-- MySQL dump');
+
+        $this->bindDeployBackupDirectory(fn () => throw new \RuntimeException(self::PATH_CANARY.' boom'));
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain(self::PATH_CANARY)
+            ->doesntExpectOutputToContain('boom')
+            ->assertFailed();
+
+        $forbidden = $this->scratchDirectory('public_html');
+        $this->scratchGzip($forbidden, '20261027T160300Z.sql.gz', 0600);
+        $this->bindDeployBackupDirectory($forbidden);
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('deploy_backup=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain('public_html')
+            ->assertFailed();
+
+        $this->assertUnchanged($audits);
     }
 
     public function test_a_migration_that_has_not_run_is_not_ready_and_nothing_is_written(): void
@@ -353,5 +492,42 @@ class ReadinessReportTest extends TestCase
         $this->assertSame(0, PricingSnapshot::query()->count());
         $this->assertSame(0, PriceRule::query()->count());
         $this->assertSame(0, LocationTaxRule::query()->count());
+    }
+
+    private function bindPresentDeployBackup(): void
+    {
+        $directory = $this->scratchDirectory('present-backups');
+        $this->scratchGzip($directory, '20261027T160000Z.sql.gz', 0600);
+        $this->bindDeployBackupDirectory($directory);
+    }
+
+    private function bindDeployBackupDirectory(string|\Closure $directory): void
+    {
+        $resolver = $directory instanceof \Closure
+            ? $directory
+            : static fn (): string => $directory;
+
+        app()->instance(DeployBackupPresence::class, new DeployBackupPresence($resolver));
+    }
+
+    private function scratchDirectory(string $suffix): string
+    {
+        $directory = sys_get_temp_dir().'/rw-readiness-'.$suffix.'-'.bin2hex(random_bytes(4));
+        mkdir($directory, 0700, true);
+        $this->scratchDirectories[] = $directory;
+
+        return $directory;
+    }
+
+    private function scratchGzip(string $directory, string $name, int $mode): string
+    {
+        $path = $directory.'/'.$name;
+        $payload = gzencode("-- MySQL dump 10.13\nUSE `reserveworx_test`;\n");
+        $this->assertIsString($payload);
+        file_put_contents($path, $payload);
+        chmod($path, $mode);
+        $this->scratchFiles[] = $path;
+
+        return $path;
     }
 }
