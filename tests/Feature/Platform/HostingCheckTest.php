@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
 use App\Support\HostPlanName;
+use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
 use App\Support\InboundWebhookLimits;
 use App\Support\PhpHostFacts;
@@ -66,6 +67,8 @@ class HostingCheckTest extends TestCase
         $this->assertInboundWebhookLines($output);
         $this->assertPlanNameLine($output);
         $this->assertToolchainLines($output);
+        $this->assertProcessLimitLines($output);
+        $this->assertPhpHostFactLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -114,6 +117,8 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
         $this->assertInboundWebhookLines($output);
         $this->assertStringContainsString('plan_name=not_measured', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertPhpHostFactLines($output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
     }
 
@@ -286,6 +291,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertProcessLimitLines($output);
     }
 
     public function test_the_running_process_names_its_php_binary_and_loaded_extensions(): void
@@ -311,6 +317,115 @@ class HostingCheckTest extends TestCase
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('Zend', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertProcessLimitLines($output);
+    }
+
+    public function test_process_soft_limits_are_reported_without_the_file_text(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): string => implode("\n", [
+                'Limit                     Soft Limit           Hard Limit           Units',
+                'Max cpu time              unlimited            unlimited            seconds',
+                'Max processes             80                   rw-hosting-secret-canary bytes',
+                'Max processes secret      9                    9                    processes',
+                'Max open files            5060                 5060                 files',
+                'Max resident set          2147483648           2147483648           bytes',
+                'Max address space         unlimited            unlimited            bytes',
+                '/proc/self/limits /home/customer rw-hosting-secret-canary',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $processes = strpos($output, 'max_user_processes=80');
+        $files = strpos($output, 'open_files=5060');
+        $memory = strpos($output, 'max_memory_bytes=2147483648');
+        $space = strpos($output, 'address_space_bytes=unlimited');
+        $running = strpos($output, 'long_running_processes=not_measured');
+        $this->assertNotFalse($processes);
+        $this->assertNotFalse($files);
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($space);
+        $this->assertNotFalse($running);
+        $this->assertLessThan($files, $processes);
+        $this->assertLessThan($memory, $files);
+        $this->assertLessThan($space, $memory);
+        $this->assertLessThan($running, $space);
+        $this->assertStringNotContainsString('max_user_processes=9', $output);
+        $this->assertStringNotContainsString('Max processes', $output);
+        $this->assertStringNotContainsString('Max open files', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertPhpHostFactLines($output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+    }
+
+    public function test_a_limits_file_that_cannot_be_read_is_unread_and_does_not_fail(): void
+    {
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): string => implode("\n", [
+                $this->padded('Max processes', 'about 80'),
+                $this->padded('Max open files', '5060secret'),
+                $this->padded('Max resident set', 'unlimited-secret'),
+                $this->padded('Max address space', '4294967296').' rw-hosting-secret-canary',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=4294967296', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertStringNotContainsString('about', $output);
+        $this->assertStringNotContainsString('5060secret', $output);
+        $this->assertStringNotContainsString('unlimited-secret', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertPhpHostFactLines($output);
+
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: function (): string {
+                throw new RuntimeException('rw-hosting-secret-canary /proc/self/limits');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=unread', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertPhpHostFactLines($output);
+
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=unread', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertPhpHostFactLines($output);
     }
 
     public function test_git_and_composer_versions_are_reported_without_command_text(): void
@@ -477,6 +592,43 @@ class HostingCheckTest extends TestCase
         $this->assertSame(1, substr_count($output, 'inbound_webhook_rate_rules='));
     }
 
+    private function assertProcessLimitLines(string $output): void
+    {
+        $processes = strpos($output, 'max_user_processes=');
+        $files = strpos($output, 'open_files=');
+        $memory = strpos($output, 'max_memory_bytes=');
+        $space = strpos($output, 'address_space_bytes=');
+        $running = strpos($output, 'long_running_processes=not_measured');
+        $this->assertNotFalse($processes);
+        $this->assertNotFalse($files);
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($space);
+        $this->assertNotFalse($running);
+        $this->assertLessThan($files, $processes);
+        $this->assertLessThan($memory, $files);
+        $this->assertLessThan($space, $memory);
+        $this->assertLessThan($running, $space);
+        $this->assertSame(1, substr_count($output, 'max_user_processes='));
+        $this->assertSame(1, substr_count($output, 'open_files='));
+        $this->assertSame(1, substr_count($output, 'max_memory_bytes='));
+        $this->assertSame(1, substr_count($output, 'address_space_bytes='));
+        $this->assertSame(1, substr_count($output, 'long_running_processes='));
+        $this->assertMatchesRegularExpression('/^max_user_processes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^open_files=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^max_memory_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^address_space_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertStringNotContainsString('Max processes', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+    }
+
+    private function assertPhpHostFactLines(string $output): void
+    {
+        $this->assertMatchesRegularExpression('/^php_binary=.+ version=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extension=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extensions=(ok|missing)$/m', $output);
+        $this->assertStringNotContainsString('Zend', $output);
+    }
+
     private function assertPlanNameLine(string $output): void
     {
         $scheduler = strpos($output, 'scheduler=');
@@ -489,18 +641,34 @@ class HostingCheckTest extends TestCase
     }
 
     /**
-     * @return array{prices: int, payments: int, fees: int, fee_refunds: int, refunds: int, taxes: int}
+     * @return array{
+     *     payments: int,
+     *     refunds: int,
+     *     platform_fees: int,
+     *     platform_fee_refunds: int,
+     *     pricing_snapshots: int,
+     *     price_rules: int,
+     *     location_tax_rules: int,
+     *     audit_logs: int
+     * }
      */
     private function moneyCounts(): array
     {
         return [
-            'prices' => DB::table('price_rules')->count(),
             'payments' => DB::table('payments')->count(),
-            'fees' => DB::table('platform_fees')->count(),
-            'fee_refunds' => DB::table('platform_fee_refunds')->count(),
             'refunds' => DB::table('refunds')->count(),
-            'taxes' => DB::table('location_tax_rules')->count(),
+            'platform_fees' => DB::table('platform_fees')->count(),
+            'platform_fee_refunds' => DB::table('platform_fee_refunds')->count(),
+            'pricing_snapshots' => DB::table('pricing_snapshots')->count(),
+            'price_rules' => DB::table('price_rules')->count(),
+            'location_tax_rules' => DB::table('location_tax_rules')->count(),
+            'audit_logs' => DB::table('audit_logs')->count(),
         ];
+    }
+
+    private function padded(string $label, string $soft): string
+    {
+        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
     }
 
     private function checkWithCrontab(?string $text): string
@@ -509,6 +677,8 @@ class HostingCheckTest extends TestCase
         $exitCode = Artisan::call('reserveworx:hosting-check');
         $output = Artisan::output();
         $this->assertSame(0, $exitCode, $output);
+        $this->assertProcessLimitLines($output);
+        $this->assertPhpHostFactLines($output);
 
         return $output;
     }
