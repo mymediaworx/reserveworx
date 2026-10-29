@@ -15,7 +15,8 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * the session cookie, and role-based access. A sample token is written and rolled back.
+ * the session cookie, and role-based access, and for Spec Section 14 item 14.
+ * A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
 final class SecurityCheck
@@ -36,6 +37,8 @@ final class SecurityCheck
             $this->cardColumns(),
             $this->csrf(),
             $this->httpOnly(),
+            $this->sessionHost(),
+            $this->sameSite(),
             $this->auditLog(),
             $this->roles(),
         ];
@@ -190,6 +193,61 @@ final class SecurityCheck
             'Session cookie',
             $only ? 'pass' : 'fail',
             $only ? 'The session cookie is HTTP-only.' : 'The session cookie is not HTTP-only.',
+        );
+    }
+
+    /**
+     * A set cookie domain is sent to every host under that name, so a sign-in
+     * on one workspace would be sent to another. The value is not printed.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sessionHost(): array
+    {
+        $domain = config('session.domain');
+
+        if ($domain === null || $domain === false || $domain === '') {
+            return $this->check(
+                'session_host',
+                'Session host',
+                'pass',
+                'The session cookie stays on the current host.',
+            );
+        }
+
+        return $this->check(
+            'session_host',
+            'Session host',
+            'fail',
+            'The session cookie is not limited to the current host.',
+        );
+    }
+
+    /**
+     * Lax and strict keep the cookie off a cross-site request. The configured
+     * value is printed only when it is one of those two words.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sameSite(): array
+    {
+        $value = config('session.same_site');
+        $token = is_string($value) ? strtolower(trim($value)) : '';
+
+        if ($token === 'lax' || $token === 'strict') {
+            return $this->check(
+                'session_same_site',
+                'SameSite',
+                'pass',
+                'The session cookie is SameSite '.$token.'.',
+            );
+        }
+
+        return $this->check(
+            'session_same_site',
+            'SameSite',
+            'fail',
+            'The session cookie is not SameSite lax or strict.',
         );
     }
 
