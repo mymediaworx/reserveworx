@@ -1,0 +1,1 @@
+- The admin handbook at `/platform/help` links to the stored booking-fee report. The link does not name a workspace or a fee rate. Staff do not see it. Opening the handbook still writes no booking, price, payment, tax, fee, or refund. Spec Section 17.
