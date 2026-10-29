@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
+use App\Support\HostDomainSupport;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
@@ -25,12 +26,13 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, InboundWebhookLimits $webhooks, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, InboundWebhookLimits $webhooks, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
         $this->printQueue($schedule, $crontab);
         $this->printInboundWebhooks($webhooks);
+        $this->printDomainSupport($domains);
         $this->printPlanName($planName);
         $this->printToolchain($toolchain);
         $this->printProcessLimits($limits);
@@ -202,6 +204,13 @@ class HostingCheck extends Command
     private function printInboundWebhooks(InboundWebhookLimits $webhooks): void
     {
         foreach ($webhooks->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+    }
+
+    private function printDomainSupport(HostDomainSupport $domains): void
+    {
+        foreach ($domains->facts() as [$key, $value]) {
             $this->fact($key, $value);
         }
     }
