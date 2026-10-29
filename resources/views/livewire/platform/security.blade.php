@@ -12,7 +12,7 @@
         <div>
             <p class="kicker">Master admin</p>
             <h1>Security</h1>
-            <p class="lede">These checks look at stored credentials, card columns, the session cookie, CSRF, and the role catalog. A sample token is written and thrown away. The check does not call Stripe and does not keep a row. <code>php artisan reserveworx:security</code> prints the same result.</p>
+            <p class="lede">These checks look at stored credentials, card columns, the session cookie, CSRF, and the role catalog. The session cookie has to stay on the current host. A sample token is written and thrown away. The check does not call Stripe and does not keep a row. <code>php artisan reserveworx:security</code> prints the same result.</p>
         </div>
     </header>
 
