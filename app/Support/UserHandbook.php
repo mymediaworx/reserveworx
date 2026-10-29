@@ -89,6 +89,11 @@ final class UserHandbook
                         'href' => '/platform/security',
                     ],
                     [
+                        'title' => 'Isolation',
+                        'body' => 'Whether another workspace can read a customer, and whether a request with no workspace can. The same lines are printed by reserveworx:isolation. A sample customer is thrown away. It does not call Stripe and does not keep a row.',
+                        'href' => '/platform/isolation',
+                    ],
+                    [
                         'title' => 'Upgrade',
                         'body' => 'How a later release replaces the live one, and how a private database dump is restored. The page does not run a deploy or a restore. Rollback swaps the previous release and does not undo migrations.',
                         'href' => '/platform/upgrade',

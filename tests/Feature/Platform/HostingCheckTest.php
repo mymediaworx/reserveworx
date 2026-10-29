@@ -3,12 +3,15 @@
 namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
+use App\Support\HostPlanName;
+use App\Support\HostToolchain;
 use App\Support\PhpHostFacts;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use stdClass;
 use Tests\TestCase;
 
@@ -59,6 +62,8 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertPlanNameLine($output);
+        $this->assertToolchainLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -105,7 +110,72 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('table=hosting_myisam_probe engine=MyISAM', $output);
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
+        $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_the_plan_name_is_not_measured_and_host_text_is_not_copied(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(HostPlanName::class, new HostPlanName(
+            session: fn (): string => implode("\n", [
+                'GoGeek',
+                'StartUp GrowBig Cloud',
+                'plan_name=GoGeek',
+                '/home/customer rw-hosting-secret-canary',
+                'hostname=cloud.example',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertPlanNameLine($output);
+        $this->assertStringNotContainsString('GoGeek', $output);
+        $this->assertStringNotContainsString('StartUp', $output);
+        $this->assertStringNotContainsString('GrowBig', $output);
+        $this->assertStringNotContainsString('Cloud', $output);
+        $this->assertStringNotContainsString('cloud.example', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $this->app->instance(HostPlanName::class, new HostPlanName(
+            session: function (): string {
+                throw new RuntimeException('GoGeek rw-hosting-secret-canary /home/customer');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertPlanNameLine($output);
+        $this->assertStringNotContainsString('GoGeek', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+
+        $this->app->instance(HostPlanName::class, new HostPlanName(
+            session: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertPlanNameLine($output);
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $this->assertStringContainsString('plan_name=not_measured', $script);
+        $this->assertStringNotContainsString('plan_name=GoGeek', $script);
+        $this->assertStringNotContainsString('plan_name=StartUp', $script);
+        $this->assertStringNotContainsString('plan_name=GrowBig', $script);
+        $this->assertStringNotContainsString('plan_name=Cloud', $script);
     }
 
     public function test_prints_php_binaries_and_extensions_without_failing_when_one_is_missing(): void
@@ -141,6 +211,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('php_extension=pdo_mysql=no', $output);
         $this->assertStringContainsString('php_extensions=missing', $output);
         $this->assertStringContainsString('php_version='.PHP_VERSION, $output);
+        $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
     }
@@ -164,9 +235,104 @@ class HostingCheckTest extends TestCase
         }
 
         $this->assertStringContainsString('php_extensions='.($missing ? 'missing' : 'ok'), $output);
+        $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('Zend', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_git_and_composer_versions_are_reported_without_command_text(): void
+    {
+        $this->app->instance(HostToolchain::class, new HostToolchain(
+            probes: fn (): array => [
+                [
+                    'tool' => 'composer',
+                    'output' => "Composer version 2.4.3 2022-11-30 16:22:29\n/home/customer/secret rw-hosting-secret-canary",
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => "git version 9.9.9\nrw-hosting-secret-canary",
+                    'ok' => false,
+                ],
+                [
+                    'tool' => 'ssh',
+                    'output' => 'OpenSSH_9.6 rw-hosting-secret-canary',
+                    'ok' => true,
+                ],
+                [
+                    'tool' => "git\nrw-hosting-secret-canary",
+                    'output' => 'git version 1.2.3',
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => "git version 2.56.0\n/usr/bin/git rw-hosting-secret-canary",
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => 'git version 8.8.8',
+                    'ok' => true,
+                ],
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $git = strpos($output, "git=available\ngit_version=2.56.0");
+        $composer = strpos($output, "composer=available\ncomposer_version=2.4.3");
+        $this->assertNotFalse($git);
+        $this->assertNotFalse($composer);
+        $this->assertLessThan($composer, $git);
+        $this->assertStringNotContainsString('git_version=9.9.9', $output);
+        $this->assertStringNotContainsString('git_version=8.8.8', $output);
+        $this->assertStringNotContainsString('git_version=1.2.3', $output);
+        $this->assertStringNotContainsString('git version', $output);
+        $this->assertStringNotContainsString('Composer version', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('/usr/bin/git', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('ssh=', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+    }
+
+    public function test_a_toolchain_that_cannot_run_is_unavailable_and_does_not_fail(): void
+    {
+        $this->app->instance(HostToolchain::class, new HostToolchain(
+            probes: fn (): array => [
+                ['tool' => 'git', 'output' => 'git version 2.56.0', 'ok' => false],
+                ['tool' => 'composer', 'output' => 'Composer failed rw-hosting-secret-canary', 'ok' => true],
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('git=unavailable', $output);
+        $this->assertStringNotContainsString('git_version=', $output);
+        $this->assertStringContainsString("composer=available\ncomposer_version=unread", $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('Composer failed', $output);
+    }
+
+    private function assertToolchainLines(string $output): void
+    {
+        foreach (['git', 'composer'] as $tool) {
+            $this->assertMatchesRegularExpression('/^'.$tool.'=(available|unavailable)$/m', $output);
+
+            if (preg_match('/^'.$tool.'=available$/m', $output) === 1) {
+                $this->assertMatchesRegularExpression('/^'.$tool.'_version=(\d+\.\d+\.\d+|unread)$/m', $output);
+
+                continue;
+            }
+
+            $this->assertStringNotContainsString($tool.'_version=', $output);
+        }
     }
 
     public function test_a_schedule_run_crontab_reports_the_shortest_gap_and_hides_the_command(): void
@@ -186,6 +352,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('host_crontab_expression=*/30 * * * *', $output);
         $this->assertStringContainsString('host_crontab_expression=15 4 * * *', $output);
         $this->assertStringContainsString('host_crontab_interval_minutes=1', $output);
+        $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertMatchesRegularExpression('/^php_binary=.+ version=/m', $output);
         $this->assertMatchesRegularExpression('/^php_extension=/m', $output);
         $this->assertMatchesRegularExpression('/^php_extensions=(ok|missing)$/m', $output);
@@ -226,6 +393,32 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('host_crontab_schedule=', $empty);
         $this->assertStringContainsString('host_crontab=unavailable', $missing);
         $this->assertStringNotContainsString('host_crontab_schedule=', $missing);
+    }
+
+    private function assertPlanNameLine(string $output): void
+    {
+        $scheduler = strpos($output, 'scheduler=');
+        $plan = strpos($output, 'plan_name=not_measured');
+        $this->assertNotFalse($scheduler);
+        $this->assertNotFalse($plan);
+        $this->assertLessThan($plan, $scheduler);
+        $this->assertSame(1, substr_count($output, 'plan_name='));
+        $this->assertDoesNotMatchRegularExpression('/^plan_name=(startup|growbig|gogeek|cloud)$/mi', $output);
+    }
+
+    /**
+     * @return array{prices: int, payments: int, fees: int, fee_refunds: int, refunds: int, taxes: int}
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            'prices' => DB::table('price_rules')->count(),
+            'payments' => DB::table('payments')->count(),
+            'fees' => DB::table('platform_fees')->count(),
+            'fee_refunds' => DB::table('platform_fee_refunds')->count(),
+            'refunds' => DB::table('refunds')->count(),
+            'taxes' => DB::table('location_tax_rules')->count(),
+        ];
     }
 
     private function checkWithCrontab(?string $text): string
