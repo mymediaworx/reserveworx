@@ -83,7 +83,7 @@ A platform administrator opens `/platform/upgrade` on the platform host. The sam
 
 ## Production readiness
 
-A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It does not print the application key or other secrets, and it does not call Stripe. A tenant address does not serve the page.
+A platform administrator opens `/platform/readiness` on the platform host. `php artisan reserveworx:readiness` prints the same pass, fail, or note lines and exits 0 only when nothing fails. It fails when a migration has not run, and it does not run migrations. It does not print the application key, a migration name, or other secrets, and it does not call Stripe. A tenant address does not serve the page.
 
 ## Performance check
 
