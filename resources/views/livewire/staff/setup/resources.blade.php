@@ -257,7 +257,7 @@
                                             <ul class="retire-offers">
                                                 @foreach ($retirement[$asset->id]['offers'] as $offer)
                                                     <li data-retire-offer="{{ $offer['booking_id'] }}">
-                                                        <a href="/staff/bookings/{{ $offer['booking_id'] }}" wire:navigate>{{ $offer['reference'] }} · {{ $offer['customer'] }} · {{ $offer['when'] }}</a>
+                                                        <a href="/staff/bookings/{{ $offer['booking_id'] }}" wire:navigate data-when>{{ $offer['reference'] }} · {{ $offer['customer'] }} · {{ $offer['when'] }}</a>
                                                         @if ($canMoveBookings)
                                                             <button type="button" class="button small" wire:click="acceptOffer('{{ $offer['booking_id'] }}', '{{ $offer['from_asset_id'] }}', '{{ $offer['to_asset_id'] }}')">Move onto {{ $offer['to_name'] }}</button>
                                                         @endif

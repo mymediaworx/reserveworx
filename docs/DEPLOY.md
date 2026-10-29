@@ -102,6 +102,10 @@ An upgrade replaces the live release with a newer commit of this same applicatio
 
 A first install is the local setup in [`README.md`](README.md), then the first deploy in [Trigger](#trigger) with migrations off. Backup is the private dump written before migrations. Recovery is action `rollback` for the code, and `php artisan reserveworx:restore-backup` for that dump. A restore has not been run on the live SiteGround database. Platform administrators read this same procedure at `/platform/upgrade`.
 
+### Name the release
+
+This build is 0.0.0. The release tag is v0.0.0. A version that is not major.minor.patch fails readiness and is not printed. This page does not create the tag.
+
 ### Wait for CI
 
 Deploy starts after CI passes for that commit, and only while that commit is still the tip of main. A failed CI run deploys nothing.
