@@ -135,7 +135,8 @@
                         .waiver-copies,
                         .waiver-copies li,
                         .waiver-copies a,
-                        .waiver-copies .muted { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+                        .waiver-copies .muted,
+                        .waiver-copies [data-signed-at] { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
                     }
                 </style>
                 <h2>Signed waivers</h2>
@@ -155,7 +156,7 @@
                                         version {{ $signature->version->version }}
                                     @endif
                                     @if ($signature->signed_at)
-                                        · {{ Display::dateTime($signature->signed_at, $zone) }}
+                                        · <span class="when" data-signed-at>{{ Display::dateTimeWithZone($signature->signed_at, $zone) }}</span>
                                     @endif
                                 </span>
                                 @if ($signature->version)
