@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\Platform;
 
+use App\Support\HostProcessLimits;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use stdClass;
 use Tests\TestCase;
 
@@ -56,6 +58,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('schedule=0 * * * * reports:build-summaries withoutOverlapping=yes', $output);
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertStringContainsString('host_crontab=not read', $output);
+        $this->assertProcessLimitLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -102,6 +105,162 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('table=hosting_myisam_probe engine=MyISAM', $output);
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_process_soft_limits_are_reported_without_the_file_text(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): string => implode("\n", [
+                'Limit                     Soft Limit           Hard Limit           Units',
+                'Max cpu time              unlimited            unlimited            seconds',
+                'Max processes             80                   rw-hosting-secret-canary bytes',
+                'Max processes secret      9                    9                    processes',
+                'Max open files            5060                 5060                 files',
+                'Max resident set          2147483648           2147483648           bytes',
+                'Max address space         unlimited            unlimited            bytes',
+                '/proc/self/limits /home/customer rw-hosting-secret-canary',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $processes = strpos($output, 'max_user_processes=80');
+        $files = strpos($output, 'open_files=5060');
+        $memory = strpos($output, 'max_memory_bytes=2147483648');
+        $space = strpos($output, 'address_space_bytes=unlimited');
+        $running = strpos($output, 'long_running_processes=not_measured');
+        $this->assertNotFalse($processes);
+        $this->assertNotFalse($files);
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($space);
+        $this->assertNotFalse($running);
+        $this->assertLessThan($files, $processes);
+        $this->assertLessThan($memory, $files);
+        $this->assertLessThan($space, $memory);
+        $this->assertLessThan($running, $space);
+        $this->assertStringNotContainsString('max_user_processes=9', $output);
+        $this->assertStringNotContainsString('Max processes', $output);
+        $this->assertStringNotContainsString('Max open files', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+    }
+
+    public function test_a_limits_file_that_cannot_be_read_is_unread_and_does_not_fail(): void
+    {
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): string => implode("\n", [
+                $this->padded('Max processes', 'about 80'),
+                $this->padded('Max open files', '5060secret'),
+                $this->padded('Max resident set', 'unlimited-secret'),
+                $this->padded('Max address space', '4294967296').' rw-hosting-secret-canary',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=4294967296', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertStringNotContainsString('about', $output);
+        $this->assertStringNotContainsString('5060secret', $output);
+        $this->assertStringNotContainsString('unlimited-secret', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: function (): string {
+                throw new RuntimeException('rw-hosting-secret-canary /proc/self/limits');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=unread', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+
+        $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
+            reader: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('max_user_processes=unread', $output);
+        $this->assertStringContainsString('open_files=unread', $output);
+        $this->assertStringContainsString('max_memory_bytes=unread', $output);
+        $this->assertStringContainsString('address_space_bytes=unread', $output);
+        $this->assertStringContainsString('long_running_processes=not_measured', $output);
+    }
+
+    private function assertProcessLimitLines(string $output): void
+    {
+        $processes = strpos($output, 'max_user_processes=');
+        $files = strpos($output, 'open_files=');
+        $memory = strpos($output, 'max_memory_bytes=');
+        $space = strpos($output, 'address_space_bytes=');
+        $running = strpos($output, 'long_running_processes=not_measured');
+        $this->assertNotFalse($processes);
+        $this->assertNotFalse($files);
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($space);
+        $this->assertNotFalse($running);
+        $this->assertLessThan($files, $processes);
+        $this->assertLessThan($memory, $files);
+        $this->assertLessThan($space, $memory);
+        $this->assertLessThan($running, $space);
+        $this->assertSame(1, substr_count($output, 'max_user_processes='));
+        $this->assertSame(1, substr_count($output, 'open_files='));
+        $this->assertSame(1, substr_count($output, 'max_memory_bytes='));
+        $this->assertSame(1, substr_count($output, 'address_space_bytes='));
+        $this->assertSame(1, substr_count($output, 'long_running_processes='));
+        $this->assertMatchesRegularExpression('/^max_user_processes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^open_files=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^max_memory_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^address_space_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertStringNotContainsString('Max processes', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            'payments' => DB::table('payments')->count(),
+            'refunds' => DB::table('refunds')->count(),
+            'platform_fees' => DB::table('platform_fees')->count(),
+            'platform_fee_refunds' => DB::table('platform_fee_refunds')->count(),
+            'pricing_snapshots' => DB::table('pricing_snapshots')->count(),
+            'price_rules' => DB::table('price_rules')->count(),
+            'location_tax_rules' => DB::table('location_tax_rules')->count(),
+            'audit_logs' => DB::table('audit_logs')->count(),
+        ];
+    }
+
+    private function padded(string $label, string $soft): string
+    {
+        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
     }
 }

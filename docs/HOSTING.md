@@ -26,8 +26,8 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | SSH | Opened October 23, 2026. Host key fingerprint `SHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A`. See the install section below |
 | Git on the server | git 2.56.0. Deploys do not use it |
 | Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
-| Process limits | This session's `ulimit`: 80 processes, 5060 open files, about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement |
-| Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
+| Process limits | `reserveworx:hosting-check` prints `max_user_processes`, `open_files`, `max_memory_bytes`, and `address_space_bytes` from this process's soft limits. A missing file or a value that is not a whole number or `unlimited` is `unread`. The file text is not printed. A missing file does not fail the check. The October 23 session reported 80 processes, 5060 open files, and about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement. The October 24, 2026 log did not print these lines. This read has not been run on the SiteGround account |
+| Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process. The hosting check prints `long_running_processes=not_measured` and does not change that assumption |
 | Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed |
 | Wildcard subdomains and wildcard SSL | Unverified |
 | Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
@@ -144,7 +144,7 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` and the host crontab are still unread.
+Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` and the host crontab are still unread. The hosting check prints this process's soft limits. The October 24, 2026 log did not include them, and this read has not been run on the SiteGround account.
 
 ## First install, October 23, 2026
 
