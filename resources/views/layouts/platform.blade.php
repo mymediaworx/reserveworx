@@ -24,6 +24,7 @@
                 <a href="/platform/performance" wire:navigate @class(['is-active' => request()->is('platform/performance')]) @if(request()->is('platform/performance')) aria-current="page" @endif><x-icon name="clock" size="20" /> Performance</a>
                 <a href="/platform/limits" wire:navigate @class(['is-active' => request()->is('platform/limits')]) @if(request()->is('platform/limits')) aria-current="page" @endif><x-icon name="window" size="20" /> Limits</a>
                 <a href="/platform/security" wire:navigate @class(['is-active' => request()->is('platform/security')]) @if(request()->is('platform/security')) aria-current="page" @endif><x-icon name="lock" size="20" /> Security</a>
+                <a href="/platform/isolation" wire:navigate @class(['is-active' => request()->is('platform/isolation')]) @if(request()->is('platform/isolation')) aria-current="page" @endif><x-icon name="shield" size="20" /> Isolation</a>
                 <a href="/platform/upgrade" wire:navigate @class(['is-active' => request()->is('platform/upgrade')]) @if(request()->is('platform/upgrade')) aria-current="page" @endif><x-icon name="refresh" size="20" /> Upgrade</a>
                 <a href="/platform/demo" wire:navigate @class(['is-active' => request()->is('platform/demo')]) @if(request()->is('platform/demo')) aria-current="page" @endif><x-icon name="apps" size="20" /> Demo</a>
             </nav>
