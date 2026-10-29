@@ -54,7 +54,7 @@ final class UpgradeGuide
             ],
             [
                 'title' => 'Point cron at the current release',
-                'body' => 'Cron keeps calling laravel/current so the next minute uses the new release. Do not add a second cron.',
+                'body' => 'Cron keeps calling laravel/current so the next minute uses the new release. After a healthy deploy the script prints cron_check. present means the user crontab has a schedule:run line. missing means that line is absent. empty means there is no crontab. unavailable means the crontab could not be read. The command, a path, and the crontab text are not printed. A result other than present does not fail the deploy. Do not add a second cron.',
             ],
             [
                 'title' => 'Smoke and readiness',

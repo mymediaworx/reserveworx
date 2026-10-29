@@ -84,7 +84,7 @@ php /home/customer/www/app.reserveworx.com/laravel/current/artisan schedule:run
 
 Use the PHP binary the deploy summary printed. The scheduler runs `queue:work database --stop-when-empty --tries=3 --max-time=20`.
 
-Every minute the schedule also writes a heartbeat (`reserveworx:schedule:last-run` in the cache). `reserveworx:smoke` prints `scheduler_last_run` and `scheduler=ok`, `stale` (no run in 10 minutes), or `not_seen`. The hosting check prints `scheduler_heartbeat` and `scheduler`. `/platform` shows a warning to platform admins until the heartbeat is fresh. A missing cron does not fail the deploy, but without it staff cancellations do not finish or refund, imports wait, and reminders and overdue flags stop (#131).
+Every minute the schedule also writes a heartbeat (`reserveworx:schedule:last-run` in the cache). `reserveworx:smoke` prints `scheduler_last_run` and `scheduler=ok`, `stale` (no run in 10 minutes), or `not_seen`. The hosting check prints `scheduler_heartbeat` and `scheduler`. `/platform` shows a warning to platform admins until the heartbeat is fresh. After a healthy deploy the script prints `cron_check` from that same read. It does not print the command. A missing cron does not fail the deploy, but without it staff cancellations do not finish or refund, imports wait, and reminders and overdue flags stop (#131).
 
 | Piece | Count per hour | Notes |
 |---|---|---|
@@ -136,7 +136,7 @@ The health check requests https://app.reserveworx.com/up. A failed check swaps t
 
 ### Point cron at the current release
 
-Cron keeps calling laravel/current so the next minute uses the new release. Do not add a second cron.
+Cron keeps calling laravel/current so the next minute uses the new release. After a healthy deploy the script prints cron_check. present means the user crontab has a schedule:run line. missing means that line is absent. empty means there is no crontab. unavailable means the crontab could not be read. The command, a path, and the crontab text are not printed. A result other than present does not fail the deploy. Do not add a second cron.
 
 ### Smoke and readiness
 

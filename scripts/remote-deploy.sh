@@ -1591,6 +1591,63 @@ inode_cleanup() {
   report_site_inodes || true
 }
 
+# Spec Section 16. Say whether the user crontab runs schedule:run.
+# Do not print the command, a path, an assignment, or the crontab text.
+# Do not install a crontab. A missing job does not fail the deploy.
+cron_check() {
+  local text="" line="" found=0 schedule_run_pattern='(^|[^A-Za-z0-9_])schedule:run([^A-Za-z0-9_]|$)'
+
+  if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" && -n "${RW_CRON_CHECK_FILE:-}" ]]; then
+    if [[ ! -f "$RW_CRON_CHECK_FILE" || ! -r "$RW_CRON_CHECK_FILE" ]]; then
+      echo "cron_check=unavailable"
+      return 0
+    fi
+    text=$(cat -- "$RW_CRON_CHECK_FILE" 2>/dev/null || true)
+  else
+    if ! command -v crontab >/dev/null 2>&1; then
+      echo "cron_check=unavailable"
+      return 0
+    fi
+    if ! text=$(crontab -l 2>&1); then
+      case "$text" in
+        *"no crontab"*|*"No crontab"*)
+          echo "cron_check=empty"
+          ;;
+        *)
+          echo "cron_check=unavailable"
+          ;;
+      esac
+      return 0
+    fi
+  fi
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line//$'\r'/}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    if [[ -z "$line" || "$line" == \#* ]]; then
+      continue
+    fi
+    if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+      continue
+    fi
+    if [[ "$line" =~ $schedule_run_pattern ]]; then
+      found=1
+      break
+    fi
+  done <<< "$text"
+
+  if [[ "$found" -eq 1 ]]; then
+    echo "cron_check=present"
+  elif [[ -z "${text//[[:space:]]/}" ]]; then
+    echo "cron_check=empty"
+  else
+    echo "cron_check=missing"
+  fi
+
+  return 0
+}
+
 if [[ "${RW_DEPLOY_LIBRARY:-}" == "1" ]]; then
   return 0
 fi
@@ -1792,5 +1849,4 @@ if ! (cd "$current" && "$php_bin" artisan reserveworx:smoke --no-interaction); t
   exit 1
 fi
 echo "deploy=complete"
-echo "cron_hint=Site Tools cron, every minute, only this command: ${php_bin} ${current}/artisan schedule:run"
-echo "cron_command_body=<not installed by this script>"
+cron_check
