@@ -3,12 +3,14 @@
 namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
+use App\Support\HostSshAccess;
 use App\Support\PhpHostFacts;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use stdClass;
 use Tests\TestCase;
 
@@ -59,6 +61,14 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $liveSsh = (new HostSshAccess)->facts();
+        $this->assertSshLine($output, $liveSsh[0][1]);
+        foreach (['SSH_CONNECTION', 'SSH_CLIENT'] as $name) {
+            $value = getenv($name);
+            if (is_string($value) && $value !== '') {
+                $this->assertStringNotContainsString($value, $output);
+            }
+        }
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -105,7 +115,128 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('table=hosting_myisam_probe engine=MyISAM', $output);
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
+        $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
+        $this->assertSame(1, substr_count($output, 'ssh='));
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_an_ssh_login_is_reported_without_the_connection_text(): void
+    {
+        $before = $this->moneyCounts();
+        $secret = 'rw-hosting-secret-canary';
+        $connection = "203.0.113.8 2222 {$secret}\nSHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A";
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => $connection,
+                'SSH_TTY' => '/home/customer '.$secret,
+                'note' => '18765 '.$secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'session');
+        $this->assertStringNotContainsString($secret, $output);
+        $this->assertStringNotContainsString('203.0.113.8', $output);
+        $this->assertStringNotContainsString('2222', $output);
+        $this->assertStringNotContainsString('18765', $output);
+        $this->assertStringNotContainsString('SHA256', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CLIENT' => '  '.$secret.'  ',
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'session');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => "   \n",
+                'SSH_CLIENT' => '',
+                'SSH_TTY' => $secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => str_repeat(' ', 256).$secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: function (): array {
+                throw new RuntimeException($secret.' /home/customer');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString($secret, $output);
+        $this->assertStringNotContainsString('/home/', $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $this->assertDoesNotMatchRegularExpression('/echo ["\'].*SSH_(CONNECTION|CLIENT)/', $script);
+        $this->assertStringNotContainsString('SHA256:yhkspJG', $script);
+        $session = $this->remoteSshState([
+            'SSH_CONNECTION' => $connection,
+            'SSH_CLIENT' => $secret,
+        ]);
+        $blank = $this->remoteSshState([
+            'SSH_CONNECTION' => " \n",
+            'SSH_TTY' => $secret,
+        ]);
+        $clientOnly = $this->remoteSshState([
+            'SSH_CLIENT' => $secret,
+        ]);
+
+        $this->assertSame('ssh=session', $session);
+        $this->assertSame('ssh=not_measured', $blank);
+        $this->assertSame('ssh=session', $clientOnly);
+        $this->assertStringNotContainsString($secret, $session.$blank.$clientOnly);
+        $this->assertStringNotContainsString('203.0.113.8', $session);
+        $this->assertStringNotContainsString('SHA256', $session);
     }
 
     public function test_prints_php_binaries_and_extensions_without_failing_when_one_is_missing(): void
@@ -245,5 +376,61 @@ class HostingCheckTest extends TestCase
         }
 
         return 'current';
+    }
+
+    private function assertSshLine(string $output, string $value): void
+    {
+        $scheduler = strpos($output, 'scheduler=');
+        $ssh = strpos($output, 'ssh='.$value);
+        $this->assertNotFalse($scheduler);
+        $this->assertNotFalse($ssh);
+        $this->assertLessThan($ssh, $scheduler);
+        $this->assertSame(1, substr_count($output, 'ssh='));
+        $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
+    }
+
+    /**
+     * @return array{prices: int, payments: int, fees: int, fee_refunds: int, refunds: int, taxes: int, audits: int}
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            'prices' => DB::table('price_rules')->count(),
+            'payments' => DB::table('payments')->count(),
+            'fees' => DB::table('platform_fees')->count(),
+            'fee_refunds' => DB::table('platform_fee_refunds')->count(),
+            'refunds' => DB::table('refunds')->count(),
+            'taxes' => DB::table('location_tax_rules')->count(),
+            'audits' => DB::table('audit_logs')->count(),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $env
+     */
+    private function remoteSshState(array $env): string
+    {
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $pattern = <<<'REGEX'
+/ssh_state=not_measured
+case "\$\{SSH_CONNECTION-\}\$\{SSH_CLIENT-\}" in
+  \*\[!\[:space:\]\]\*\) ssh_state=session ;;
+esac
+echo "ssh=\$\{ssh_state\}"/
+REGEX;
+        $this->assertSame(1, preg_match($pattern, $script, $match));
+
+        $command = 'env -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY';
+        foreach ($env as $name => $value) {
+            $command .= ' '.escapeshellarg($name.'='.$value);
+        }
+        $command .= ' bash -c '.escapeshellarg($match[0]);
+
+        $lines = [];
+        $exit = 0;
+        exec($command, $lines, $exit);
+        $this->assertSame(0, $exit, implode("\n", $lines));
+
+        return implode("\n", $lines);
     }
 }

@@ -10,6 +10,12 @@ section() {
 }
 
 section "Session"
+# An SSH login sets these. The values are not printed.
+ssh_state=not_measured
+case "${SSH_CONNECTION-}${SSH_CLIENT-}" in
+  *[![:space:]]*) ssh_state=session ;;
+esac
+echo "ssh=${ssh_state}"
 echo "plan_name=not exposed by this SSH session"
 echo "home=${HOME}"
 echo "pwd=$(pwd)"
