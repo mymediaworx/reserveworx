@@ -935,6 +935,8 @@ button.schedule-block:focus-visible,
 .schedule-slot:focus-visible,
 .schedule-booking:focus { outline: 3px solid var(--brand); outline-offset: 2px; }
 .move-panel { max-width: 100%; min-width: 0; margin: 0 0 1rem; }
+.move-panel .field { min-width: 0; }
+.move-panel .field input { max-width: 100%; min-width: 0; }
 .schedule-booking { max-width: 100%; min-width: 0; margin: 0 0 1rem; }
 .move-panel p,
 .schedule-booking p,
