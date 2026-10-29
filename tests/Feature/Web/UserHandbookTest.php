@@ -72,7 +72,9 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('/platform/upgrade')
             ->assertDontSee('href="/platform/security"', false)
             ->assertDontSee('have to match the role catalog')
-            ->assertDontSee('stays on the current host');
+            ->assertDontSee('stays on the current host')
+            ->assertDontSee('Dependabot watches Composer')
+            ->assertDontSee('CI runs composer audit');
 
         $this->assertSame($before, $this->counts());
 
@@ -230,6 +232,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('have to match the role catalog')
             ->assertSee('stays on the current host')
+            ->assertSee('Dependabot watches Composer')
+            ->assertSee('CI runs composer audit')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
@@ -256,6 +260,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('have to match the role catalog')
             ->assertSee('stays on the current host')
+            ->assertSee('Dependabot watches Composer')
+            ->assertSee('CI runs composer audit')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
