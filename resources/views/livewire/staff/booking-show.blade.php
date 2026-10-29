@@ -16,9 +16,9 @@
             <h1>{{ $booking->service?->name ?? 'Booking' }}</h1>
             <p class="lede" data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</p>
             <style>
-                p[data-when] { max-width: 100%; overflow-wrap: anywhere; }
+                p[data-when], p[data-hold-until] { max-width: 100%; overflow-wrap: anywhere; }
                 @media (max-width: 390px) {
-                    p[data-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+                    p[data-when], p[data-hold-until] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
                 }
             </style>
         </div>
@@ -50,11 +50,11 @@
     @endif
 
     @if (in_array($status, ['held', 'pending_payment'], true) && $holdExpires)
-        <p class="notice attention">
+        <p class="notice attention" data-hold-until>
             @if ($status === 'pending_payment')
-                Waiting for payment until {{ Display::time($holdExpires, $zone) }}.
+                Waiting for payment until {{ Display::clockWithZone($holdExpires, $zone) }}.
             @else
-                Held until {{ Display::time($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.
+                Held until {{ Display::clockWithZone($holdExpires, $zone) }}. Take payment or confirm before then, or {{ $industry->holdExpiry() }}.
             @endif
         </p>
     @endif
