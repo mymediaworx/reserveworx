@@ -16,7 +16,8 @@ case "${SSH_CONNECTION-}${SSH_CLIENT-}" in
   *[![:space:]]*) ssh_state=session ;;
 esac
 echo "ssh=${ssh_state}"
-echo "plan_name=not exposed by this SSH session"
+# SiteGround does not name StartUp, GrowBig, GoGeek, or Cloud in this session.
+echo "plan_name=not_measured"
 echo "home=${HOME}"
 echo "pwd=$(pwd)"
 date -u +"utc=%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || true

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
+use App\Support\HostPlanName;
 use App\Support\HostSshAccess;
 use App\Support\HostToolchain;
 use App\Support\PhpHostFacts;
@@ -23,11 +24,12 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostSshAccess $ssh, HostToolchain $toolchain): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostPlanName $planName, HostToolchain $toolchain, HostSshAccess $ssh): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
         $this->printQueue($schedule, $crontab);
+        $this->printPlanName($planName);
         $this->printToolchain($toolchain);
         $this->printSsh($ssh);
 
@@ -193,6 +195,13 @@ class HostingCheck extends Command
         $heartbeat = app(SchedulerHeartbeat::class);
         $this->fact('scheduler_heartbeat', $heartbeat->lastRun()?->format('Y-m-d\TH:i:s\Z') ?? 'not_seen');
         $this->fact('scheduler', $heartbeat->status());
+    }
+
+    private function printPlanName(HostPlanName $planName): void
+    {
+        foreach ($planName->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
     }
 
     private function printToolchain(HostToolchain $toolchain): void
