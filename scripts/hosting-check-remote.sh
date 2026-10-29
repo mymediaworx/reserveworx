@@ -143,7 +143,8 @@ for url in https://api.stripe.com https://services.leadconnectorhq.com; do
 done
 
 section "Inbound webhooks"
-echo "waf_and_rate_rules=not observable from SSH"
+echo "inbound_webhook_waf=not_measured"
+echo "inbound_webhook_rate_rules=not_measured"
 
 section "Application URL"
 echo "http_202_means=SiteGround bot check, not a healthy application"
