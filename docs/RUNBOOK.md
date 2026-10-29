@@ -112,3 +112,7 @@ A platform administrator reads how to start a deploy on `/platform/upgrade`. Ope
 ## Secrets in a log
 
 Audit logging strips values whose keys look like passwords, tokens, secrets, authorization headers, client secrets, SSH keys, or passphrases. If a secret still appears in a GitHub Actions log, revoke it at the source and store a replacement. Do not echo the old value in the revocation note.
+
+## First install
+
+A platform administrator reads the first install on `/platform/upgrade`. A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.

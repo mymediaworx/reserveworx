@@ -62,4 +62,18 @@ final class UpgradeGuide
             ],
         ];
     }
+
+    /**
+     * The first-install sentences from Spec Section 17.
+     * They match docs/DEPLOY.md and do not run a deploy.
+     *
+     * @return array{title: string, body: string}
+     */
+    public function install(): array
+    {
+        return [
+            'title' => 'First install',
+            'body' => 'A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.',
+        ];
+    }
 }
