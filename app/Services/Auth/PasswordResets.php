@@ -59,10 +59,30 @@ final class PasswordResets
                     'remember_token' => Str::random(60),
                 ])->save();
 
+                $this->endOtherSignIns($notifiable);
+
                 event(new PasswordReset($notifiable));
             });
         } catch (PasswordResetRefused) {
             return Password::INVALID_TOKEN;
         }
+    }
+
+    /**
+     * A new password ends API access and other browsers. The session that
+     * submitted the form stays, so that browser can show the confirmation.
+     */
+    private function endOtherSignIns(User $user): void
+    {
+        $user->tokens()->delete();
+
+        $current = session()->isStarted() ? session()->getId() : '';
+        $sessions = DB::table('sessions')->where('user_id', $user->id);
+
+        if ($current !== '') {
+            $sessions->where('id', '!=', $current);
+        }
+
+        $sessions->delete();
     }
 }
