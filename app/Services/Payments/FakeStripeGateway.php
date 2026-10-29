@@ -14,6 +14,9 @@ final class FakeStripeGateway implements StripeGateway
     /** @var list<array<string, mixed>> */
     public array $accounts = [];
 
+    /** @var list<array<string, mixed>> */
+    public array $onboardingLinks = [];
+
     /** @var list<array{account: string, params: array<string, mixed>}> */
     public array $sessions = [];
 
@@ -50,6 +53,8 @@ final class FakeStripeGateway implements StripeGateway
 
     public function createOnboardingLink(array $params): array
     {
+        $this->onboardingLinks[] = $params;
+
         return ['url' => 'https://connect.stripe.test/setup/'.$this->accountId];
     }
 
