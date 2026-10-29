@@ -8,12 +8,13 @@
             .audit-page .filters .button { width: 100%; min-width: 0; max-width: 100%; }
             .audit-page .audit-card,
             .audit-page .audit-card * { min-width: 0; overflow-wrap: anywhere; }
+            .audit-page .audit-when { overflow-wrap: anywhere; max-width: 100%; }
         }
     </style>
     <header class="page-head">
         <div>
             <h1>Audit log</h1>
-            <p class="lede">Changes in this workspace, newest first. Times use the first location’s timezone, or the business timezone when there is no location. Filter by the stored action, such as booking.cancelled.</p>
+            <p class="lede">Changes in this workspace, newest first. Times use the first location’s timezone with that abbreviation, or the business timezone when there is no location. On a fall-back morning both hours stay distinct. Filter by the stored action, such as booking.cancelled.</p>
         </div>
     </header>
 
@@ -43,7 +44,7 @@
                     <li class="row audit-card" wire:key="audit-{{ $row['id'] }}" data-audit="{{ $row['id'] }}">
                         <div class="grow">
                             <strong>{{ $row['label'] }}</strong>
-                            <span class="muted">{{ $row['when'] }} · {{ $row['actor'] }}</span>
+                            <span class="muted audit-when">{{ $row['when'] }} · {{ $row['actor'] }}</span>
                             @if ($row['detail'] !== '')
                                 <span class="muted">{{ $row['detail'] }}</span>
                             @endif
