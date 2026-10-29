@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
 use App\Support\HostOutboundHttps;
+use App\Support\HostToolchain;
 use App\Support\PhpHostFacts;
 use App\Support\SchedulerHeartbeat;
 use App\Support\SharedHostBudget;
@@ -22,11 +23,12 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostOutboundHttps $outbound): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostToolchain $toolchain, HostOutboundHttps $outbound): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
         $this->printQueue($schedule, $crontab);
+        $this->printToolchain($toolchain);
         $this->printOutbound($outbound);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
@@ -191,6 +193,13 @@ class HostingCheck extends Command
         $heartbeat = app(SchedulerHeartbeat::class);
         $this->fact('scheduler_heartbeat', $heartbeat->lastRun()?->format('Y-m-d\TH:i:s\Z') ?? 'not_seen');
         $this->fact('scheduler', $heartbeat->status());
+    }
+
+    private function printToolchain(HostToolchain $toolchain): void
+    {
+        foreach ($toolchain->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
     }
 
     private function printOutbound(HostOutboundHttps $outbound): void
