@@ -4,9 +4,12 @@ namespace App\Services\Platform;
 
 use App\Enums\Industry;
 use App\Enums\TenantStatus;
+use App\Http\FramePolicy;
+use App\Http\Middleware\DenyFraming;
 use App\Models\GhlConnection;
 use App\Models\Tenant;
 use App\Models\WebhookEndpoint;
+use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -42,6 +45,7 @@ final class SecurityCheck
             $this->httpOnly(),
             $this->sessionHost(),
             $this->sameSite(),
+            $this->framing(),
             $this->auditLog(),
             $this->roles(),
             $this->dependabot(),
@@ -254,6 +258,48 @@ final class SecurityCheck
             'fail',
             'The session cookie is not SameSite lax or strict.',
         );
+    }
+
+    /**
+     * Sign-in pages refuse to be framed. The booking page and /book/{token} stay embeddable.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function framing(): array
+    {
+        $frames = new FramePolicy;
+        $signIn = $frames->denies('/staff/login')
+            && $frames->denies('/platform/login')
+            && $frames->denies('/account')
+            && $frames->denies('/signup')
+            && $frames->denies('/admin/login');
+        $booking = ! $frames->denies('/') && ! $frames->denies('/book/hosted');
+
+        if (! $this->framingMiddlewareRegistered() || ! $signIn) {
+            return $this->check('framing', 'Framing', 'fail', 'Sign-in pages can be framed.');
+        }
+
+        if (! $booking) {
+            return $this->check('framing', 'Framing', 'fail', 'The booking page cannot be embedded.');
+        }
+
+        return $this->check(
+            'framing',
+            'Framing',
+            'pass',
+            'Sign-in pages cannot be framed. The booking page can.',
+        );
+    }
+
+    private function framingMiddlewareRegistered(): bool
+    {
+        foreach (app(Kernel::class)->getGlobalMiddleware() as $middleware) {
+            if ($middleware === DenyFraming::class) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -211,11 +211,10 @@ final class BookingListActions
 
         foreach ($bookings as $booking) {
             Gate::forUser($actor)->authorize('view', $booking);
-            $zone = DisplayZone::forLocation($booking->location);
 
             fputcsv($handle, [
                 $booking->id,
-                CarbonImmutable::instance($booking->starts_at)->timezone($zone)->format('Y-m-d H:i'),
+                $this->startClock($booking),
                 $this->cell($booking->location->name ?? ''),
                 $this->cell($booking->service->name ?? ''),
                 $this->cell($booking->customer->name ?? ''),
@@ -232,6 +231,17 @@ final class BookingListActions
         fclose($handle);
 
         return is_string($csv) ? $csv : '';
+    }
+
+    /**
+     * Location-local start, with that instant's abbreviation, so the two
+     * 1:30 AM hours on a fall-back morning stay different cells.
+     */
+    private function startClock(Booking $booking): string
+    {
+        $local = CarbonImmutable::instance($booking->starts_at)->timezone(DisplayZone::forLocation($booking->location));
+
+        return $local->format('Y-m-d H:i').' '.$local->format('T');
     }
 
     /**

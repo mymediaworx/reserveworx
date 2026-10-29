@@ -108,7 +108,7 @@ class Feedback extends Component
             return '';
         }
 
-        return Display::dateTime($at, $zone);
+        return Display::dateTimeWithZone($at, $zone);
     }
 
     public function starsLabel(FeedbackRequest $request): string

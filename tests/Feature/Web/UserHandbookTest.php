@@ -74,7 +74,8 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('have to match the role catalog')
             ->assertDontSee('stays on the current host')
             ->assertDontSee('Dependabot watches Composer')
-            ->assertDontSee('CI runs composer audit');
+            ->assertDontSee('CI runs composer audit')
+            ->assertDontSee('Sign-in pages cannot be framed');
 
         $this->assertSame($before, $this->counts());
 
@@ -234,6 +235,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('stays on the current host')
             ->assertSee('Dependabot watches Composer')
             ->assertSee('CI runs composer audit')
+            ->assertSee('Sign-in pages cannot be framed. The booking page can.')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
@@ -262,6 +264,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('stays on the current host')
             ->assertSee('Dependabot watches Composer')
             ->assertSee('CI runs composer audit')
+            ->assertSee('Sign-in pages cannot be framed. The booking page can.')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
