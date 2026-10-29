@@ -10,6 +10,12 @@ section() {
 }
 
 section "Session"
+# An SSH login sets these. The values are not printed.
+ssh_state=not_measured
+case "${SSH_CONNECTION-}${SSH_CLIENT-}" in
+  *[![:space:]]*) ssh_state=session ;;
+esac
+echo "ssh=${ssh_state}"
 # SiteGround does not name StartUp, GrowBig, GoGeek, or Cloud in this session.
 echo "plan_name=not_measured"
 echo "home=${HOME}"

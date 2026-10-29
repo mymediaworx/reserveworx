@@ -22,6 +22,8 @@ use App\Services\Payments\CheckoutService;
 use App\Services\Schedule\ResourceSchedule;
 use App\Support\Display;
 use App\Support\DisplayZone;
+use App\Support\LocalClock;
+use App\Support\LocationClock;
 use App\Tenancy\StaffLocationScope;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -117,7 +119,7 @@ class Schedule extends Component
         $this->selected = $booking->id;
         $this->fromAsset = $from;
         $this->moveAsset = $from;
-        $this->moveStart = CarbonImmutable::instance($booking->starts_at)->timezone($zone)->format('Y-m-d\TH:i');
+        $this->moveStart = $this->moveStartValue(CarbonImmutable::instance($booking->starts_at), $zone);
     }
 
     public function closeMove(): void
@@ -135,7 +137,7 @@ class Schedule extends Component
             return;
         }
 
-        $this->moveStart = $start->timezone($this->zoneFor($booking))->format('Y-m-d\TH:i');
+        $this->moveStart = $this->moveStartValue($start, $this->zoneFor($booking));
     }
 
     public function useAsset(string $assetId): void
@@ -150,7 +152,7 @@ class Schedule extends Component
         $this->moveAsset = $assetId;
     }
 
-    public function moveBooking(Allocator $allocator, NotificationHooks $hooks, CheckoutService $checkout): void
+    public function moveBooking(Allocator $allocator, NotificationHooks $hooks, CheckoutService $checkout, LocationClock $clocks): void
     {
         $this->reset('flash', 'problem', 'suggestedTimes', 'suggestedAssets');
         $booking = $this->booking($this->selected);
@@ -163,11 +165,11 @@ class Schedule extends Component
         }
 
         $this->validate([
-            'moveStart' => ['required', 'date_format:Y-m-d\TH:i'],
+            'moveStart' => ['required', 'string', 'max:25'],
         ]);
 
         $zone = $this->zoneFor($booking);
-        $start = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->moveStart, $zone);
+        $start = $clocks->parse($this->moveStart, $zone, false);
 
         if (! $start instanceof CarbonImmutable) {
             $this->addError('moveStart', 'Choose a valid start.');
@@ -246,7 +248,7 @@ class Schedule extends Component
         $this->date = $savedStart->timezone($zone)->toDateString();
         $this->fromAsset = $assetNow ?? '';
         $this->moveAsset = $assetNow ?? '';
-        $this->moveStart = $savedStart->timezone($zone)->format('Y-m-d\TH:i');
+        $this->moveStart = $this->moveStartValue($savedStart, $zone);
         $this->notice($this->movedMessage($checkout, $saved));
     }
 
@@ -374,7 +376,7 @@ class Schedule extends Component
         $zone = $this->zoneFor($saved);
         $this->date = $savedStart->timezone($zone)->toDateString();
         $this->moveDeparture = '';
-        $this->moveStart = $savedStart->timezone($zone)->format('Y-m-d\TH:i');
+        $this->moveStart = $this->moveStartValue($savedStart, $zone);
         $this->notice('Moved.');
     }
 
@@ -391,6 +393,22 @@ class Schedule extends Component
         $booking->loadMissing('location');
 
         return DisplayZone::forLocation($booking->location);
+    }
+
+    /**
+     * A normal hour stays `Y-m-d\TH:i`. A fall-back hour that happens twice
+     * keeps that instant's offset so the later hour is not stored as the earlier one.
+     */
+    private function moveStartValue(CarbonImmutable $instant, string $zone): string
+    {
+        $local = $instant->timezone($zone);
+        $value = $local->format('Y-m-d\TH:i');
+
+        if (! LocalClock::repeated($local)) {
+            return $value;
+        }
+
+        return $value.$local->format('P');
     }
 
     private function allocatedAssetId(Booking $booking): ?string
@@ -490,10 +508,10 @@ class Schedule extends Component
                 continue;
             }
 
-            $start = CarbonImmutable::parse($time['starts_at'])->timezone($zone);
+            $start = CarbonImmutable::parse($time['starts_at']);
             $times[] = [
                 'starts_at' => $start->utc()->format('Y-m-d\TH:i:s\Z'),
-                'label' => $start->format('D, g:i A'),
+                'label' => Display::dateTimeWithZone($start, $zone),
             ];
         }
 
