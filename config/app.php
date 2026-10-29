@@ -17,6 +17,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | Semantic version of this build: major.minor.patch. A tagged release is
+    | the git tag v plus this value. It is not read from the environment.
+    |
+    */
+
+    'version' => '0.0.0',
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |
