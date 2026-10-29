@@ -410,6 +410,7 @@ class CustomerAccountTest extends TestCase
 
     public function test_saving_a_password_ends_other_browsers_and_api_tokens(): void
     {
+        config(['session.encrypt' => false]);
         $dock = $this->workspace('dock.test', 'owner', ['name' => 'Harbor']);
         $other = $this->workspace('other.test', 'owner', ['name' => 'Inland']);
         $url = $this->captureLink($dock['tenant']->id, 'http://dock.test', 'ada@example.com', 'Ada', self::PASSWORD);

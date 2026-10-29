@@ -72,7 +72,8 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('/platform/upgrade')
             ->assertDontSee('href="/platform/security"', false)
             ->assertDontSee('have to match the role catalog')
-            ->assertDontSee('stays on the current host');
+            ->assertDontSee('stays on the current host')
+            ->assertDontSee('session data is encrypted before it is stored');
 
         $this->assertSame($before, $this->counts());
 
@@ -230,6 +231,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('have to match the role catalog')
             ->assertSee('stays on the current host')
+            ->assertSee('session data is encrypted before it is stored')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
@@ -256,6 +258,7 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:security.')
             ->assertSee('have to match the role catalog')
             ->assertSee('stays on the current host')
+            ->assertSee('session data is encrypted before it is stored')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 

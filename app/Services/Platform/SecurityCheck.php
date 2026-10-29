@@ -15,7 +15,8 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * the session cookie, and role-based access, and for Spec Section 14 item 14.
+ * the session cookie, encrypted session data, and role-based access,
+ * and for Spec Section 14 item 14.
  * A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
@@ -37,6 +38,7 @@ final class SecurityCheck
             $this->cardColumns(),
             $this->csrf(),
             $this->httpOnly(),
+            $this->sessionPayload(),
             $this->sessionHost(),
             $this->sameSite(),
             $this->auditLog(),
@@ -193,6 +195,26 @@ final class SecurityCheck
             'Session cookie',
             $only ? 'pass' : 'fail',
             $only ? 'The session cookie is HTTP-only.' : 'The session cookie is not HTTP-only.',
+        );
+    }
+
+    /**
+     * The stored session is the signed-in person. Encryption keeps that payload
+     * unreadable in the sessions table. The configured value is not printed.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sessionPayload(): array
+    {
+        $encrypted = $this->enabled(config('session.encrypt'));
+
+        return $this->check(
+            'session_payload',
+            'Session data',
+            $encrypted ? 'pass' : 'fail',
+            $encrypted
+                ? 'Session data is encrypted before it is stored.'
+                : 'Session data is stored without encryption.',
         );
     }
 
