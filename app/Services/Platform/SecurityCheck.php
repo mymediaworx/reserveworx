@@ -15,12 +15,15 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * and the session cookie. A sample token is written and rolled back.
+ * the session cookie, and role-based access, and for Spec Section 14 item 14.
+ * A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
 final class SecurityCheck
 {
     public const PROBE_MARK = 'rw-secret-probe-';
+
+    public function __construct(private readonly RoleCatalogCheck $roleCatalog) {}
 
     /**
      * @return array{secure: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -34,7 +37,10 @@ final class SecurityCheck
             $this->cardColumns(),
             $this->csrf(),
             $this->httpOnly(),
+            $this->sessionHost(),
+            $this->sameSite(),
             $this->auditLog(),
+            $this->roles(),
         ];
 
         $secure = collect($checks)->every(fn (array $check): bool => $check['state'] !== 'fail');
@@ -191,6 +197,61 @@ final class SecurityCheck
     }
 
     /**
+     * A set cookie domain is sent to every host under that name, so a sign-in
+     * on one workspace would be sent to another. The value is not printed.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sessionHost(): array
+    {
+        $domain = config('session.domain');
+
+        if ($domain === null || $domain === false || $domain === '') {
+            return $this->check(
+                'session_host',
+                'Session host',
+                'pass',
+                'The session cookie stays on the current host.',
+            );
+        }
+
+        return $this->check(
+            'session_host',
+            'Session host',
+            'fail',
+            'The session cookie is not limited to the current host.',
+        );
+    }
+
+    /**
+     * Lax and strict keep the cookie off a cross-site request. The configured
+     * value is printed only when it is one of those two words.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function sameSite(): array
+    {
+        $value = config('session.same_site');
+        $token = is_string($value) ? strtolower(trim($value)) : '';
+
+        if ($token === 'lax' || $token === 'strict') {
+            return $this->check(
+                'session_same_site',
+                'SameSite',
+                'pass',
+                'The session cookie is SameSite '.$token.'.',
+            );
+        }
+
+        return $this->check(
+            'session_same_site',
+            'SameSite',
+            'fail',
+            'The session cookie is not SameSite lax or strict.',
+        );
+    }
+
+    /**
      * @return array{key: string, label: string, state: string, detail: string, line: string}
      */
     private function auditLog(): array
@@ -207,6 +268,24 @@ final class SecurityCheck
             $present ? 'pass' : 'fail',
             $present ? 'The audit log table is present.' : 'The audit log table is missing.',
         );
+    }
+
+    /**
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function roles(): array
+    {
+        $status = $this->roleCatalog->status();
+
+        if ($status === 'synced') {
+            return $this->check('roles', 'Roles', 'pass', 'Owner, manager, and staff match the role catalog.');
+        }
+
+        if ($status === 'out_of_sync') {
+            return $this->check('roles', 'Roles', 'fail', 'The stored roles do not match the role catalog.');
+        }
+
+        return $this->check('roles', 'Roles', 'fail', 'The role catalog could not be checked.');
     }
 
     private function enabled(mixed $value): bool

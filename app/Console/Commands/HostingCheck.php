@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
 use App\Support\HostToolchain;
+use App\Support\PhpHostFacts;
 use App\Support\SchedulerHeartbeat;
 use App\Support\SharedHostBudget;
 use Illuminate\Console\Command;
@@ -153,6 +154,10 @@ class HostingCheck extends Command
         $this->fact('php_version', PHP_VERSION);
         $this->fact('max_execution_time', $this->iniValue('max_execution_time'));
         $this->fact('memory_limit', $this->iniValue('memory_limit'));
+
+        foreach (app(PhpHostFacts::class)->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
     }
 
     private function iniValue(string $name): string
