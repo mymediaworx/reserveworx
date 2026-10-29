@@ -20,6 +20,7 @@ use Illuminate\Cache\RateLimiter as CacheRateLimiter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use ReflectionProperty;
 use Tests\Support\CreatesWorkspace;
@@ -63,6 +64,7 @@ class ReadinessReportTest extends TestCase
             ->expectsOutputToContain('queue=pass')
             ->expectsOutputToContain('debug=pass')
             ->expectsOutputToContain('restore_command=pass')
+            ->expectsOutputToContain('migrations=pass')
             ->expectsOutputToContain('session_secure=note')
             ->expectsOutputToContain('https=note')
             ->expectsOutputToContain('scheduler=pass')
@@ -84,6 +86,7 @@ class ReadinessReportTest extends TestCase
             ->assertSee('The queue uses the database driver and the jobs table is present.')
             ->assertSee('Debug is off.')
             ->assertSee('reserveworx:restore-backup is registered.')
+            ->assertSee('Migrations are current.')
             ->assertSee('Secure cookies are checked when the app is in production.')
             ->assertSee('HTTPS is checked when the app is in production.')
             ->assertSee('The scheduler has run in the last 10 minutes.')
@@ -209,6 +212,62 @@ class ReadinessReportTest extends TestCase
             ->assertSee('The session cookie is marked secure.')
             ->assertSee('The application URL uses HTTPS.')
             ->assertDontSee('https://app.reserveworx.com');
+    }
+
+    public function test_a_migration_that_has_not_run_is_not_ready_and_nothing_is_written(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-10-27 16:00:00', 'UTC'));
+        $this->readyConfig();
+        $this->lockEncryption();
+        app(SchedulerHeartbeat::class)->beat();
+        $admin = $this->admin();
+        $names = DB::table('migrations')->orderByDesc('id')->limit(2)->pluck('migration')->values();
+        $this->assertCount(2, $names);
+        $first = $names[0];
+        $second = $names[1];
+        $this->assertIsString($first);
+        $this->assertIsString($second);
+        DB::table('migrations')->where('migration', $first)->delete();
+        $audits = AuditLog::query()->count();
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('migrations=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain($first)
+            ->doesntExpectOutputToContain('database/migrations')
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/readiness')
+            ->assertOk()
+            ->assertSee('Not ready')
+            ->assertSee('data-check="migrations"', false)
+            ->assertSee('data-state="fail"', false)
+            ->assertSee('1 migration has not run.')
+            ->assertDontSee('Migrations are current.')
+            ->assertDontSee($first)
+            ->assertDontSee('database/migrations');
+
+        $this->assertSame(0, DB::table('migrations')->where('migration', $first)->count());
+        $this->assertUnchanged($audits);
+
+        DB::table('migrations')->where('migration', $second)->delete();
+
+        $this->artisan('reserveworx:readiness')
+            ->expectsOutputToContain('migrations=fail')
+            ->expectsOutputToContain('ready=no')
+            ->doesntExpectOutputToContain($second)
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/readiness')
+            ->assertOk()
+            ->assertSee('2 migrations have not run.')
+            ->assertDontSee('1 migration has not run.')
+            ->assertDontSee($second);
+
+        $this->assertSame(0, DB::table('migrations')->whereIn('migration', [$first, $second])->count());
+        $this->assertUnchanged($audits);
     }
 
     public function test_only_a_platform_admin_on_the_platform_host_can_open_the_report(): void
