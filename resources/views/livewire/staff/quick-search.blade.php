@@ -1,4 +1,10 @@
 <div>
+    <style>
+        .staff-search-meta { min-width: 0; overflow-wrap: anywhere; }
+        @media (max-width: 390px) {
+            .staff-search-meta { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+        }
+    </style>
     @if ($open)
         <div class="staff-search-layer" data-staff-overlay="search">
             <button type="button" class="staff-search-backdrop" wire:click="close" aria-label="Close search"></button>
@@ -51,7 +57,7 @@
                                                     aria-selected="{{ $index === $selected ? 'true' : 'false' }}"
                                                 >
                                                     <span class="staff-search-title">{{ $hit->title }}</span>
-                                                    <span class="staff-search-meta">{{ $hit->meta }}</span>
+                                                    <span class="staff-search-meta" @if ($hit->type === 'booking') data-when @endif>{{ $hit->meta }}</span>
                                                 </a>
                                             </li>
                                             @php $index++; @endphp
