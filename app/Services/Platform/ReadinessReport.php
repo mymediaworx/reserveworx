@@ -2,6 +2,7 @@
 
 namespace App\Services\Platform;
 
+use App\Support\ApplicationRelease;
 use App\Support\SchedulerHeartbeat;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\RateLimiter;
@@ -14,7 +15,10 @@ use Throwable;
  */
 final class ReadinessReport
 {
-    public function __construct(private readonly SchedulerHeartbeat $scheduler) {}
+    public function __construct(
+        private readonly SchedulerHeartbeat $scheduler,
+        private readonly ApplicationRelease $release,
+    ) {}
 
     /**
      * @return array{ready: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -34,6 +38,7 @@ final class ReadinessReport
             $this->sessionSecure(),
             $this->https(),
             $this->scheduler(),
+            $this->release->check(),
         ];
 
         $ready = collect($checks)->every(fn (array $check): bool => $check['state'] !== 'fail');
