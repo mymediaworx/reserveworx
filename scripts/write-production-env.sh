@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Write laravel/shared/.env for app.reserveworx.com. Values arrive in the
-# environment. This script does not print them.
+# environment. This script does not print them. Optional: RW_MAIL_MAILER and
+# RW_POSTMARK_TOKEN (Postmark; the default mailer stays log).
 set -euo pipefail
 
 : "${RW_APP_KEY:?RW_APP_KEY is required}"
@@ -45,9 +46,16 @@ $values = [
     'CACHE_STORE' => 'database',
     // Deploy refreshes SMTP from the MAIL_PASSWORD secret. This full rewrite
     // stays on the log mailer so a bootstrap without that secret cannot send.
-    'MAIL_MAILER' => 'log',
+    'MAIL_MAILER' => getenv('RW_MAIL_MAILER') ?: 'log',
+    'MAIL_FROM_ADDRESS' => 'no-reply@reserveworx.com',
+    'POSTMARK_MESSAGE_STREAM_ID' => 'outbound',
     'PLATFORM_DOMAINS' => 'app.reserveworx.com',
 ];
+
+// Optional. Written only when the caller supplies it, and never printed.
+if (getenv('RW_POSTMARK_TOKEN')) {
+    $values['POSTMARK_TOKEN'] = getenv('RW_POSTMARK_TOKEN');
+}
 
 $lines = [];
 foreach ($values as $key => $value) {
