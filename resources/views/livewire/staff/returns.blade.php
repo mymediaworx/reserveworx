@@ -27,6 +27,8 @@
         .return-card .return-form .button { width: 100%; }
         .fee-choice { display: grid; gap: 0.35rem; margin: 0; padding: 0; border: 0; }
         .fee-choice label { display: flex; gap: 0.5rem; align-items: center; }
+        .return-choices { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; padding: 0; list-style: none; }
+        .return-clock-note { margin: 0 0 0.75rem; }
         @media (max-width: 390px) {
             .returns-page { min-width: 0; }
             .returns-page .return-card,
@@ -34,7 +36,8 @@
             .returns-page input,
             .returns-page select,
             .returns-page textarea,
-            .returns-page .button { width: 100%; max-width: 100%; }
+            .returns-page .button,
+            .returns-page .return-choices .button { width: 100%; max-width: 100%; white-space: normal; }
         }
     </style>
     <header class="page-head">
@@ -68,6 +71,7 @@
     @if ($checkouts->isEmpty())
         <p class="empty">Nothing is due back right now.</p>
     @else
+        <p class="muted small return-clock-note">Return times use that rental’s location time zone. A repeated hour is the earlier one until you choose the later one. A time that does not exist is not saved.</p>
         <ul class="return-list">
             @foreach ($checkouts as $checkout)
                 @php
@@ -78,17 +82,16 @@
                     $minutes = $due !== null ? Lateness::minutes($due, $now) : 0;
                     $resource = $checkout->asset?->name ?? $checkout->pool?->name ?? 'Resource';
                     $customer = $booking?->customer;
-                    $entered = $returnedAt[$checkout->id] ?? '';
+                    $preview = $previews[$checkout->id] ?? ['parsed' => null, 'choices' => []];
+                    $parsedReturn = $preview['parsed'] ?? null;
+                    $choices = is_array($preview['choices'] ?? null) ? $preview['choices'] : [];
                     $feeMinutes = 0;
                     $feeCents = 0;
                     $pastDue = false;
-                    if ($due !== null && is_string($entered) && $entered !== '') {
-                        $parsedReturn = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $entered, $zone);
-                        if ($parsedReturn instanceof CarbonImmutable) {
-                            $pastDue = Lateness::overdue($due, $parsedReturn);
-                            $feeMinutes = LateFee::billableMinutes($due, $parsedReturn, $graceMinutes);
-                            $feeCents = LateFee::amountCents($feeMinutes, $lateFeeRate);
-                        }
+                    if ($due !== null && $parsedReturn instanceof CarbonImmutable) {
+                        $pastDue = Lateness::overdue($due, $parsedReturn);
+                        $feeMinutes = LateFee::billableMinutes($due, $parsedReturn, $graceMinutes);
+                        $feeCents = LateFee::amountCents($feeMinutes, $lateFeeRate);
                     }
                 @endphp
                 <li @class(['return-card', 'is-late' => $overdue]) data-checkout="{{ $checkout->id }}" data-overdue="{{ $overdue ? 'yes' : 'no' }}" data-minutes="{{ $minutes }}" wire:key="return-{{ $checkout->id }}">
@@ -107,6 +110,18 @@
                             <span>Return time</span>
                             <input type="datetime-local" wire:model.live="returnedAt.{{ $checkout->id }}" required>
                         </label>
+                        @if ($parsedReturn instanceof CarbonImmutable)
+                            <span class="muted small" data-return-label="{{ $parsedReturn->timezone($zone)->format('Y-m-d\TH:iP') }}">{{ Display::dateTimeWithZone($parsedReturn, $zone) }}</span>
+                        @endif
+                        @if ($choices !== [])
+                            <ul class="return-choices">
+                                @foreach ($choices as $choice)
+                                    <li>
+                                        <button type="button" class="button small" wire:click="useReturnTime('{{ $checkout->id }}', '{{ $choice['value'] }}')" data-return-choice="{{ $choice['value'] }}">{{ $choice['label'] }}</button>
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
                         @error('returnedAt.'.$checkout->id)<p class="error">{{ $message }}</p>@enderror
                         <label class="field">
                             <span>Condition</span>
