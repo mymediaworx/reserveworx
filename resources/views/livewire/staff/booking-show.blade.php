@@ -17,10 +17,11 @@
             <p class="lede" data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</p>
             <style>
                 p[data-when], p[data-hold-until] { max-width: 100%; overflow-wrap: anywhere; }
-                button[data-extend-until] { max-width: 100%; }
+                button[data-extend-until], button[data-clock-choice] { max-width: 100%; }
                 @media (max-width: 390px) {
                     p[data-when], p[data-hold-until] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
                     button[data-extend-until] { width: 100%; white-space: normal; overflow-wrap: anywhere; }
+                    button[data-clock-choice] { width: 100%; white-space: normal; overflow-wrap: anywhere; }
                 }
             </style>
         </div>
@@ -354,15 +355,46 @@
                             @endif
                         @else
                             <form wire:submit="reschedule" class="stack">
-                                <label class="field"><span>Start</span><input type="datetime-local" wire:model="rescheduleStart"></label>
-                                <label class="field"><span>End</span><input type="datetime-local" wire:model="rescheduleEnd"></label>
+                                <label class="field"><span>Start</span><input type="datetime-local" wire:model.live="rescheduleStart"></label>
+                                @if ($rescheduleStartLabel)
+                                    <span class="muted small" data-start-label="{{ $rescheduleStart }}">{{ $rescheduleStartLabel }}</span>
+                                @endif
+                                @if ($rescheduleStartChoices !== [])
+                                    <ul class="clock-choices">
+                                        @foreach ($rescheduleStartChoices as $choice)
+                                            <li><button type="button" class="button small" wire:click="useRescheduleStart('{{ $choice['value'] }}')" data-clock-choice="start" data-start-choice="{{ $choice['value'] }}">{{ $choice['label'] }}</button></li>
+                                        @endforeach
+                                    </ul>
+                                @endif
+                                @error('rescheduleStart')<p class="error">{{ $message }}</p>@enderror
+                                <label class="field"><span>End</span><input type="datetime-local" wire:model.live="rescheduleEnd"></label>
+                                @if ($rescheduleEndLabel)
+                                    <span class="muted small" data-end-label="{{ $rescheduleEnd }}">{{ $rescheduleEndLabel }}</span>
+                                @endif
+                                @if ($rescheduleEndChoices !== [])
+                                    <ul class="clock-choices">
+                                        @foreach ($rescheduleEndChoices as $choice)
+                                            <li><button type="button" class="button small" wire:click="useRescheduleEnd('{{ $choice['value'] }}')" data-clock-choice="end" data-end-choice="{{ $choice['value'] }}">{{ $choice['label'] }}</button></li>
+                                        @endforeach
+                                    </ul>
+                                @endif
                                 @error('rescheduleEnd')<p class="error">{{ $message }}</p>@enderror
                                 <button type="submit" class="button">Reschedule</button>
                             </form>
                         @endif
                         @if ($canExtend)
                             <form wire:submit="extend" class="stack top-gap">
-                                <label class="field"><span>New return time</span><input type="datetime-local" wire:model="extendEnd"></label>
+                                <label class="field"><span>New return time</span><input type="datetime-local" wire:model.live="extendEnd"></label>
+                                @if ($extendLabel)
+                                    <span class="muted small" data-extend-label="{{ $extendEnd }}">{{ $extendLabel }}</span>
+                                @endif
+                                @if ($extendChoices !== [])
+                                    <ul class="clock-choices">
+                                        @foreach ($extendChoices as $choice)
+                                            <li><button type="button" class="button small" wire:click="useExtendEnd('{{ $choice['value'] }}')" data-clock-choice="extend" data-extend-choice="{{ $choice['value'] }}">{{ $choice['label'] }}</button></li>
+                                        @endforeach
+                                    </ul>
+                                @endif
                                 @error('extendEnd')<p class="error">{{ $message }}</p>@enderror
                                 <button type="submit" class="button">Extend rental</button>
                             </form>

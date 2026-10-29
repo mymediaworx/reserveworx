@@ -35,9 +35,12 @@ use App\Services\Staff\StaffUndo;
 use App\Services\Widget\GuestManageLink;
 use App\Support\Display;
 use App\Support\DisplayZone;
+use App\Support\LocalClock;
+use App\Support\LocationClock;
 use App\Tenancy\Access;
 use App\Tenancy\TenantScope;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\View\View;
 use InvalidArgumentException;
 use Livewire\Attributes\Layout;
@@ -94,8 +97,8 @@ class BookingShow extends Component
         $this->authorize('view', $model);
         $this->bookingId = $model->id;
         $zone = $this->zoneFor($model);
-        $this->rescheduleStart = CarbonImmutable::instance($model->starts_at)->timezone($zone)->format('Y-m-d\TH:i');
-        $this->rescheduleEnd = CarbonImmutable::instance($model->ends_at)->timezone($zone)->format('Y-m-d\TH:i');
+        $this->rescheduleStart = $this->clockValue($model->starts_at, $zone);
+        $this->rescheduleEnd = $this->clockValue($model->ends_at, $zone);
         $this->extendEnd = $this->rescheduleEnd;
         $this->guideUserId = is_string($model->guide_user_id) ? $model->guide_user_id : '';
     }
@@ -367,14 +370,30 @@ class BookingShow extends Component
         }
 
         $this->validate([
-            'rescheduleStart' => ['required', 'date_format:Y-m-d\TH:i'],
-            'rescheduleEnd' => ['required', 'date_format:Y-m-d\TH:i'],
+            'rescheduleStart' => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
+            'rescheduleEnd' => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
+        ], [
+            'rescheduleStart.regex' => 'Choose a real start.',
+            'rescheduleEnd.regex' => 'Choose a real end.',
         ]);
         $zone = $this->zoneFor($booking);
-        $start = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->rescheduleStart, $zone)->utc();
-        $end = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->rescheduleEnd, $zone)->utc();
+        $clock = app(LocationClock::class);
+        $start = $this->parsedClock($clock, $this->rescheduleStart, $zone);
+        $end = $this->parsedClock($clock, $this->rescheduleEnd, $zone);
 
-        if ($end <= $start) {
+        if (! $start instanceof CarbonImmutable) {
+            $this->addError('rescheduleStart', 'That time does not exist in this location.');
+
+            return;
+        }
+
+        if (! $end instanceof CarbonImmutable) {
+            $this->addError('rescheduleEnd', 'That time does not exist in this location.');
+
+            return;
+        }
+
+        if ($end->lessThanOrEqualTo($start)) {
             $this->addError('rescheduleEnd', 'The end must be after the start.');
 
             return;
@@ -395,16 +414,39 @@ class BookingShow extends Component
     public function extend(RentalExtensions $extensions): void
     {
         $booking = $this->editable();
-        $this->validate(['extendEnd' => ['required', 'date_format:Y-m-d\TH:i']]);
-        $parsed = CarbonImmutable::createFromFormat('Y-m-d\TH:i', $this->extendEnd, $this->zoneFor($booking));
+        $this->validate([
+            'extendEnd' => ['required', 'regex:/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/'],
+        ], [
+            'extendEnd.regex' => 'Choose a valid return time.',
+        ]);
+        $zone = $this->zoneFor($booking);
+        $parsed = $this->parsedClock(app(LocationClock::class), $this->extendEnd, $zone);
 
         if (! $parsed instanceof CarbonImmutable) {
-            $this->addError('extendEnd', 'Choose a valid return time.');
+            $this->addError('extendEnd', 'That time does not exist in this location.');
 
             return;
         }
 
-        $this->applyExtension($extensions, $booking, $parsed->utc());
+        $this->applyExtension($extensions, $booking, $parsed);
+    }
+
+    public function useRescheduleStart(string $value): void
+    {
+        $booking = $this->editable();
+        $this->chooseClock('rescheduleStart', $value, $this->zoneFor($booking));
+    }
+
+    public function useRescheduleEnd(string $value): void
+    {
+        $booking = $this->editable();
+        $this->chooseClock('rescheduleEnd', $value, $this->zoneFor($booking));
+    }
+
+    public function useExtendEnd(string $value): void
+    {
+        $booking = $this->editable();
+        $this->chooseClock('extendEnd', $value, $this->zoneFor($booking));
     }
 
     public function acceptShorterExtension(RentalExtensions $extensions): void
@@ -419,7 +461,7 @@ class BookingShow extends Component
         }
 
         $this->extendAssetId = null;
-        $this->extendEnd = $end->timezone($this->zoneFor($booking))->format('Y-m-d\TH:i');
+        $this->extendEnd = $this->clockValue($end, $this->zoneFor($booking));
         $this->applyExtension($extensions, $booking, $end);
     }
 
@@ -467,6 +509,7 @@ class BookingShow extends Component
         $heldOpen = $booking->status->isOpenHold()
             && $booking->holds->contains(fn (Hold $hold): bool => $hold->expires_at->greaterThan(now()));
         $ledger = app(FeeLedger::class)->build($booking->id);
+        $clock = app(LocationClock::class);
 
         return view('livewire.staff.booking-show', [
             'booking' => $booking,
@@ -495,6 +538,12 @@ class BookingShow extends Component
                 && $booking->service?->kind?->value === 'rental'
                 && ! in_array($booking->operational_status, [OperationalStatus::Returned, OperationalStatus::Completed], true),
             'departures' => app(TourDepartureChoices::class)->forBooking($booking),
+            'rescheduleStartChoices' => $booking->departure_id ? [] : $this->clockChoices($clock, $this->rescheduleStart, $zone),
+            'rescheduleEndChoices' => $booking->departure_id ? [] : $this->clockChoices($clock, $this->rescheduleEnd, $zone),
+            'extendChoices' => $this->clockChoices($clock, $this->extendEnd, $zone),
+            'rescheduleStartLabel' => $this->clockLabel($clock, $this->rescheduleStart, $zone),
+            'rescheduleEndLabel' => $this->clockLabel($clock, $this->rescheduleEnd, $zone),
+            'extendLabel' => $this->clockLabel($clock, $this->extendEnd, $zone),
             'guides' => $guides,
             'guideName' => $guideName,
             'canAssignGuide' => $this->allows('bookings.manage')
@@ -578,6 +627,86 @@ class BookingShow extends Component
         $booking->loadMissing('location');
 
         return DisplayZone::forLocation($booking->location);
+    }
+
+    private function chooseClock(string $field, string $value, string $zone): void
+    {
+        $parsed = $this->parsedClock(app(LocationClock::class), $value, $zone);
+
+        if (! $parsed instanceof CarbonImmutable) {
+            $this->addError($field, 'That time does not exist in this location.');
+
+            return;
+        }
+
+        if ($field === 'rescheduleStart') {
+            $this->rescheduleStart = $this->clockValue($parsed, $zone);
+        } elseif ($field === 'rescheduleEnd') {
+            $this->rescheduleEnd = $this->clockValue($parsed, $zone);
+        } else {
+            $this->extendEnd = $this->clockValue($parsed, $zone);
+        }
+    }
+
+    private function parsedClock(LocationClock $clock, string $raw, string $zone): ?CarbonImmutable
+    {
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/', $raw) !== 1) {
+            return null;
+        }
+
+        return $clock->parse($raw, $zone, false);
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    private function clockChoices(LocationClock $clock, string $raw, string $zone): array
+    {
+        if (preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $raw) === 1) {
+            return [];
+        }
+
+        $earlier = $this->parsedClock($clock, $raw, $zone);
+        $later = $clock->parse($raw, $zone, true);
+
+        if (! $earlier instanceof CarbonImmutable || ! $later instanceof CarbonImmutable || $later->equalTo($earlier)) {
+            return [];
+        }
+
+        return [
+            $this->clockChoice($earlier, $zone),
+            $this->clockChoice($later, $zone),
+        ];
+    }
+
+    /**
+     * @return array{value: string, label: string}
+     */
+    private function clockChoice(CarbonImmutable $instant, string $zone): array
+    {
+        return [
+            'value' => $this->clockValue($instant, $zone),
+            'label' => Display::dateTimeWithZone($instant, $zone),
+        ];
+    }
+
+    private function clockLabel(LocationClock $clock, string $raw, string $zone): ?string
+    {
+        $parsed = $this->parsedClock($clock, $raw, $zone);
+
+        return $parsed instanceof CarbonImmutable ? Display::dateTimeWithZone($parsed, $zone) : null;
+    }
+
+    private function clockValue(DateTimeInterface $instant, string $zone): string
+    {
+        $local = CarbonImmutable::instance($instant)->timezone($zone);
+        $value = $local->format('Y-m-d\TH:i');
+
+        if (LocalClock::repeated($local)) {
+            $value .= $local->format('P');
+        }
+
+        return $value;
     }
 
     /**
