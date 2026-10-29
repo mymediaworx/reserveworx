@@ -9,7 +9,7 @@ class ReportSecurity extends Command
 {
     protected $signature = 'reserveworx:security';
 
-    protected $description = 'Report whether stored credentials are encrypted, card data is absent, roles match the catalog, and the session cookie stays on the current host. This command does not print secrets or call Stripe.';
+    protected $description = 'Report whether stored credentials are encrypted, card data is absent, roles match the catalog, the session cookie stays on the current host, and sign-in pages cannot be framed. This command does not print secrets or call Stripe.';
 
     public function handle(SecurityCheck $check): int
     {
