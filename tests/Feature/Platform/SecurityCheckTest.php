@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\Platform\SecurityCheck;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Session\SessionManager;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\Support\CreatesWorkspace;
@@ -42,6 +43,7 @@ class SecurityCheckTest extends TestCase
             ->expectsOutputToContain('card_columns=pass')
             ->expectsOutputToContain('csrf=pass')
             ->expectsOutputToContain('session_http_only=pass')
+            ->expectsOutputToContain('session_payload=pass')
             ->expectsOutputToContain('session_host=pass')
             ->expectsOutputToContain('session_same_site=pass')
             ->expectsOutputToContain('framing=pass')
@@ -63,6 +65,7 @@ class SecurityCheckTest extends TestCase
             ->assertSee('Payments and connected accounts do not store a card number or a CVC.')
             ->assertSee('Form posts use Laravel\'s CSRF check.')
             ->assertSee('The session cookie is HTTP-only.')
+            ->assertSee('Session data is encrypted before it is stored.')
             ->assertSee('The session cookie stays on the current host.')
             ->assertSee('The session cookie is SameSite lax.')
             ->assertSee('has to stay on the current host')
@@ -86,6 +89,92 @@ class SecurityCheckTest extends TestCase
         $this->assertSame($roleLinks, DB::table('role_permission')->count());
         $this->assertSame(self::KEPT_TOKEN, GhlConnection::withoutGlobalScope(TenantScope::class)->where('location_id', 'loc_kept')->firstOrFail()->private_integration_token);
         $this->assertSame(0, Tenant::query()->where('slug', 'like', 'security-check-%')->count());
+    }
+
+    public function test_a_staff_sign_in_stores_ciphertext_and_an_explicit_off_is_not_secure(): void
+    {
+        $source = file_get_contents(config_path('session.php'));
+        $example = file_get_contents(base_path('.env.example'));
+        $this->assertIsString($source);
+        $this->assertIsString($example);
+        $this->assertStringContainsString("env('SESSION_ENCRYPT', true)", $source);
+        $this->assertStringContainsString('SESSION_ENCRYPT=true', $example);
+        $this->assertStringNotContainsString('SESSION_ENCRYPT=false', $example);
+
+        $workspace = $this->workspace('alpha.test');
+        $user = $workspace['user'];
+        $user->forceFill(['password' => bcrypt('correct-horse-battery')])->save();
+        $email = $user->email;
+        $id = $user->id;
+        config([
+            'session.driver' => 'database',
+            'session.encrypt' => true,
+        ]);
+        $this->app->forgetInstance('session');
+        $this->app->forgetInstance('session.store');
+
+        $this->post($this->tenantUrl('alpha.test', '/staff/login'), [
+            'email' => $email,
+            'password' => 'correct-horse-battery',
+        ])->assertRedirect('/staff');
+
+        $payloads = DB::table('sessions')->pluck('payload');
+        $this->assertNotEmpty($payloads);
+        foreach ($payloads as $payload) {
+            $this->assertIsString($payload);
+            $this->assertStringNotContainsString($email, $payload);
+            $this->assertStringNotContainsString($id, $payload);
+        }
+
+        $this->get($this->tenantUrl('alpha.test', '/staff'))->assertOk();
+
+        config([
+            'session.driver' => 'database',
+            'session.encrypt' => false,
+        ]);
+        $plainId = str_repeat('a', 40);
+        $store = (new SessionManager($this->app))->driver();
+        $store->setId($plainId);
+        $store->start();
+        $store->put('staff', $id);
+        $store->save();
+
+        $plain = DB::table('sessions')->where('id', $plainId)->value('payload');
+        $this->assertIsString($plain);
+        $decoded = base64_decode($plain, true);
+        $this->assertIsString($decoded);
+        $this->assertStringContainsString($id, $decoded);
+
+        $before = $this->counts();
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_payload=fail')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain($email)
+            ->doesntExpectOutputToContain($id)
+            ->assertFailed();
+
+        config(['session.encrypt' => "off\nrw-session-canary"]);
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('session_payload=fail')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain('rw-session-canary')
+            ->doesntExpectOutputToContain($email)
+            ->assertFailed();
+
+        $this->actingAs($this->admin())
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('Not secure')
+            ->assertSee('data-secure="no"', false)
+            ->assertSee('Session data is stored without encryption.')
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('Session data is encrypted before it is stored.')
+            ->assertDontSee('rw-session-canary')
+            ->assertDontSee($email);
+
+        $this->assertSame($before, $this->counts());
+        config(['session.encrypt' => true]);
     }
 
     public function test_roles_that_do_not_match_the_catalog_are_not_secure(): void
