@@ -85,7 +85,7 @@ final class UserHandbook
                     ],
                     [
                         'title' => 'Security',
-                        'body' => 'Whether stored credentials are encrypted, card columns are absent, the session cookie is HTTP-only and stays on the current host, form posts use the CSRF check, and owner, manager, and staff have to match the role catalog. The same lines are printed by reserveworx:security. A sample token is thrown away. It does not call Stripe and does not keep a row.',
+                        'body' => 'Whether stored credentials are encrypted, card columns are absent, the session cookie is HTTP-only and stays on the current host, form posts use the CSRF check, an HTTPS response tells the browser to stay on HTTPS, and owner, manager, and staff have to match the role catalog. The same lines are printed by reserveworx:security. A sample token is thrown away. It does not call Stripe and does not keep a row.',
                         'href' => '/platform/security',
                     ],
                     [

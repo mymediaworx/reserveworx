@@ -4,6 +4,7 @@ namespace App\Services\Platform;
 
 use App\Enums\Industry;
 use App\Enums\TenantStatus;
+use App\Http\StrictTransport;
 use App\Models\GhlConnection;
 use App\Models\Tenant;
 use App\Models\WebhookEndpoint;
@@ -15,7 +16,7 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * the session cookie, and role-based access, and for Spec Section 14 item 14.
+ * the session cookie, HTTPS, and role-based access, and for Spec Section 14 item 14.
  * A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
@@ -23,7 +24,10 @@ final class SecurityCheck
 {
     public const PROBE_MARK = 'rw-secret-probe-';
 
-    public function __construct(private readonly RoleCatalogCheck $roleCatalog) {}
+    public function __construct(
+        private readonly RoleCatalogCheck $roleCatalog,
+        private readonly StrictTransport $transport,
+    ) {}
 
     /**
      * @return array{secure: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -39,6 +43,7 @@ final class SecurityCheck
             $this->httpOnly(),
             $this->sessionHost(),
             $this->sameSite(),
+            $this->strictTransport(),
             $this->auditLog(),
             $this->roles(),
         ];
@@ -248,6 +253,37 @@ final class SecurityCheck
             'SameSite',
             'fail',
             'The session cookie is not SameSite lax or strict.',
+        );
+    }
+
+    /**
+     * The header is sent only on an HTTPS response. This check looks for the
+     * middleware and does not print the header value.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function strictTransport(): array
+    {
+        try {
+            $registered = $this->transport->registered();
+        } catch (Throwable) {
+            $registered = false;
+        }
+
+        if ($registered) {
+            return $this->check(
+                'hsts',
+                'HTTPS',
+                'pass',
+                'HTTPS responses tell the browser to stay on HTTPS.',
+            );
+        }
+
+        return $this->check(
+            'hsts',
+            'HTTPS',
+            'fail',
+            'HTTPS responses do not tell the browser to stay on HTTPS.',
         );
     }
 
