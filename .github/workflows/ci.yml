@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - main
+  # Nightly full run on both databases (07:17 UTC, about 3am Eastern).
+  # Deploy ignores CI runs that are not a push to main.
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -114,22 +119,76 @@ jobs:
           git show "${base}:docs/CHANGELOG.md" > /tmp/changelog-base.md
           bash .github/scripts/check-changelog-unreleased.sh /tmp/changelog-base.md docs/CHANGELOG.md
 
+  # Production runs MySQL 8.4 (docs/HOSTING.md), so every run tests on MySQL,
+  # including the concurrency suite. MariaDB 11.8 stays supported (Spec
+  # Section 2) and runs nightly, on manual runs, on changes that touch money,
+  # booking, allocation, tenancy, models, migrations or dependencies, and on
+  # pull requests labelled full-ci. Approved by Michael on October 29, 2026.
+  scope:
+    name: Test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      matrix: ${{ steps.decide.outputs.matrix }}
+    steps:
+      - name: Decide which databases to test
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          mysql='{"name":"MySQL 8.4","image":"mysql:8.4","health":"mysqladmin ping -h 127.0.0.1 -ureserveworx -preserveworx"}'
+          mariadb='{"name":"MariaDB 11.8","image":"mariadb:11.8","health":"healthcheck.sh --connect --innodb_initialized"}'
+          critical='^(app/Domain/(Fees|Payments|Pricing)/|app/Services/(Allocation|Booking|Inventory|Payments|Pricing|Schedule|Scheduling|Tenancy|Webhooks)/|app/Tenancy/|app/Models/|database/migrations/|config/(database|services)\.php$|tests/Feature/(Allocation|Booking|Inventory|Payments|Tenancy|Webhooks)/|tests/Unit/Domain/|composer\.(json|lock)$|phpunit\.xml$|\.github/workflows/ci\.yml$)'
+          full=false
+          reason="no money, booking, allocation, tenancy or migration files changed"
+          files=""
+          if [[ "$EVENT" == "schedule" || "$EVENT" == "workflow_dispatch" ]]; then
+            full=true; reason="${EVENT} run"
+          elif [[ "$EVENT" == "pull_request" ]]; then
+            if echo "$PR_LABELS" | grep -q '"full-ci"'; then
+              full=true; reason="labelled full-ci"
+            elif ! files="$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"; then
+              full=true; reason="could not list changed files"
+            fi
+          elif [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            full=true; reason="no base commit to compare"
+          elif ! files="$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename')"; then
+            full=true; reason="could not compare commits"
+          fi
+          if [[ "$full" == "false" && -n "$files" ]] && hits="$(printf '%s\n' "$files" | grep -E "$critical")"; then
+            full=true; reason="critical paths changed: $(printf '%s' "$hits" | head -5 | tr '\n' ' ')"
+          fi
+          if [[ "$full" == "true" ]]; then
+            matrix="{\"include\":[${mysql},${mariadb}]}"
+          else
+            matrix="{\"include\":[${mysql}]}"
+          fi
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Test scope"
+            echo
+            echo "- MariaDB leg: ${full}"
+            echo "- Reason: ${reason}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   tests:
     name: Tests (${{ matrix.name }})
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # Production reports MySQL 8.4 (docs/HOSTING.md). MariaDB stays as the
-          # second leg because Spec Section 2 allows MariaDB hosting.
-          - name: MySQL 8.4
-            image: mysql:8.4
-            health: mysqladmin ping -h 127.0.0.1 -ureserveworx -preserveworx
-          - name: MariaDB 11.8
-            image: mariadb:11.8
-            health: healthcheck.sh --connect --innodb_initialized
+      matrix: ${{ fromJSON(needs.scope.outputs.matrix) }}
     services:
       database:
         image: ${{ matrix.image }}

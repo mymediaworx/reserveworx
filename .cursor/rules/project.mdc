@@ -1,0 +1,8 @@
+---
+description: ReserveWorx working rules
+alwaysApply: true
+---
+
+Read `docs/HANDOFF.md` first; it is the only document every task needs. Open other docs only for the area you are changing, and search `docs/SPEC.md` by section instead of loading it whole. Do not read `docs/CHANGELOG.md` or `docs/archive/`.
+
+One agent at a time, PRs batched by theme, no hosting-check reports. Record real decisions as one file in `docs/decisions/`; never append to `docs/DECISIONS.md`. Money, DNS, live-site and customer-facing actions need Michael's explicit yes.

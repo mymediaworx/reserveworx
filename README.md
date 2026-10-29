@@ -52,7 +52,8 @@ composer audit
 | File | Contents |
 |---|---|
 | [`docs/SPEC.md`](docs/SPEC.md) | Product source of truth |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Approved decisions and proposals waiting on the product owner |
+| [`docs/HANDOFF.md`](docs/HANDOFF.md) | Start here: the one document every agent task needs |
+| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Short summary of current decisions; new ones go in [`docs/decisions/`](docs/decisions/README.md), history in `docs/archive/` |
 | [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) | Questions that still need a product-owner answer |
 | [`docs/HOSTING.md`](docs/HOSTING.md) | Section 2.2 checklist. Hosting facts are not verified yet |
 | [`docs/ALLOCATION.md`](docs/ALLOCATION.md) | Allocation design. No engine code is in this repository |

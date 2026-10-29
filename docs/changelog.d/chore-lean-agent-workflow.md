@@ -1,0 +1,3 @@
+- Agents start from a short `docs/HANDOFF.md` instead of loading the full docs set. `CLAUDE.md`, `AGENTS.md` and a Cursor rule point there.
+- The long decision log moved to `docs/archive/DECISIONS-2026-10-29.md`. `docs/DECISIONS.md` is now a short summary, and new decisions go one file each in `docs/decisions/`, so pull requests stop conflicting on one file.
+- CI runs the full suite on MySQL 8.4 for every pull request. The MariaDB 11.8 leg runs nightly, on manual runs, on changes to money, booking, allocation, tenancy, models, migrations or dependencies, and on pull requests labelled `full-ci`.
