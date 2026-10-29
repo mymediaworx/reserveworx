@@ -43,6 +43,7 @@ use InvalidArgumentException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
+use Throwable;
 
 /**
  * One booking and everything staff can do to it. Each action mirrors the
@@ -403,61 +404,23 @@ class BookingShow extends Component
             return;
         }
 
-        $back = url('/staff/bookings/'.$booking->id);
-
-        try {
-            $result = $extensions->request(
-                $booking,
-                $parsed->utc(),
-                $this->extendAssetId !== null && $this->extendAssetId !== '' ? $this->extendAssetId : null,
-                $back.'?paid=1',
-                $back,
-                false,
-                request(),
-            );
-        } catch (AllocationUnavailableException $exception) {
-            $this->clearExtensionOffers();
-            $this->warn($exception->getMessage());
-
-            return;
-        }
-
-        if ($result['offers'] !== []) {
-            $this->rememberExtensionOffers($booking, $result['offers']);
-            $this->warn('That time is no longer available.');
-
-            return;
-        }
-
-        $this->clearExtensionOffers();
-        $this->extendAssetId = null;
-        $this->audit('booking.extended', $result['booking']);
-        $checkout = $result['checkout'];
-
-        if ($checkout !== null && $checkout['url'] !== null) {
-            $this->paymentUrl = $checkout['url'];
-            $this->notice('Extended. Charge '.Display::money($checkout['amount_cents']).' for the extra time. The booking fee on that increase is '.Display::money($checkout['fee_cents']).'.');
-
-            return;
-        }
-
-        $this->flash = 'Extended.';
-        $this->problem = $result['charge_message'];
+        $this->applyExtension($extensions, $booking, $parsed->utc());
     }
 
     public function acceptShorterExtension(RentalExtensions $extensions): void
     {
         $booking = $this->editable();
+        $end = $this->offeredShorterEnd();
 
-        if ($this->extensionShorterEnd === null) {
+        if (! $end instanceof CarbonImmutable) {
             $this->warn('That shorter time is no longer offered.');
 
             return;
         }
 
-        $this->extendEnd = CarbonImmutable::parse($this->extensionShorterEnd)->timezone($this->zoneFor($booking))->format('Y-m-d\TH:i');
         $this->extendAssetId = null;
-        $this->extend($extensions);
+        $this->extendEnd = $end->timezone($this->zoneFor($booking))->format('Y-m-d\TH:i');
+        $this->applyExtension($extensions, $booking, $end);
     }
 
     public function acceptAssetExtension(RentalExtensions $extensions, string $assetId): void
@@ -546,10 +509,11 @@ class BookingShow extends Component
     private function rememberExtensionOffers(Booking $booking, array $offers): void
     {
         $shorter = $offers['shorter_ends_at'] ?? null;
-        $this->extensionShorterEnd = is_string($shorter) && $shorter !== '' ? $shorter : null;
-        $this->extensionShorterLabel = $this->extensionShorterEnd === null
-            ? null
-            : CarbonImmutable::parse($this->extensionShorterEnd)->timezone($this->zoneFor($booking))->format('M j, g:i A');
+        $parsed = is_string($shorter) ? $this->offeredInstant($shorter) : null;
+        $this->extensionShorterEnd = $parsed instanceof CarbonImmutable ? $parsed->utc()->format('Y-m-d\TH:i:s\Z') : null;
+        $this->extensionShorterLabel = $parsed instanceof CarbonImmutable
+            ? Display::dateTimeWithZone($parsed, $this->zoneFor($booking))
+            : null;
         $ids = $offers['other_asset_ids'] ?? [];
         $names = is_array($ids) ? Asset::query()->whereIn('id', $ids)->pluck('name', 'id') : collect();
         $this->extensionAssets = [];
@@ -614,6 +578,76 @@ class BookingShow extends Component
         $booking->loadMissing('location');
 
         return DisplayZone::forLocation($booking->location);
+    }
+
+    /**
+     * The offered shorter return, stored as UTC. A local clock would collapse
+     * the two hours on a fall-back morning into one value.
+     */
+    private function offeredShorterEnd(): ?CarbonImmutable
+    {
+        if (! is_string($this->extensionShorterEnd)) {
+            return null;
+        }
+
+        return $this->offeredInstant($this->extensionShorterEnd);
+    }
+
+    private function offeredInstant(string $value): ?CarbonImmutable
+    {
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            return CarbonImmutable::parse($value)->utc();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function applyExtension(RentalExtensions $extensions, Booking $booking, CarbonImmutable $end): void
+    {
+        $back = url('/staff/bookings/'.$booking->id);
+
+        try {
+            $result = $extensions->request(
+                $booking,
+                $end->utc(),
+                $this->extendAssetId !== null && $this->extendAssetId !== '' ? $this->extendAssetId : null,
+                $back.'?paid=1',
+                $back,
+                false,
+                request(),
+            );
+        } catch (AllocationUnavailableException $exception) {
+            $this->clearExtensionOffers();
+            $this->warn($exception->getMessage());
+
+            return;
+        }
+
+        if ($result['offers'] !== []) {
+            $this->rememberExtensionOffers($booking, $result['offers']);
+            $this->warn('That time is no longer available.');
+
+            return;
+        }
+
+        $this->clearExtensionOffers();
+        $this->extendAssetId = null;
+        $this->audit('booking.extended', $result['booking']);
+        $checkout = $result['checkout'];
+
+        if ($checkout !== null && $checkout['url'] !== null) {
+            $this->paymentUrl = $checkout['url'];
+            $this->notice('Extended. Charge '.Display::money($checkout['amount_cents']).' for the extra time. The booking fee on that increase is '.Display::money($checkout['fee_cents']).'.');
+
+            return;
+        }
+
+        $this->flash = 'Extended.';
+        $this->problem = $result['charge_message'];
     }
 
     private function notice(string $message): void
