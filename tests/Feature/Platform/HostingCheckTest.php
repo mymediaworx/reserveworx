@@ -3,11 +3,13 @@
 namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
+use App\Support\HostDomainSupport;
 use App\Support\HostOutboundHttps;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
 use App\Support\PhpHostFacts;
+use Closure;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
@@ -64,6 +66,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertDomainSupportLines($output);
         $this->assertPlanNameLine($output);
         $this->assertToolchainLines($output);
         $this->assertProcessLimitLines($output);
@@ -604,6 +607,55 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('host_crontab_schedule=', $missing);
     }
 
+    public function test_custom_domains_and_wildcard_ssl_are_not_measured_and_the_url_is_not_copied(): void
+    {
+        $before = $this->moneyCounts();
+        $https = 'https://user:rw-hosting-secret-canary@app.reserveworx.com/book?token=rw-hosting-secret-canary';
+        $http = 'http://rw-hosting-secret-canary.example/path';
+
+        $output = $this->checkDomains($https, fn (): string => "wildcard *.reserveworx.com\nrw-hosting-secret-canary");
+
+        $this->assertStringContainsString('app_url_https=yes', $output);
+        $this->assertDomainSupportLines($output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertStringNotContainsString('user:', $output);
+        $this->assertStringNotContainsString('*.', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $output = $this->checkDomains('HTTPS://booking.example.test', fn (): string => throw new RuntimeException('rw-hosting-secret-canary /home/customer'));
+
+        $this->assertStringContainsString('app_url_https=yes', $output);
+        $this->assertDomainSupportLines($output);
+        $this->assertStringNotContainsString('booking.example.test', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+
+        $output = $this->checkDomains($http, fn (): false => false);
+
+        $this->assertStringContainsString('app_url_https=no', $output);
+        $this->assertDomainSupportLines($output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('.example', $output);
+
+        $output = $this->checkDomains("https://booking.example.test\nrw-hosting-secret-canary", null);
+
+        $this->assertStringContainsString('app_url_https=unparsed', $output);
+        $this->assertDomainSupportLines($output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('booking.example.test', $output);
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $this->assertStringContainsString('custom_domains=not_measured', $script);
+        $this->assertStringContainsString('wildcard_subdomains=not_measured', $script);
+        $this->assertStringContainsString('wildcard_ssl=not_measured', $script);
+        $this->assertStringNotContainsString('dig ', $script);
+        $this->assertStringNotContainsString('nslookup', $script);
+    }
+
     private function assertProcessLimitLines(string $output): void
     {
         $processes = strpos($output, 'max_user_processes=');
@@ -675,6 +727,53 @@ class HostingCheckTest extends TestCase
         $this->assertPhpHostFactLines($output);
 
         return $output;
+    }
+
+    /**
+     * @param  (Closure(): (string|false))|null  $note
+     */
+    private function checkDomains(string $url, ?Closure $note): string
+    {
+        $this->app->instance(HostDomainSupport::class, new HostDomainSupport(
+            note: $note,
+            appUrl: fn (): string => $url,
+        ));
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: fn (): array => [
+                'stripe_tls' => 'failed',
+                'stripe_https' => 'unreachable',
+                'ghl_tls' => 'failed',
+                'ghl_https' => 'unreachable',
+            ],
+        ));
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+        $this->assertSame(0, $exitCode, $output);
+
+        return $output;
+    }
+
+    private function assertDomainSupportLines(string $output): void
+    {
+        $scheduler = strpos($output, 'scheduler=');
+        $custom = strpos($output, 'custom_domains=not_measured');
+        $subdomains = strpos($output, 'wildcard_subdomains=not_measured');
+        $ssl = strpos($output, 'wildcard_ssl=not_measured');
+        $https = strpos($output, 'app_url_https=');
+        $this->assertNotFalse($scheduler);
+        $this->assertNotFalse($custom);
+        $this->assertNotFalse($subdomains);
+        $this->assertNotFalse($ssl);
+        $this->assertNotFalse($https);
+        $this->assertLessThan($custom, $scheduler);
+        $this->assertLessThan($subdomains, $custom);
+        $this->assertLessThan($ssl, $subdomains);
+        $this->assertLessThan($https, $ssl);
+        $this->assertSame(1, substr_count($output, 'custom_domains='));
+        $this->assertSame(1, substr_count($output, 'wildcard_subdomains='));
+        $this->assertSame(1, substr_count($output, 'wildcard_ssl='));
+        $this->assertSame(1, substr_count($output, 'app_url_https='));
+        $this->assertMatchesRegularExpression('/^app_url_https=(yes|no|unparsed)$/m', $output);
     }
 
     private function assertToolchainLines(string $output): void

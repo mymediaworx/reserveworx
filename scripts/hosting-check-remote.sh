@@ -159,6 +159,12 @@ probe_https() {
 probe_https stripe api.stripe.com
 probe_https ghl services.leadconnectorhq.com
 
+section "Domains and SSL"
+# This probe does not query DNS, read a certificate, or print APP_URL.
+echo "custom_domains=not_measured"
+echo "wildcard_subdomains=not_measured"
+echo "wildcard_ssl=not_measured"
+
 section "Inbound webhooks"
 echo "waf_and_rate_rules=not observable from SSH"
 
