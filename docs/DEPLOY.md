@@ -142,6 +142,10 @@ After a healthy upgrade, reserveworx:smoke runs. Open /platform/readiness for th
 
 A first install is the local setup in README.md, then the first deploy with migrations off. Shared .env has to exist on the server before the document root moves. This page does not run that install.
 
+### Start a deploy
+
+Open GitHub Actions, choose Deploy, and run the workflow on branch main. A later upgrade uses action deploy with migrations on. The workflow dumps the database first and fails if that dump does not verify. A bad release uses action rollback. That swaps the previous release and does not restore the database. This page does not run a deploy.
+
 ## Secrets
 
 Repository secrets used: `SG_HOST`, `SG_USER`, `SG_PORT`, `SG_SSH_KEY`, optional `SG_SSH_PASSPHRASE`, and optional `MAIL_PASSWORD`. The workflow masks host, user, port, passphrase, and the mail password. It does not echo the private key or the mail password. An empty `MAIL_PASSWORD` leaves the log mailer in place and does not fail the job. SSH uses `IdentitiesOnly` and `StrictHostKeyChecking=accept-new`.
