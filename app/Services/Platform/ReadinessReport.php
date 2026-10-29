@@ -30,6 +30,7 @@ final class ReadinessReport
             $this->queue(),
             $this->debug(),
             $this->restoreCommand(),
+            $this->migrations(),
             $this->sessionSecure(),
             $this->https(),
             $this->scheduler(),
@@ -204,6 +205,44 @@ final class ReadinessReport
             $registered ? 'pass' : 'fail',
             $registered ? 'reserveworx:restore-backup is registered.' : 'The restore command is not registered.',
         );
+    }
+
+    /**
+     * Spec Section 14 item 15. This reads the migrations table and does not run migrations.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function migrations(): array
+    {
+        $pending = 0;
+
+        try {
+            $migrator = app('migrator');
+
+            if (! $migrator->repositoryExists()) {
+                return $this->check('migrations', 'Migrations', 'fail', 'The migrations table is missing.');
+            }
+
+            $ran = $migrator->getRepository()->getRan();
+
+            foreach ($migrator->getMigrationFiles([database_path('migrations')]) as $file) {
+                if (! in_array($migrator->getMigrationName($file), $ran, true)) {
+                    $pending++;
+                }
+            }
+        } catch (Throwable) {
+            return $this->check('migrations', 'Migrations', 'fail', 'Migrations could not be checked.');
+        }
+
+        if ($pending === 0) {
+            return $this->check('migrations', 'Migrations', 'pass', 'Migrations are current.');
+        }
+
+        $detail = $pending === 1
+            ? '1 migration has not run.'
+            : $pending.' migrations have not run.';
+
+        return $this->check('migrations', 'Migrations', 'fail', $detail);
     }
 
     /**
