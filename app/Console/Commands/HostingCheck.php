@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
 use App\Support\HostDomainSupport;
+use App\Support\HostOutboundHttps;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
@@ -25,7 +26,7 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostOutboundHttps $outbound): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
@@ -34,6 +35,7 @@ class HostingCheck extends Command
         $this->printPlanName($planName);
         $this->printToolchain($toolchain);
         $this->printProcessLimits($limits);
+        $this->printOutbound($outbound);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
     }
@@ -223,6 +225,13 @@ class HostingCheck extends Command
     private function printProcessLimits(HostProcessLimits $limits): void
     {
         foreach ($limits->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+    }
+
+    private function printOutbound(HostOutboundHttps $outbound): void
+    {
+        foreach ($outbound->facts() as [$key, $value]) {
             $this->fact($key, $value);
         }
     }
