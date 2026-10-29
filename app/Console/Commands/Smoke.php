@@ -3,13 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Models\Domain;
-use App\Models\Permission;
-use App\Models\Role;
 use App\Models\Tenant;
+use App\Services\Platform\RoleCatalogCheck;
 use App\Support\Hostname;
 use App\Support\SchedulerHeartbeat;
 use App\Tenancy\TenantScope;
-use Database\Seeders\RoleAndPermissionSeeder;
 use DateTimeInterface;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Http\Kernel;
@@ -94,65 +92,10 @@ class Smoke extends Command
 
     private function checkRoles(): bool
     {
-        try {
-            $synced = $this->rolesMatchCatalog();
-        } catch (Throwable) {
-            $this->fact('roles', 'unchecked');
+        $status = app(RoleCatalogCheck::class)->status();
+        $this->fact('roles', $status);
 
-            return false;
-        }
-
-        $this->fact('roles', $synced ? 'synced' : 'out_of_sync');
-
-        return $synced;
-    }
-
-    private function rolesMatchCatalog(): bool
-    {
-        $catalog = RoleAndPermissionSeeder::catalog();
-        $stored = [];
-
-        foreach (Permission::query()->get(['slug', 'name']) as $permission) {
-            if (isset($stored[$permission->slug])) {
-                return false;
-            }
-
-            $stored[$permission->slug] = $permission->name;
-        }
-
-        ksort($stored);
-        $expectedPermissions = $catalog['permissions'];
-        ksort($expectedPermissions);
-
-        if ($stored !== $expectedPermissions) {
-            return false;
-        }
-
-        $found = [];
-
-        foreach (Role::query()->with('permissions:id,slug')->get() as $role) {
-            if (isset($found[$role->slug])) {
-                return false;
-            }
-
-            $slugs = [];
-            foreach ($role->permissions as $permission) {
-                $slugs[] = $permission->slug;
-            }
-            sort($slugs);
-            $found[$role->slug] = ['name' => $role->name, 'permissions' => $slugs];
-        }
-
-        ksort($found);
-        $expectedRoles = [];
-        foreach ($catalog['roles'] as $slug => $definition) {
-            $permissions = $definition['permissions'];
-            sort($permissions);
-            $expectedRoles[$slug] = ['name' => $definition['name'], 'permissions' => $permissions];
-        }
-        ksort($expectedRoles);
-
-        return $found === $expectedRoles;
+        return $status === 'synced';
     }
 
     private function checkMail(): bool
