@@ -105,6 +105,10 @@ An owner or manager opens `/staff/audit` on the workspace host. The page lists t
 
 One Site Tools cron job calls `schedule:run`, which runs `queue:work database --stop-when-empty`. A worker stops after `QUEUE_WORK_MAX_TIME` (default 20 seconds). The reported GoGeek caps are 4,000 CPU-seconds per hour and 4,000 executions per hour. Sixty workers at 20 seconds use 1,200 CPU-seconds. Do not add a second cron and do not raise the max time without recounting that budget in [`DEPLOY.md`](DEPLOY.md).
 
+## Start a deploy
+
+A platform administrator reads how to start a deploy on `/platform/upgrade`. Open GitHub Actions, choose Deploy, and run the workflow on branch main. A later upgrade uses action deploy with migrations on. The workflow dumps the database first and fails if that dump does not verify. A bad release uses action rollback. That swaps the previous release and does not restore the database. This page does not run a deploy. Staff do not see that sentence.
+
 ## Secrets in a log
 
 Audit logging strips values whose keys look like passwords, tokens, secrets, authorization headers, client secrets, SSH keys, or passphrases. If a secret still appears in a GitHub Actions log, revoke it at the source and store a replacement. Do not echo the old value in the revocation note.

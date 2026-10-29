@@ -52,6 +52,10 @@ final class UpgradeGuide
                 'title' => 'Smoke and readiness',
                 'body' => 'After a healthy upgrade, reserveworx:smoke runs. Open /platform/readiness for the same local checks. Neither one writes a price, a tax, a fee, or a refund.',
             ],
+            [
+                'title' => 'Start a deploy',
+                'body' => 'Open GitHub Actions, choose Deploy, and run the workflow on branch main. A later upgrade uses action deploy with migrations on. The workflow dumps the database first and fails if that dump does not verify. A bad release uses action rollback. That swaps the previous release and does not restore the database. This page does not run a deploy.',
+            ],
         ];
     }
 }
