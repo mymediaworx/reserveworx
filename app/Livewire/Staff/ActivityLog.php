@@ -16,6 +16,7 @@ use Livewire\Component;
 
 /**
  * Read-only audit log for the current workspace. Spec Section 12.
+ * Row clocks use the first location zone with its abbreviation (Spec Section 2.4).
  * The same rows as GET /api/v1/audit-logs. This page does not write one.
  */
 #[Layout('layouts.staff')]
@@ -129,7 +130,7 @@ class ActivityLog extends Component
 
             $rows[] = [
                 'id' => $log->id,
-                'when' => Display::dateTime($log->created_at, $zone),
+                'when' => Display::dateTimeWithZone($log->created_at, $zone),
                 'actor' => $log->actor instanceof User && $log->actor->name !== ''
                     ? $log->actor->name
                     : 'ReserveWorx',
