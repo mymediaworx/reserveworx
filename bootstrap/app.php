@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\DenyFraming;
 use App\Http\Middleware\EnsureCustomerAccount;
 use App\Http\Middleware\EnsureKnownHost;
 use App\Http\Middleware\EnsurePlatformAdmin;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(EnsureKnownHost::class);
+        $middleware->append(DenyFraming::class);
         $middleware->prependToPriorityList(
             before: AuthenticatesRequests::class,
             prepend: ResolveTenant::class,

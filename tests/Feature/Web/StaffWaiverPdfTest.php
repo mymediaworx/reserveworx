@@ -58,7 +58,7 @@ class StaffWaiverPdfTest extends TestCase
             ->assertSee('under 18, Ada River')
             ->assertSee('Rental waiver')
             ->assertSee('version 1')
-            ->assertSee('Tue, Oct 27, 11:04 AM')
+            ->assertSee('Tue, Oct 27, 11:04 AM EDT')
             ->assertSee('Download PDF')
             ->assertSee('/staff/bookings/'.$booking->id.'/waivers/'.$signed->id, false)
             ->assertSee('It is not an electronic-signature certificate.')
