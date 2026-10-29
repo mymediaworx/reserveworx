@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsurePlatformAdmin;
 use App\Http\Middleware\EnsurePlatformHost;
 use App\Http\Middleware\EnsureTenantMembership;
 use App\Http\Middleware\ResolveTenant;
+use App\Http\Middleware\SendStrictTransportSecurity;
 use App\Support\Hosts;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(EnsureKnownHost::class);
+        $middleware->append(SendStrictTransportSecurity::class);
         $middleware->prependToPriorityList(
             before: AuthenticatesRequests::class,
             prepend: ResolveTenant::class,
