@@ -52,6 +52,7 @@ The replay is covered by the test suite. A restore has not been run on the live 
 - A platform administrator has no tenant API access without a membership.
 - Login is limited to 5 attempts per minute per email and IP.
 - The last active owner cannot be revoked or demoted. Add another owner first.
+- Resetting a password from the staff or platform page deletes that person's API tokens and their other signed-in sessions. The browser that submitted the form keeps its session. A refused or expired link leaves those tokens and sessions in place.
 
 ## Grant or remove platform access
 
