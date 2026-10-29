@@ -16,10 +16,10 @@
             <h1>{{ $booking->service?->name ?? 'Booking' }}</h1>
             <p class="lede" data-when>{{ Display::rangeWithZone($booking->starts_at, $booking->ends_at, $zone) }}</p>
             <style>
-                p[data-when], p[data-hold-until] { max-width: 100%; overflow-wrap: anywhere; }
+                p[data-when], p[data-hold-until], .history time[data-history-when] { max-width: 100%; overflow-wrap: anywhere; }
                 button[data-extend-until], button[data-clock-choice] { max-width: 100%; }
                 @media (max-width: 390px) {
-                    p[data-when], p[data-hold-until] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+                    p[data-when], p[data-hold-until], .history time[data-history-when] { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
                     button[data-extend-until] { width: 100%; white-space: normal; overflow-wrap: anywhere; }
                     button[data-clock-choice] { width: 100%; white-space: normal; overflow-wrap: anywhere; }
                 }
@@ -282,7 +282,7 @@
                     <h2>History</h2>
                     <ol class="history">
                         @foreach ($history as $entry)
-                            <li><span>{{ Display::status(str_replace('booking.', '', $entry->action)) }}</span> <time class="muted">{{ Display::dateTime($entry->created_at, $zone) }}</time></li>
+                            <li><span>{{ Display::status(str_replace('booking.', '', $entry->action)) }}</span> <time class="muted" data-history-when>{{ Display::dateTimeWithZone($entry->created_at, $zone) }}</time></li>
                         @endforeach
                     </ol>
                 </section>
