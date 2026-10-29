@@ -9,6 +9,7 @@ use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostSshAccess;
 use App\Support\HostToolchain;
+use App\Support\InboundWebhookLimits;
 use App\Support\PhpHostFacts;
 use Closure;
 use Illuminate\Database\Schema\Blueprint;
@@ -67,6 +68,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertInboundWebhookLines($output);
         $this->assertDomainSupportLines($output);
         $this->assertPlanNameLine($output);
         $this->assertToolchainLines($output);
@@ -130,6 +132,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('table=hosting_myisam_probe engine=MyISAM', $output);
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
+        $this->assertInboundWebhookLines($output);
         $this->assertOutboundLines($output);
         $this->assertStringContainsString('plan_name=not_measured', $output);
         $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
@@ -137,6 +140,75 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('long_running_processes=not_measured', $output);
         $this->assertPhpHostFactLines($output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_inbound_webhook_limits_are_not_measured_and_a_response_is_not_copied(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(InboundWebhookLimits::class, new InboundWebhookLimits(
+            reading: fn (): string => implode("\n", [
+                'HTTP/1.1 202 Accepted',
+                'https://app.reserveworx.com/api/v1/stripe/webhook',
+                'waf_rule=block-rw-hosting-secret-canary',
+                'rate_rule=100/minute rw-hosting-secret-canary',
+                'inbound_webhook_waf=clear',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertInboundWebhookLines($output);
+        $this->assertStringNotContainsString('https://', $output);
+        $this->assertStringNotContainsString('app.reserveworx.com', $output);
+        $this->assertStringNotContainsString('waf_rule=', $output);
+        $this->assertStringNotContainsString('rate_rule=', $output);
+        $this->assertStringNotContainsString('Accepted', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('inbound_webhook_waf=clear', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $this->app->instance(InboundWebhookLimits::class, new InboundWebhookLimits(
+            reading: function (): string {
+                throw new RuntimeException('rw-hosting-secret-canary /home/customer HTTP 202');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertInboundWebhookLines($output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('HTTP 202', $output);
+
+        $this->app->instance(InboundWebhookLimits::class, new InboundWebhookLimits(
+            reading: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertInboundWebhookLines($output);
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $start = strpos($script, "section \"Inbound webhooks\"\n");
+        $end = strpos($script, 'section "Application URL"');
+        $this->assertNotFalse($start);
+        $this->assertNotFalse($end);
+        $section = substr($script, $start, $end - $start);
+        $this->assertStringContainsString("echo \"inbound_webhook_waf=not_measured\"\n", $section);
+        $this->assertStringContainsString("echo \"inbound_webhook_rate_rules=not_measured\"\n", $section);
+        $this->assertStringNotContainsString('curl', $section);
+        $this->assertStringNotContainsString('waf_and_rate_rules=', $script);
+        $this->assertStringNotContainsString('202', $section);
     }
 
     public function test_an_ssh_login_is_reported_without_the_connection_text(): void
@@ -737,6 +809,16 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('host_crontab_schedule=', $empty);
         $this->assertStringContainsString('host_crontab=unavailable', $missing);
         $this->assertStringNotContainsString('host_crontab_schedule=', $missing);
+    }
+
+    private function assertInboundWebhookLines(string $output): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/^scheduler=(ok|stale|missing)\ninbound_webhook_waf=not_measured\ninbound_webhook_rate_rules=not_measured$/m',
+            $output,
+        );
+        $this->assertSame(1, substr_count($output, 'inbound_webhook_waf='));
+        $this->assertSame(1, substr_count($output, 'inbound_webhook_rate_rules='));
     }
 
     public function test_custom_domains_and_wildcard_ssl_are_not_measured_and_the_url_is_not_copied(): void
