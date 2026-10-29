@@ -7,6 +7,7 @@ use App\Support\HostDomainSupport;
 use App\Support\HostOutboundHttps;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
+use App\Support\HostSshAccess;
 use App\Support\HostToolchain;
 use App\Support\HostWebPhpLimits;
 use App\Support\PhpHostFacts;
@@ -27,7 +28,7 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostOutboundHttps $outbound, HostWebPhpLimits $webPhp): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostOutboundHttps $outbound, HostSshAccess $ssh, HostWebPhpLimits $webPhp): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp($webPhp);
@@ -37,6 +38,7 @@ class HostingCheck extends Command
         $this->printToolchain($toolchain);
         $this->printProcessLimits($limits);
         $this->printOutbound($outbound);
+        $this->printSsh($ssh);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
     }
@@ -237,6 +239,13 @@ class HostingCheck extends Command
     private function printOutbound(HostOutboundHttps $outbound): void
     {
         foreach ($outbound->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+    }
+
+    private function printSsh(HostSshAccess $ssh): void
+    {
+        foreach ($ssh->facts() as [$key, $value]) {
             $this->fact($key, $value);
         }
     }
