@@ -1,3 +1,7 @@
+# ReserveWorx project rules
+
+Read `docs/HANDOFF.md` before anything else. It is the only document every task needs; open other docs only for the area you are changing, and search `docs/SPEC.md` by section rather than loading it whole. Do not read `docs/CHANGELOG.md` or `docs/archive/`. Record real decisions as one file in `docs/decisions/`, never by appending to `docs/DECISIONS.md`. One agent at a time; batch PRs by theme.
+
 <laravel-boost-guidelines>
 === foundation rules ===
 

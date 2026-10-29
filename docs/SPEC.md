@@ -7,18 +7,18 @@
 **Payments:** Stripe Connect (Standard accounts, direct charges)
 **Revenue model:** Per-transaction application fee only. No subscription.
 **Product owner:** Michael (BrandWorx)
-**Document version:** 1.1, October 24, 2026
+**Document version:** 1.2, October 29, 2026
 
 ---
 
 ## 0. How the Project Agent Uses This Document
 
-You are the project manager and lead technical agent for ReserveWorx. This document is the source of truth for scope, architecture, and business rules.
+You are the project manager and lead technical agent for ReserveWorx. This document is the source of truth for scope, architecture, and business rules. Start each task from `docs/HANDOFF.md` and open only the sections of this document the task needs.
 
 ### 0.1 Your responsibilities
 
 1. Break each phase in Section 15 into GitHub milestones and issues. Each issue must have acceptance criteria that trace back to a section of this document.
-2. Keep `docs/DECISIONS.md` up to date as an architecture decision log. Record each decision's date, the options considered, what was chosen, and who approved it.
+2. Record each real decision (architecture, data, money, security, isolation, integrations, hosting) as its own file in `docs/decisions/`, with its date, the options considered, what was chosen, and who approved it. `docs/DECISIONS.md` is a short summary; do not append to it. Per-screen display choices go in the pull request description only.
 3. Keep `docs/OPEN_QUESTIONS.md` up to date. Anything listed in Section 18, plus anything new you discover, stays open until the product owner answers it.
 4. Before starting each phase, post a plan. At the end of each phase, post a status report covering what was built, which tests pass, what is blocked, and what needs a decision.
 5. Keep this document current. When an approved decision changes a rule here, update the relevant section and bump the version.
@@ -464,7 +464,7 @@ Each phase becomes one GitHub milestone. Deliver working, tested functionality a
 - **Pull requests:** each must link its issue and include tests. CI must be green (lint, static analysis, unit tests, and MySQL concurrency tests). Any PR touching allocation, payments, fees, or tenant isolation requires review.
 - **Required files:**
   - `README.md`
-  - `docs/DECISIONS.md`, `docs/OPEN_QUESTIONS.md`, `docs/HOSTING.md`, `docs/ALLOCATION.md`, `docs/SCHEMA.md`, `docs/INTEGRATIONS.md`, `docs/FEES.md` (Section 7 as implemented), `docs/DEPLOY.md`, `docs/RUNBOOK.md`
+  - `docs/HANDOFF.md` (the agent's starting point), `docs/DECISIONS.md` with `docs/decisions/`, `docs/OPEN_QUESTIONS.md`, `docs/HOSTING.md`, `docs/ALLOCATION.md`, `docs/SCHEMA.md`, `docs/INTEGRATIONS.md`, `docs/FEES.md` (Section 7 as implemented), `docs/DEPLOY.md`, `docs/RUNBOOK.md`
   - `.env.example` (no real values)
 - **Secrets:** use GitHub Actions secrets for CI and the server environment for production. Never commit them.
 - **Versioning:** semantic versioning, with a CHANGELOG and tagged releases. A pull request adds `docs/changelog.d/<branch-or-slug>.md` and does not edit the Unreleased section of `docs/CHANGELOG.md`.
