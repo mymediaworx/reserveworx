@@ -9,11 +9,13 @@ use App\Models\PlatformAdministrator;
 use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\Platform\DependencyScanningCheck;
 use App\Services\Platform\SecurityCheck;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
+use RuntimeException;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
@@ -47,9 +49,12 @@ class SecurityCheckTest extends TestCase
             ->expectsOutputToContain('framing=pass')
             ->expectsOutputToContain('audit_log=pass')
             ->expectsOutputToContain('roles=pass')
+            ->expectsOutputToContain('dependabot=pass')
+            ->expectsOutputToContain('composer_audit=pass')
             ->expectsOutputToContain('secure=yes')
             ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
             ->doesntExpectOutputToContain(self::KEPT_TOKEN)
+            ->doesntExpectOutputToContain('.github/')
             ->assertSuccessful();
 
         $this->actingAs($admin)
@@ -69,12 +74,16 @@ class SecurityCheckTest extends TestCase
             ->assertSee('Sign-in pages cannot be framed. The booking page can.')
             ->assertSee('The audit log table is present.')
             ->assertSee('Owner, manager, and staff match the role catalog.')
-            ->assertSee('and the role catalog.')
+            ->assertSee('Dependabot watches Composer packages.')
+            ->assertSee('CI runs composer audit.')
+            ->assertSee('the role catalog, Dependabot, and composer audit in CI.')
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
             ->assertSee('/platform/security', false)
             ->assertDontSee(SecurityCheck::PROBE_MARK)
-            ->assertDontSee(self::KEPT_TOKEN);
+            ->assertDontSee(self::KEPT_TOKEN)
+            ->assertDontSee('.github/dependabot.yml')
+            ->assertDontSee('.github/workflows/ci.yml');
 
         Livewire::actingAs($admin)->test(Security::class)
             ->assertSee('The GoHighLevel private token is encrypted at rest.')
@@ -223,6 +232,80 @@ class SecurityCheckTest extends TestCase
             ->assertSee('Secure')
             ->assertSee('The session cookie stays on the current host.')
             ->assertSee('The session cookie is SameSite strict.')
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        $this->assertSame($before, $this->counts());
+    }
+
+    public function test_missing_dependabot_or_composer_audit_is_not_secure_and_file_text_stays_hidden(): void
+    {
+        $admin = $this->admin();
+        $before = $this->counts();
+        $this->app->instance(DependencyScanningCheck::class, new DependencyScanningCheck(
+            dependabotReader: fn (): string => "version: 2\nupdates:\n  - package-ecosystem: npm\n    directory: /\n# canary-dependabot-secret\n",
+            ciReader: fn (): string => "name: CI\njobs:\n  lint:\n    steps:\n      - run: vendor/bin/pint --test\n# canary-ci-audit-secret\n",
+        ));
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('dependabot=fail')
+            ->expectsOutputToContain('composer_audit=fail')
+            ->expectsOutputToContain('roles=pass')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain('canary-dependabot-secret')
+            ->doesntExpectOutputToContain('canary-ci-audit-secret')
+            ->doesntExpectOutputToContain('package-ecosystem')
+            ->doesntExpectOutputToContain('.github/')
+            ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('Not secure')
+            ->assertSee('data-secure="no"', false)
+            ->assertSee('Dependabot is not configured for Composer.')
+            ->assertSee('CI does not run composer audit.')
+            ->assertDontSee('Dependabot watches Composer packages.')
+            ->assertDontSee('CI runs composer audit.')
+            ->assertDontSee('canary-dependabot-secret')
+            ->assertDontSee('canary-ci-audit-secret')
+            ->assertDontSee('package-ecosystem')
+            ->assertDontSee('.github/dependabot.yml')
+            ->assertDontSee('.github/workflows/ci.yml')
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        $this->assertSame($before, $this->counts());
+    }
+
+    public function test_a_thrown_dependency_scan_reader_is_not_secure_and_hides_the_exception(): void
+    {
+        $before = $this->counts();
+        $this->app->instance(DependencyScanningCheck::class, new DependencyScanningCheck(
+            dependabotReader: function (): string {
+                throw new RuntimeException('canary-dependabot-throw-secret');
+            },
+            ciReader: function (): string {
+                throw new RuntimeException('canary-ci-throw-secret');
+            },
+        ));
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('dependabot=fail')
+            ->expectsOutputToContain('composer_audit=fail')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain('canary-dependabot-throw-secret')
+            ->doesntExpectOutputToContain('canary-ci-throw-secret')
+            ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
+            ->assertFailed();
+
+        $this->actingAs($this->admin())
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('Not secure')
+            ->assertSee('Dependabot is not configured for Composer.')
+            ->assertSee('CI does not run composer audit.')
+            ->assertDontSee('canary-dependabot-throw-secret')
+            ->assertDontSee('canary-ci-throw-secret')
             ->assertDontSee(SecurityCheck::PROBE_MARK);
 
         $this->assertSame($before, $this->counts());

@@ -1,0 +1,1 @@
+- The security report fails when Dependabot is not configured for Composer, or when CI does not run `composer audit`. `/platform/security` and `reserveworx:security` say so. The file text is not printed. The report does not write a price, a payment, a tax, a fee, or a refund. Staff do not see the sentence. Spec Section 12 and Spec Section 17.

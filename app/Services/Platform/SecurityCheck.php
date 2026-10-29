@@ -18,15 +18,18 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * the session cookie, and role-based access, and for Spec Section 14 item 14.
- * A sample token is written and rolled back.
+ * the session cookie, role-based access, and dependency scanning, and for
+ * Spec Section 14 item 14. A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
 final class SecurityCheck
 {
     public const PROBE_MARK = 'rw-secret-probe-';
 
-    public function __construct(private readonly RoleCatalogCheck $roleCatalog) {}
+    public function __construct(
+        private readonly RoleCatalogCheck $roleCatalog,
+        private readonly DependencyScanningCheck $dependencyScanning,
+    ) {}
 
     /**
      * @return array{secure: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -45,6 +48,8 @@ final class SecurityCheck
             $this->framing(),
             $this->auditLog(),
             $this->roles(),
+            $this->dependabot(),
+            $this->composerAudit(),
         ];
 
         $secure = collect($checks)->every(fn (array $check): bool => $check['state'] !== 'fail');
@@ -332,6 +337,40 @@ final class SecurityCheck
         }
 
         return $this->check('roles', 'Roles', 'fail', 'The role catalog could not be checked.');
+    }
+
+    /**
+     * Spec Section 12. Dependabot must watch Composer packages.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function dependabot(): array
+    {
+        $ok = $this->dependencyScanning->status()['dependabot'];
+
+        return $this->check(
+            'dependabot',
+            'Dependabot',
+            $ok ? 'pass' : 'fail',
+            $ok ? 'Dependabot watches Composer packages.' : 'Dependabot is not configured for Composer.',
+        );
+    }
+
+    /**
+     * Spec Section 12. CI must run composer audit.
+     *
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function composerAudit(): array
+    {
+        $ok = $this->dependencyScanning->status()['composer_audit'];
+
+        return $this->check(
+            'composer_audit',
+            'Composer audit',
+            $ok ? 'pass' : 'fail',
+            $ok ? 'CI runs composer audit.' : 'CI does not run composer audit.',
+        );
     }
 
     private function enabled(mixed $value): bool
