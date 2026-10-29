@@ -70,7 +70,9 @@ class UserHandbookTest extends TestCase
             ->assertDontSee('3%')
             ->assertDontSee('reserveworx:restore-backup')
             ->assertDontSee('/platform/upgrade')
-            ->assertDontSee('href="/platform/security"', false);
+            ->assertDontSee('href="/platform/security"', false)
+            ->assertDontSee('have to match the role catalog')
+            ->assertDontSee('stays on the current host');
 
         $this->assertSame($before, $this->counts());
 
@@ -226,6 +228,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:limits.')
             ->assertSee('href="/platform/security"', false)
             ->assertSee('The same lines are printed by reserveworx:security.')
+            ->assertSee('have to match the role catalog')
+            ->assertSee('stays on the current host')
             ->assertSee('href="/platform/upgrade"', false)
             ->assertSee('The page does not run a deploy or a restore.')
             ->assertSee('href="/platform"', false)
@@ -250,6 +254,8 @@ class UserHandbookTest extends TestCase
             ->assertSee('The same lines are printed by reserveworx:limits.')
             ->assertSee('Security')
             ->assertSee('The same lines are printed by reserveworx:security.')
+            ->assertSee('have to match the role catalog')
+            ->assertSee('stays on the current host')
             ->assertSee('Upgrade')
             ->assertDontSee('Secret Harbor Name');
 
