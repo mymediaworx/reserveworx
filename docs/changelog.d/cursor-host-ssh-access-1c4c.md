@@ -1,0 +1,1 @@
+- `reserveworx:hosting-check` prints `ssh=session` when this process was started from an SSH login, and `ssh=not_measured` otherwise. The connection text, the host, the port, and a key are not printed. A missing login does not fail the check. The October 24, 2026 log did not include this line. This read has not been run again on the SiteGround account. Spec Section 2.2.
