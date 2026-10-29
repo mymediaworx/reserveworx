@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
+use App\Support\HostDomainSupport;
+use App\Support\HostOutboundHttps;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
@@ -25,14 +27,16 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostWebPhpLimits $webPhp): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostOutboundHttps $outbound, HostWebPhpLimits $webPhp): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp($webPhp);
         $this->printQueue($schedule, $crontab);
+        $this->printDomainSupport($domains);
         $this->printPlanName($planName);
         $this->printToolchain($toolchain);
         $this->printProcessLimits($limits);
+        $this->printOutbound($outbound);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
     }
@@ -202,6 +206,13 @@ class HostingCheck extends Command
         $this->fact('scheduler', $heartbeat->status());
     }
 
+    private function printDomainSupport(HostDomainSupport $domains): void
+    {
+        foreach ($domains->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+    }
+
     private function printPlanName(HostPlanName $planName): void
     {
         foreach ($planName->facts() as [$key, $value]) {
@@ -219,6 +230,13 @@ class HostingCheck extends Command
     private function printProcessLimits(HostProcessLimits $limits): void
     {
         foreach ($limits->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+    }
+
+    private function printOutbound(HostOutboundHttps $outbound): void
+    {
+        foreach ($outbound->facts() as [$key, $value]) {
             $this->fact($key, $value);
         }
     }

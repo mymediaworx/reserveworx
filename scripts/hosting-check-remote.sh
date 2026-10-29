@@ -142,9 +142,31 @@ report_path "${HOME}/public_html/app.reserveworx.com"
 report_path "${HOME}/reserveworx"
 
 section "Outbound HTTPS"
-for url in https://api.stripe.com https://services.leadconnectorhq.com; do
-  curl -sS -o /dev/null --max-time 20 -w "${url} http_code=%{http_code} ssl_verify_result=%{ssl_verify_result}\n" "$url" || echo "${url} curl_failed"
-done
+# Status only. The address, the response, and curl's error text are not printed.
+probe_https() {
+  key="$1"
+  host="$2"
+  result="$(curl -s -o /dev/null --max-time 5 -w '%{http_code} %{ssl_verify_result}' "https://${host}/" 2>/dev/null || true)"
+  code="${result%% *}"
+  verify="${result#* }"
+  if [[ "$verify" == "0" ]]; then
+    echo "${key}_tls=verified"
+  else
+    echo "${key}_tls=failed"
+  fi
+  case "$code" in
+    [1-5][0-9][0-9]) echo "${key}_https=${code}" ;;
+    *) echo "${key}_https=unreachable" ;;
+  esac
+}
+probe_https stripe api.stripe.com
+probe_https ghl services.leadconnectorhq.com
+
+section "Domains and SSL"
+# This probe does not query DNS, read a certificate, or print APP_URL.
+echo "custom_domains=not_measured"
+echo "wildcard_subdomains=not_measured"
+echo "wildcard_ssl=not_measured"
 
 section "Inbound webhooks"
 echo "waf_and_rate_rules=not observable from SSH"
