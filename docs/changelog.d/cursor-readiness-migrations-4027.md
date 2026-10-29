@@ -1,0 +1,1 @@
+- `/platform/readiness` and `reserveworx:readiness` fail when a migration has not run. The page says how many, and not the name. A current table says migrations are current. The check does not run migrations. Opening the page does not write a price, a payment, a tax, a fee, or a refund. Spec Section 14 item 15 and Spec Section 17.

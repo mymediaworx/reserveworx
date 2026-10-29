@@ -1,0 +1,1 @@
+- `reserveworx:hosting-check` prints `plan_name=not_measured`. The command does not guess StartUp, GrowBig, GoGeek, or Cloud from host text, and it does not print that text. A missing plan does not fail the check. The October 24, 2026 log did not include this line. This read has not been run on the SiteGround account. Spec Section 2.2.
