@@ -521,7 +521,7 @@ class Resources extends Component
             $rows[] = [
                 'booking_id' => $booking->id,
                 'reference' => BookingReference::short($booking->id),
-                'when' => Display::dateTime($booking->starts_at, $zone),
+                'when' => Display::dateTimeWithZone($booking->starts_at, $zone),
                 'customer' => is_string($customer) && $customer !== '' ? $customer : 'Guest',
                 'from_asset_id' => $offer['from_asset_id'],
                 'to_asset_id' => $offer['to_asset_id'],
