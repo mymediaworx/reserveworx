@@ -24,6 +24,7 @@ class Upgrade extends Component
         return view('livewire.platform.upgrade', [
             'intro' => $guide->intro(),
             'steps' => $guide->steps(),
+            'install' => $guide->install(),
         ]);
     }
 

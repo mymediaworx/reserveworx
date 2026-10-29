@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\HostCrontab;
 use App\Support\HostProcessLimits;
 use App\Support\SchedulerHeartbeat;
 use App\Support\SharedHostBudget;
@@ -20,11 +21,11 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostProcessLimits $limits): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostProcessLimits $limits): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
-        $this->printQueue($schedule);
+        $this->printQueue($schedule, $crontab);
         $this->printProcessLimits($limits);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
@@ -161,7 +162,7 @@ class HostingCheck extends Command
         return is_string($value) ? $value : '';
     }
 
-    private function printQueue(Schedule $schedule): void
+    private function printQueue(Schedule $schedule, HostCrontab $crontab): void
     {
         $connection = config('queue.default');
         $maxTime = config('reserveworx.queue_work_max_time');
@@ -177,7 +178,11 @@ class HostingCheck extends Command
         }
 
         $this->fact('cron_command', 'schedule:run');
-        $this->fact('host_crontab', 'not read');
+
+        foreach ($crontab->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+
         $heartbeat = app(SchedulerHeartbeat::class);
         $this->fact('scheduler_heartbeat', $heartbeat->lastRun()?->format('Y-m-d\TH:i:s\Z') ?? 'not_seen');
         $this->fact('scheduler', $heartbeat->status());
