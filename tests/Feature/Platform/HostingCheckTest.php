@@ -9,6 +9,7 @@ use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostSshAccess;
 use App\Support\HostToolchain;
+use App\Support\HostWebPhpLimits;
 use App\Support\InboundWebhookLimits;
 use App\Support\PhpHostFacts;
 use Closure;
@@ -82,6 +83,7 @@ class HostingCheckTest extends TestCase
         }
         $this->assertProcessLimitLines($output);
         $this->assertPhpHostFactLines($output);
+        $this->assertWebPhpLimitLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -139,7 +141,74 @@ class HostingCheckTest extends TestCase
         $this->assertSame(1, substr_count($output, 'ssh='));
         $this->assertStringContainsString('long_running_processes=not_measured', $output);
         $this->assertPhpHostFactLines($output);
+        $this->assertWebPhpLimitLines($output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_web_php_limits_are_not_measured_and_a_probe_is_not_copied(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(HostWebPhpLimits::class, new HostWebPhpLimits(
+            probe: fn (): string => implode("\n", [
+                'memory_limit=web-cgi-128M-probe',
+                'max_execution_time=web-cgi-30-probe',
+                'web_memory_limit=web-cgi-128M-probe',
+                'web_max_execution_time=web-cgi-30-probe',
+                'php82 CGI /usr/local/php82',
+                '/home/customer rw-hosting-secret-canary',
+            ]),
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertWebPhpLimitLines($output);
+        $this->assertStringContainsString('memory_limit='.ini_get('memory_limit'), $output);
+        $this->assertStringContainsString('max_execution_time='.ini_get('max_execution_time'), $output);
+        $this->assertStringNotContainsString('web-cgi-128M-probe', $output);
+        $this->assertStringNotContainsString('web-cgi-30-probe', $output);
+        $this->assertStringNotContainsString('php82', $output);
+        $this->assertStringNotContainsString('/usr/local/php82', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $this->app->instance(HostWebPhpLimits::class, new HostWebPhpLimits(
+            probe: function (): string {
+                throw new RuntimeException('web-cgi-128M-probe rw-hosting-secret-canary /home/customer');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertWebPhpLimitLines($output);
+        $this->assertStringNotContainsString('web-cgi-128M-probe', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+
+        $this->app->instance(HostWebPhpLimits::class, new HostWebPhpLimits(
+            probe: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertWebPhpLimitLines($output);
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $this->assertStringContainsString('web_memory_limit=not_measured', $script);
+        $this->assertStringContainsString('web_max_execution_time=not_measured', $script);
+        $this->assertStringNotContainsString('web-cgi-128M-probe', $script);
+        $this->assertStringNotContainsString('web_memory_limit=128M', $script);
+        $this->assertStringNotContainsString('web_max_execution_time=30', $script);
     }
 
     public function test_inbound_webhook_limits_are_not_measured_and_a_response_is_not_copied(): void
@@ -428,6 +497,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('php_extensions=missing', $output);
         $this->assertStringContainsString('php_version='.PHP_VERSION, $output);
         $this->assertStringContainsString('plan_name=not_measured', $output);
+        $this->assertWebPhpLimitLines($output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
         $this->assertProcessLimitLines($output);
@@ -453,6 +523,7 @@ class HostingCheckTest extends TestCase
 
         $this->assertStringContainsString('php_extensions='.($missing ? 'missing' : 'ok'), $output);
         $this->assertStringContainsString('plan_name=not_measured', $output);
+        $this->assertWebPhpLimitLines($output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('Zend', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
@@ -907,6 +978,24 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('Zend', $output);
     }
 
+    private function assertWebPhpLimitLines(string $output): void
+    {
+        $this->assertMatchesRegularExpression('/^memory_limit=/m', $output);
+        preg_match('/^memory_limit=.+$/m', $output, $artisanMemory);
+        $memory = strpos($output, $artisanMemory[0]);
+        $webMemory = strpos($output, 'web_memory_limit=not_measured');
+        $webTime = strpos($output, 'web_max_execution_time=not_measured');
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($webMemory);
+        $this->assertNotFalse($webTime);
+        $this->assertLessThan($webMemory, $memory);
+        $this->assertLessThan($webTime, $webMemory);
+        $this->assertSame(1, substr_count($output, 'web_memory_limit='));
+        $this->assertSame(1, substr_count($output, 'web_max_execution_time='));
+        $this->assertSame(1, substr_count($output, 'web_memory_limit=not_measured'));
+        $this->assertSame(1, substr_count($output, 'web_max_execution_time=not_measured'));
+    }
+
     private function assertPlanNameLine(string $output): void
     {
         $scheduler = strpos($output, 'scheduler=');
@@ -939,6 +1028,7 @@ class HostingCheckTest extends TestCase
         $this->assertSame(0, $exitCode, $output);
         $this->assertProcessLimitLines($output);
         $this->assertPhpHostFactLines($output);
+        $this->assertWebPhpLimitLines($output);
 
         return $output;
     }
