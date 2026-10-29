@@ -100,11 +100,17 @@
                     @endif
                 </form>
             @elseif ($move['canMove'])
+                @php
+                    $repeatedMove = is_string($moveStart) && preg_match('/(?:Z|[+-]\d{2}:\d{2})$/', $moveStart) === 1;
+                @endphp
                 <form wire:submit="moveBooking" class="stack top-gap">
                     <label class="field">
                         <span>New start</span>
-                        <input type="datetime-local" wire:model="moveStart" required>
+                        <input type="{{ $repeatedMove ? 'text' : 'datetime-local' }}" wire:model="moveStart" required @if ($repeatedMove) inputmode="text" autocomplete="off" spellcheck="false" data-repeated-start="{{ $moveStart }}" @endif>
                     </label>
+                    @if ($repeatedMove)
+                        <p class="muted small" data-repeated-note>This start happens twice. The offset keeps this hour. A plain time is the earlier one.</p>
+                    @endif
                     @error('moveStart')<p class="error">{{ $message }}</p>@enderror
                     <p class="muted small">Length stays {{ $move['length'] }}. The end moves with the start. Buffers stay on the resource.</p>
                     @if ($move['assets']->isNotEmpty())
