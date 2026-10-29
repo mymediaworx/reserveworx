@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Support\HostCrontab;
+use App\Support\HostDomainSupport;
 use App\Support\SchedulerHeartbeat;
 use App\Support\SharedHostBudget;
 use Illuminate\Console\Command;
@@ -20,11 +21,12 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostDomainSupport $domains): int
     {
         $databaseReady = $this->printDatabase();
         $this->printPhp();
         $this->printQueue($schedule, $crontab);
+        $this->printDomainSupport($domains);
 
         return $databaseReady ? self::SUCCESS : self::FAILURE;
     }
@@ -184,6 +186,13 @@ class HostingCheck extends Command
         $heartbeat = app(SchedulerHeartbeat::class);
         $this->fact('scheduler_heartbeat', $heartbeat->lastRun()?->format('Y-m-d\TH:i:s\Z') ?? 'not_seen');
         $this->fact('scheduler', $heartbeat->status());
+    }
+
+    private function printDomainSupport(HostDomainSupport $domains): void
+    {
+        foreach ($domains->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
     }
 
     private function scheduledCommand(Event $event): string

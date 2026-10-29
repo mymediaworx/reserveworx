@@ -142,6 +142,12 @@ for url in https://api.stripe.com https://services.leadconnectorhq.com; do
   curl -sS -o /dev/null --max-time 20 -w "${url} http_code=%{http_code} ssl_verify_result=%{ssl_verify_result}\n" "$url" || echo "${url} curl_failed"
 done
 
+section "Domains and SSL"
+# This probe does not query DNS, read a certificate, or print APP_URL.
+echo "custom_domains=not_measured"
+echo "wildcard_subdomains=not_measured"
+echo "wildcard_ssl=not_measured"
+
 section "Inbound webhooks"
 echo "waf_and_rate_rules=not observable from SSH"
 

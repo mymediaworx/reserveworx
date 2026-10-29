@@ -28,8 +28,8 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
 | Process limits | This session's `ulimit`: 80 processes, 5060 open files, about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement |
 | Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
-| Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed |
-| Wildcard subdomains and wildcard SSL | Unverified |
+| Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed. `reserveworx:hosting-check` prints `custom_domains=not_measured` and `app_url_https` as `yes` or `no` from the scheme of `APP_URL` only. The host is not printed. Anything else is `unparsed`. The command does not add a domain or open a TLS connection. The October 24, 2026 log did not include these lines |
+| Wildcard subdomains and wildcard SSL | `reserveworx:hosting-check` prints `wildcard_subdomains=not_measured` and `wildcard_ssl=not_measured`. It does not query DNS or request a certificate. The October 23 install did not measure either one. The October 24, 2026 log did not include these lines |
 | Outbound HTTPS to Stripe and HighLevel | Both returned HTTP 404 with `ssl_verify_result=0` (the TLS certificate verified). A 404 on the bare host is not an API call |
 | Inbound webhook WAF or rate limits | Not observable from SSH. An external curl that receives HTTP 202 is SiteGround's bot check, not proof the application answered |
 
