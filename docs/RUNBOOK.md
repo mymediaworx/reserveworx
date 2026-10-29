@@ -93,6 +93,10 @@ A platform administrator opens `/platform/performance` on the platform host. `ph
 
 A platform administrator opens `/platform/security` on the platform host. `php artisan reserveworx:security` prints the same lines and exits 0 only when nothing fails. It writes one sample GoHighLevel token and one sample webhook secret, checks that the stored text is not that sample, and rolls both rows back. Owner, manager, and staff have to match the role catalog. A mismatch fails the check and does not change those roles. The session cookie has to stay on the current host, and SameSite has to be lax or strict. A parent domain fails the check. The configured domain is not printed. It does not print the sample, does not call Stripe, and does not keep a price, a payment, a tax, a fee, or a refund. A tenant address does not serve the page.
 
+## Isolation check
+
+A platform administrator opens `/platform/isolation` on the platform host. `php artisan reserveworx:isolation` prints the same lines and exits 0 only when nothing fails. It writes one sample customer, checks that another workspace cannot read it and that a request with no workspace cannot either, and rolls the row back. It does not print the sample, does not call Stripe, and does not keep a price, a payment, a tax, a fee, or a refund. A tenant address does not serve the page.
+
 ## Multi-tenant demonstration
 
 A platform administrator opens `/platform/demo` on the platform host. `php artisan reserveworx:demo` prints one line for Harbor Demo, one line for Inland Demo, and `shown=yes` only when both are loaded and neither lists the other's locations, services, or bookings. A missing demo workspace is not created. The command does not print a customer email. A tenant address does not serve the page.
@@ -104,6 +108,10 @@ An owner or manager opens `/staff/audit` on the workspace host. The page lists t
 ## Queue looks stuck
 
 One Site Tools cron job calls `schedule:run`, which runs `queue:work database --stop-when-empty`. A worker stops after `QUEUE_WORK_MAX_TIME` (default 20 seconds). The reported GoGeek caps are 4,000 CPU-seconds per hour and 4,000 executions per hour. Sixty workers at 20 seconds use 1,200 CPU-seconds. Do not add a second cron and do not raise the max time without recounting that budget in [`DEPLOY.md`](DEPLOY.md).
+
+## Start a deploy
+
+A platform administrator reads how to start a deploy on `/platform/upgrade`. Open GitHub Actions, choose Deploy, and run the workflow on branch main. A later upgrade uses action deploy with migrations on. The workflow dumps the database first and fails if that dump does not verify. A bad release uses action rollback. That swaps the previous release and does not restore the database. This page does not run a deploy. Staff do not see that sentence.
 
 ## Secrets in a log
 

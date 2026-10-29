@@ -84,6 +84,60 @@ class UpgradeGuideTest extends TestCase
         $this->assertStringNotContainsString('whsec_', $deploy);
     }
 
+    public function test_a_platform_admin_can_read_how_to_start_a_deploy_and_nothing_is_written(): void
+    {
+        $step = collect(app(UpgradeGuide::class)->steps())->firstWhere('title', 'Start a deploy');
+        $this->assertIsArray($step);
+
+        $this->get('http://app.reserveworx.com/platform/upgrade')
+            ->assertRedirect('/platform/login');
+
+        $admin = User::factory()->create();
+        PlatformAdministrator::factory()->create(['user_id' => $admin->id]);
+        $before = $this->counts();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/upgrade')
+            ->assertOk()
+            ->assertSee($step['title'])
+            ->assertSee($step['body'])
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('3%')
+            ->assertDontSee('sk_live')
+            ->assertDontSee('whsec_');
+
+        $this->assertSame($before, $this->counts());
+
+        $deploy = (string) file_get_contents(base_path('docs/DEPLOY.md'));
+        $runbook = (string) file_get_contents(base_path('docs/RUNBOOK.md'));
+        $this->assertStringContainsString('### '.$step['title'], $deploy);
+        $this->assertStringContainsString($step['body'], $deploy);
+        $this->assertStringContainsString($step['body'], $runbook);
+        $this->assertStringContainsString('/platform/upgrade', $runbook);
+
+        Livewire::actingAs($admin)
+            ->test(Upgrade::class)
+            ->assertSee($step['title'])
+            ->assertSee($step['body']);
+
+        $member = User::factory()->create();
+        $this->actingAs($member)
+            ->get('http://app.reserveworx.com/platform/upgrade')
+            ->assertForbidden()
+            ->assertDontSee($step['body']);
+
+        $workspace = $this->workspace('alpha.test');
+        $this->actingAs($admin)
+            ->get($this->tenantUrl('alpha.test', '/platform/upgrade'))
+            ->assertNotFound();
+
+        $this->actingAs($workspace['user'])
+            ->get($this->tenantUrl('alpha.test', '/staff/help'))
+            ->assertOk()
+            ->assertDontSee($step['body']);
+    }
+
     public function test_only_a_platform_admin_on_the_platform_host_can_open_the_page(): void
     {
         $this->get('http://app.reserveworx.com/platform/upgrade')
