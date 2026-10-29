@@ -53,6 +53,7 @@ The replay is covered by the test suite. A restore has not been run on the live 
 - Login is limited to 5 attempts per minute per email and IP.
 - The last active owner cannot be revoked or demoted. Add another owner first.
 - Saving a password on `/account`, or with `PUT /api/v1/customer/password`, ends that customer's other browsers, API tokens, and unused sign-in links. The browser or token that saved it stays signed in. A mismatched confirmation changes nothing.
+- Resetting a password from the staff or platform page deletes that person's API tokens and their other signed-in sessions. The browser that submitted the form keeps its session. A refused or expired link leaves those tokens and sessions in place.
 
 ## Grant or remove platform access
 
