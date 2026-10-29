@@ -1,0 +1,1 @@
+- Sign-in, staff, account, and signup pages cannot be placed in another site's frame. The booking page and the token widget stay embeddable. `reserveworx:security` reports that split and does not write a price, a payment, a tax, a fee, or a refund. Spec Section 14 item 14, Spec Section 12, and Spec Section 6.
