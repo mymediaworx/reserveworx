@@ -1,4 +1,10 @@
-<div class="page">
+<div class="page feedback-page">
+    <style>
+        .feedback-page .when { overflow-wrap: anywhere; max-width: 100%; }
+        @media (max-width: 390px) {
+            .feedback-page .when { overflow-wrap: anywhere; max-width: 100%; }
+        }
+    </style>
     <header class="page-head">
         <div>
             <h1>Feedback</h1>
@@ -53,14 +59,14 @@
     @else
         <div class="stack">
             @foreach ($ratings as $rating)
-                <article class="panel">
+                <article class="panel" data-feedback="{{ $rating->id }}">
                     <div class="panel-head">
                         <h2>
                             <a href="/staff/bookings/{{ $rating->booking_id }}" wire:navigate>{{ $this->customerName($rating) }}</a>
                         </h2>
                         <p class="stars" aria-label="{{ $rating->rating }} out of 5">{{ $this->starsLabel($rating) }}</p>
                     </div>
-                    <p class="muted">{{ $this->serviceName($rating) }} · {{ $this->whenLabel($rating) }}</p>
+                    <p class="muted"><span>{{ $this->serviceName($rating) }}</span> · <span class="when" data-when>{{ $this->whenLabel($rating) }}</span></p>
                     @if ($rating->comment)
                         <p>{{ $rating->comment }}</p>
                     @endif
