@@ -4,8 +4,10 @@ namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
 use App\Support\HostDomainSupport;
+use App\Support\HostOutboundHttps;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
+use App\Support\HostSshAccess;
 use App\Support\HostToolchain;
 use App\Support\InboundWebhookLimits;
 use App\Support\PhpHostFacts;
@@ -70,6 +72,14 @@ class HostingCheckTest extends TestCase
         $this->assertDomainSupportLines($output);
         $this->assertPlanNameLine($output);
         $this->assertToolchainLines($output);
+        $liveSsh = (new HostSshAccess)->facts();
+        $this->assertSshLine($output, $liveSsh[0][1]);
+        foreach (['SSH_CONNECTION', 'SSH_CLIENT'] as $name) {
+            $value = getenv($name);
+            if (is_string($value) && $value !== '') {
+                $this->assertStringNotContainsString($value, $output);
+            }
+        }
         $this->assertProcessLimitLines($output);
         $this->assertPhpHostFactLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
@@ -77,6 +87,10 @@ class HostingCheckTest extends TestCase
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
         $this->assertSame($tables[1], $innodbTables[1]);
         $this->assertGreaterThan(0, (int) $tables[1]);
+        $this->assertOutboundLines($output);
+        $this->assertStringNotContainsString('api.stripe.com', $output);
+        $this->assertStringNotContainsString('leadconnectorhq.com', $output);
+        $this->assertStringNotContainsString('https://', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
         $this->assertStringNotContainsString('rw-hosting-user-canary', $output);
         $this->assertStringNotContainsString('rw-hosting-database-canary', $output);
@@ -119,7 +133,10 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
         $this->assertInboundWebhookLines($output);
+        $this->assertOutboundLines($output);
         $this->assertStringContainsString('plan_name=not_measured', $output);
+        $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
+        $this->assertSame(1, substr_count($output, 'ssh='));
         $this->assertStringContainsString('long_running_processes=not_measured', $output);
         $this->assertPhpHostFactLines($output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
@@ -192,6 +209,125 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('curl', $section);
         $this->assertStringNotContainsString('waf_and_rate_rules=', $script);
         $this->assertStringNotContainsString('202', $section);
+    }
+
+    public function test_an_ssh_login_is_reported_without_the_connection_text(): void
+    {
+        $before = $this->moneyCounts();
+        $secret = 'rw-hosting-secret-canary';
+        $connection = "203.0.113.8 2222 {$secret}\nSHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A";
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => $connection,
+                'SSH_TTY' => '/home/customer '.$secret,
+                'note' => '18765 '.$secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'session');
+        $this->assertStringNotContainsString($secret, $output);
+        $this->assertStringNotContainsString('203.0.113.8', $output);
+        $this->assertStringNotContainsString('2222', $output);
+        $this->assertStringNotContainsString('18765', $output);
+        $this->assertStringNotContainsString('SHA256', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CLIENT' => '  '.$secret.'  ',
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'session');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => "   \n",
+                'SSH_CLIENT' => '',
+                'SSH_TTY' => $secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): array => [
+                'SSH_CONNECTION' => str_repeat(' ', 256).$secret,
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString($secret, $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: function (): array {
+                throw new RuntimeException($secret.' /home/customer');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString($secret, $output);
+        $this->assertStringNotContainsString('/home/', $output);
+
+        $this->app->instance(HostSshAccess::class, new HostSshAccess(
+            environment: fn (): false => false,
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertSshLine($output, 'not_measured');
+        $this->assertSame($before, $this->moneyCounts());
+
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $this->assertDoesNotMatchRegularExpression('/echo ["\'].*SSH_(CONNECTION|CLIENT)/', $script);
+        $this->assertStringNotContainsString('SHA256:yhkspJG', $script);
+        $session = $this->remoteSshState([
+            'SSH_CONNECTION' => $connection,
+            'SSH_CLIENT' => $secret,
+        ]);
+        $blank = $this->remoteSshState([
+            'SSH_CONNECTION' => " \n",
+            'SSH_TTY' => $secret,
+        ]);
+        $clientOnly = $this->remoteSshState([
+            'SSH_CLIENT' => $secret,
+        ]);
+
+        $this->assertSame('ssh=session', $session);
+        $this->assertSame('ssh=not_measured', $blank);
+        $this->assertSame('ssh=session', $clientOnly);
+        $this->assertStringNotContainsString($secret, $session.$blank.$clientOnly);
+        $this->assertStringNotContainsString('203.0.113.8', $session);
+        $this->assertStringNotContainsString('SHA256', $session);
     }
 
     public function test_the_plan_name_is_not_measured_and_host_text_is_not_copied(): void
@@ -485,7 +621,9 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('/home/', $output);
         $this->assertStringNotContainsString('/usr/bin/git', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
-        $this->assertStringNotContainsString('ssh=', $output);
+        $this->assertSame(1, substr_count($output, 'ssh='));
+        $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
+        $this->assertStringNotContainsString('OpenSSH', $output);
         $this->assertStringNotContainsString('reserveworx', $output);
         $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
     }
@@ -510,19 +648,107 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('Composer failed', $output);
     }
 
-    private function assertToolchainLines(string $output): void
+    public function test_outbound_https_reports_the_status_and_hides_the_response(): void
     {
-        foreach (['git', 'composer'] as $tool) {
-            $this->assertMatchesRegularExpression('/^'.$tool.'=(available|unavailable)$/m', $output);
+        $before = $this->moneyCounts();
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: fn (): array => [
+                'stripe_tls' => 'verified',
+                'stripe_https' => '404',
+                'ghl_tls' => 'verified',
+                'ghl_https' => '404',
+                'body' => 'rw-hosting-secret-canary https://api.stripe.com https://services.leadconnectorhq.com <html>secret</html>',
+            ],
+        ));
 
-            if (preg_match('/^'.$tool.'=available$/m', $output) === 1) {
-                $this->assertMatchesRegularExpression('/^'.$tool.'_version=(\d+\.\d+\.\d+|unread)$/m', $output);
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
 
-                continue;
-            }
+        $this->assertSame(0, $exitCode, $output);
+        $stripeTls = strpos($output, 'stripe_tls=verified');
+        $stripeHttps = strpos($output, 'stripe_https=404');
+        $ghlTls = strpos($output, 'ghl_tls=verified');
+        $ghlHttps = strpos($output, 'ghl_https=404');
+        $this->assertNotFalse($stripeTls);
+        $this->assertNotFalse($stripeHttps);
+        $this->assertNotFalse($ghlTls);
+        $this->assertNotFalse($ghlHttps);
+        $this->assertLessThan($stripeHttps, $stripeTls);
+        $this->assertLessThan($ghlTls, $stripeHttps);
+        $this->assertLessThan($ghlHttps, $ghlTls);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('api.stripe.com', $output);
+        $this->assertStringNotContainsString('leadconnectorhq.com', $output);
+        $this->assertStringNotContainsString('https://', $output);
+        $this->assertStringNotContainsString('<html>', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertSame($before, $this->moneyCounts());
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
 
-            $this->assertStringNotContainsString($tool.'_version=', $output);
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: fn (): array => [
+                'stripe_tls' => 'verified rw-hosting-secret-canary',
+                'stripe_https' => '404 https://api.stripe.com rw-hosting-secret-canary',
+                'ghl_tls' => 'verified',
+                'ghl_https' => '000',
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('stripe_tls=failed', $output);
+        $this->assertStringContainsString('stripe_https=unreachable', $output);
+        $this->assertStringContainsString('ghl_tls=verified', $output);
+        $this->assertStringContainsString('ghl_https=unreachable', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('api.stripe.com', $output);
+        $this->assertStringNotContainsString('https://', $output);
+        $this->assertSame($before, $this->moneyCounts());
+    }
+
+    public function test_a_failed_outbound_probe_does_not_fail_the_check(): void
+    {
+        $before = $this->moneyCounts();
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: function (): array {
+                throw new RuntimeException('rw-hosting-secret-canary https://api.stripe.com');
+            },
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('stripe_tls=failed', $output);
+        $this->assertStringContainsString('stripe_https=unreachable', $output);
+        $this->assertStringContainsString('ghl_tls=failed', $output);
+        $this->assertStringContainsString('ghl_https=unreachable', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('api.stripe.com', $output);
+        $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertStringNotContainsString('https://', $output);
+        $this->assertSame($before, $this->moneyCounts());
+
+        Schema::create('hosting_myisam_probe', function (Blueprint $table): void {
+            $table->integer('id');
+            $table->engine = 'MyISAM';
+        });
+
+        try {
+            $exitCode = Artisan::call('reserveworx:hosting-check');
+            $output = Artisan::output();
+        } finally {
+            Schema::dropIfExists('hosting_myisam_probe');
         }
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('innodb=no', $output);
+        $this->assertStringContainsString('stripe_tls=failed', $output);
+        $this->assertStringContainsString('ghl_https=unreachable', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertSame($before, $this->moneyCounts());
     }
 
     public function test_a_schedule_run_crontab_reports_the_shortest_gap_and_hides_the_command(): void
@@ -692,9 +918,22 @@ class HostingCheckTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/^plan_name=(startup|growbig|gogeek|cloud)$/mi', $output);
     }
 
+    private function padded(string $label, string $soft): string
+    {
+        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
+    }
+
     private function checkWithCrontab(?string $text): string
     {
         $this->app->instance(HostCrontab::class, new HostCrontab(fn (): ?string => $text));
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: fn (): array => [
+                'stripe_tls' => 'failed',
+                'stripe_https' => 'unreachable',
+                'ghl_tls' => 'failed',
+                'ghl_https' => 'unreachable',
+            ],
+        ));
         $exitCode = Artisan::call('reserveworx:hosting-check');
         $output = Artisan::output();
         $this->assertSame(0, $exitCode, $output);
@@ -712,6 +951,14 @@ class HostingCheckTest extends TestCase
         $this->app->instance(HostDomainSupport::class, new HostDomainSupport(
             note: $note,
             appUrl: fn (): string => $url,
+        ));
+        $this->app->instance(HostOutboundHttps::class, new HostOutboundHttps(
+            probe: fn (): array => [
+                'stripe_tls' => 'failed',
+                'stripe_https' => 'unreachable',
+                'ghl_tls' => 'failed',
+                'ghl_https' => 'unreachable',
+            ],
         ));
         $exitCode = Artisan::call('reserveworx:hosting-check');
         $output = Artisan::output();
@@ -743,17 +990,49 @@ class HostingCheckTest extends TestCase
         $this->assertMatchesRegularExpression('/^app_url_https=(yes|no|unparsed)$/m', $output);
     }
 
+    private function assertToolchainLines(string $output): void
+    {
+        foreach (['git', 'composer'] as $tool) {
+            $this->assertMatchesRegularExpression('/^'.$tool.'=(available|unavailable)$/m', $output);
+
+            if (preg_match('/^'.$tool.'=available$/m', $output) === 1) {
+                $this->assertMatchesRegularExpression('/^'.$tool.'_version=(\d+\.\d+\.\d+|unread)$/m', $output);
+
+                continue;
+            }
+
+            $this->assertStringNotContainsString($tool.'_version=', $output);
+        }
+    }
+
+    private function assertOutboundLines(string $output): void
+    {
+        $stripeTls = strpos($output, 'stripe_tls=');
+        $stripeHttps = strpos($output, 'stripe_https=');
+        $ghlTls = strpos($output, 'ghl_tls=');
+        $ghlHttps = strpos($output, 'ghl_https=');
+        $this->assertNotFalse($stripeTls);
+        $this->assertNotFalse($stripeHttps);
+        $this->assertNotFalse($ghlTls);
+        $this->assertNotFalse($ghlHttps);
+        $this->assertLessThan($stripeHttps, $stripeTls);
+        $this->assertLessThan($ghlTls, $stripeHttps);
+        $this->assertLessThan($ghlHttps, $ghlTls);
+        $this->assertSame(1, substr_count($output, 'stripe_tls='));
+        $this->assertSame(1, substr_count($output, 'stripe_https='));
+        $this->assertSame(1, substr_count($output, 'ghl_tls='));
+        $this->assertSame(1, substr_count($output, 'ghl_https='));
+        $this->assertMatchesRegularExpression('/^stripe_tls=(verified|failed)$/m', $output);
+        $this->assertMatchesRegularExpression('/^stripe_https=([1-5][0-9]{2}|unreachable)$/m', $output);
+        $this->assertMatchesRegularExpression('/^ghl_tls=(verified|failed)$/m', $output);
+        $this->assertMatchesRegularExpression('/^ghl_https=([1-5][0-9]{2}|unreachable)$/m', $output);
+        $this->assertStringNotContainsString('api.stripe.com', $output);
+        $this->assertStringNotContainsString('leadconnectorhq.com', $output);
+        $this->assertStringNotContainsString('https://', $output);
+    }
+
     /**
-     * @return array{
-     *     payments: int,
-     *     refunds: int,
-     *     platform_fees: int,
-     *     platform_fee_refunds: int,
-     *     pricing_snapshots: int,
-     *     price_rules: int,
-     *     location_tax_rules: int,
-     *     audit_logs: int
-     * }
+     * @return array<string, int>
      */
     private function moneyCounts(): array
     {
@@ -769,11 +1048,6 @@ class HostingCheckTest extends TestCase
         ];
     }
 
-    private function padded(string $label, string $soft): string
-    {
-        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
-    }
-
     private function runningBinary(): string
     {
         if (preg_match('#^/[A-Za-z0-9_./+-]+$#', PHP_BINARY) === 1 && ! str_contains(PHP_BINARY, '..')) {
@@ -781,5 +1055,45 @@ class HostingCheckTest extends TestCase
         }
 
         return 'current';
+    }
+
+    private function assertSshLine(string $output, string $value): void
+    {
+        $scheduler = strpos($output, 'scheduler=');
+        $ssh = strpos($output, 'ssh='.$value);
+        $this->assertNotFalse($scheduler);
+        $this->assertNotFalse($ssh);
+        $this->assertLessThan($ssh, $scheduler);
+        $this->assertSame(1, substr_count($output, 'ssh='));
+        $this->assertMatchesRegularExpression('/^ssh=(session|not_measured)$/m', $output);
+    }
+
+    /**
+     * @param  array<string, string>  $env
+     */
+    private function remoteSshState(array $env): string
+    {
+        $script = (string) file_get_contents(base_path('scripts/hosting-check-remote.sh'));
+        $pattern = <<<'REGEX'
+/ssh_state=not_measured
+case "\$\{SSH_CONNECTION-\}\$\{SSH_CLIENT-\}" in
+  \*\[!\[:space:\]\]\*\) ssh_state=session ;;
+esac
+echo "ssh=\$\{ssh_state\}"/
+REGEX;
+        $this->assertSame(1, preg_match($pattern, $script, $match));
+
+        $command = 'env -u SSH_CONNECTION -u SSH_CLIENT -u SSH_TTY';
+        foreach ($env as $name => $value) {
+            $command .= ' '.escapeshellarg($name.'='.$value);
+        }
+        $command .= ' bash -c '.escapeshellarg($match[0]);
+
+        $lines = [];
+        $exit = 0;
+        exec($command, $lines, $exit);
+        $this->assertSame(0, $exit, implode("\n", $lines));
+
+        return implode("\n", $lines);
     }
 }
