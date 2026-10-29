@@ -5,7 +5,7 @@ namespace App\Support;
 /**
  * The upgrade procedure from Spec Section 17.
  * The sentences are the same ones docs/DEPLOY.md publishes.
- * Reading them does not deploy or write a price, tax, fee, or refund.
+ * Reading them does not deploy, restore a database, or write a price, tax, fee, or refund.
  */
 final class UpgradeGuide
 {
@@ -39,6 +39,10 @@ final class UpgradeGuide
             [
                 'title' => 'Keep one rollback release',
                 'body' => 'The previous release stays on disk. Rollback swaps that code back and does not undo migrations.',
+            ],
+            [
+                'title' => 'Restore the database',
+                'body' => 'reserveworx:restore-backup replays one private dump into this site\'s database. The file has to be mode 600 and a MySQL or MariaDB dump that names this database and no other. Nothing is written until --force is passed. A path under public_html or www/reserveworx.com is refused. The command does not print the password or the SQL. This page does not run a restore. A restore has not been run on the live SiteGround database.',
             ],
             [
                 'title' => 'Check the public health URL',
