@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Models\Domain;
 use App\Support\Hostname;
+use App\Support\SecureSessionCookie;
 use App\Tenancy\TenancyException;
 use App\Tenancy\TenantScope;
 use Closure;
@@ -17,6 +18,8 @@ class EnsureKnownHost
      */
     public function handle(Request $request, Closure $next): Response
     {
+        app(SecureSessionCookie::class)->apply();
+
         $host = Hostname::normalize($request->getHost());
         $platformDomains = config('reserveworx.platform_domains', []);
 
