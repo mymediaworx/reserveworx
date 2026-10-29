@@ -3,6 +3,7 @@
 namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
+use App\Support\HostToolchain;
 use App\Support\PhpHostFacts;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
@@ -59,6 +60,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('cron_command=schedule:run', $output);
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertToolchainLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -167,6 +169,100 @@ class HostingCheckTest extends TestCase
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('Zend', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_git_and_composer_versions_are_reported_without_command_text(): void
+    {
+        $this->app->instance(HostToolchain::class, new HostToolchain(
+            probes: fn (): array => [
+                [
+                    'tool' => 'composer',
+                    'output' => "Composer version 2.4.3 2022-11-30 16:22:29\n/home/customer/secret rw-hosting-secret-canary",
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => "git version 9.9.9\nrw-hosting-secret-canary",
+                    'ok' => false,
+                ],
+                [
+                    'tool' => 'ssh',
+                    'output' => 'OpenSSH_9.6 rw-hosting-secret-canary',
+                    'ok' => true,
+                ],
+                [
+                    'tool' => "git\nrw-hosting-secret-canary",
+                    'output' => 'git version 1.2.3',
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => "git version 2.56.0\n/usr/bin/git rw-hosting-secret-canary",
+                    'ok' => true,
+                ],
+                [
+                    'tool' => 'git',
+                    'output' => 'git version 8.8.8',
+                    'ok' => true,
+                ],
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $git = strpos($output, "git=available\ngit_version=2.56.0");
+        $composer = strpos($output, "composer=available\ncomposer_version=2.4.3");
+        $this->assertNotFalse($git);
+        $this->assertNotFalse($composer);
+        $this->assertLessThan($composer, $git);
+        $this->assertStringNotContainsString('git_version=9.9.9', $output);
+        $this->assertStringNotContainsString('git_version=8.8.8', $output);
+        $this->assertStringNotContainsString('git_version=1.2.3', $output);
+        $this->assertStringNotContainsString('git version', $output);
+        $this->assertStringNotContainsString('Composer version', $output);
+        $this->assertStringNotContainsString('/home/', $output);
+        $this->assertStringNotContainsString('/usr/bin/git', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('ssh=', $output);
+        $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
+    }
+
+    public function test_a_toolchain_that_cannot_run_is_unavailable_and_does_not_fail(): void
+    {
+        $this->app->instance(HostToolchain::class, new HostToolchain(
+            probes: fn (): array => [
+                ['tool' => 'git', 'output' => 'git version 2.56.0', 'ok' => false],
+                ['tool' => 'composer', 'output' => 'Composer failed rw-hosting-secret-canary', 'ok' => true],
+            ],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('git=unavailable', $output);
+        $this->assertStringNotContainsString('git_version=', $output);
+        $this->assertStringContainsString("composer=available\ncomposer_version=unread", $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringNotContainsString('Composer failed', $output);
+    }
+
+    private function assertToolchainLines(string $output): void
+    {
+        foreach (['git', 'composer'] as $tool) {
+            $this->assertMatchesRegularExpression('/^'.$tool.'=(available|unavailable)$/m', $output);
+
+            if (preg_match('/^'.$tool.'=available$/m', $output) === 1) {
+                $this->assertMatchesRegularExpression('/^'.$tool.'_version=(\d+\.\d+\.\d+|unread)$/m', $output);
+
+                continue;
+            }
+
+            $this->assertStringNotContainsString($tool.'_version=', $output);
+        }
     }
 
     public function test_a_schedule_run_crontab_reports_the_shortest_gap_and_hides_the_command(): void
