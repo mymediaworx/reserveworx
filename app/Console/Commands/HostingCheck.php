@@ -6,6 +6,7 @@ use App\Support\HostCrontab;
 use App\Support\HostPlanName;
 use App\Support\HostProcessLimits;
 use App\Support\HostToolchain;
+use App\Support\HostWebPhpLimits;
 use App\Support\PhpHostFacts;
 use App\Support\SchedulerHeartbeat;
 use App\Support\SharedHostBudget;
@@ -24,10 +25,10 @@ class HostingCheck extends Command
 
     protected $description = 'Print Section 2.2 host facts. This command does not print secrets.';
 
-    public function handle(Schedule $schedule, HostCrontab $crontab, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits): int
+    public function handle(Schedule $schedule, HostCrontab $crontab, HostPlanName $planName, HostToolchain $toolchain, HostProcessLimits $limits, HostWebPhpLimits $webPhp): int
     {
         $databaseReady = $this->printDatabase();
-        $this->printPhp();
+        $this->printPhp($webPhp);
         $this->printQueue($schedule, $crontab);
         $this->printPlanName($planName);
         $this->printToolchain($toolchain);
@@ -153,13 +154,17 @@ class HostingCheck extends Command
         }
     }
 
-    private function printPhp(): void
+    private function printPhp(HostWebPhpLimits $webPhp): void
     {
         $this->fact('php_version', PHP_VERSION);
         $this->fact('max_execution_time', $this->iniValue('max_execution_time'));
         $this->fact('memory_limit', $this->iniValue('memory_limit'));
 
         foreach (app(PhpHostFacts::class)->facts() as [$key, $value]) {
+            $this->fact($key, $value);
+        }
+
+        foreach ($webPhp->facts() as [$key, $value]) {
             $this->fact($key, $value);
         }
     }

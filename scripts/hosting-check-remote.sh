@@ -22,6 +22,9 @@ ulimit -a 2>/dev/null || echo "ulimit=unavailable"
 echo "long_running_processes=not started by this check; assume none until proven otherwise"
 
 section "PHP"
+# CLI probes are not the site web SAPI. Site Tools selects that separately.
+echo "web_memory_limit=not_measured"
+echo "web_max_execution_time=not_measured"
 php_bins=""
 for candidate in /usr/local/php*/bin/php /usr/bin/php /usr/bin/php8.* /usr/bin/php7.* "$HOME"/bin/php; do
   for path in $candidate; do
