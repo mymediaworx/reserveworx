@@ -4,7 +4,9 @@ namespace Tests\Feature\Platform;
 
 use App\Livewire\Platform\Security;
 use App\Models\GhlConnection;
+use App\Models\Permission;
 use App\Models\PlatformAdministrator;
+use App\Models\Role;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Platform\SecurityCheck;
@@ -31,6 +33,8 @@ class SecurityCheckTest extends TestCase
             'private_integration_token' => self::KEPT_TOKEN,
         ]);
         $before = $this->counts();
+        $roleRows = Role::query()->count();
+        $roleLinks = DB::table('role_permission')->count();
 
         $this->artisan('reserveworx:security')
             ->expectsOutputToContain('ghl_token=pass')
@@ -39,6 +43,7 @@ class SecurityCheckTest extends TestCase
             ->expectsOutputToContain('csrf=pass')
             ->expectsOutputToContain('session_http_only=pass')
             ->expectsOutputToContain('audit_log=pass')
+            ->expectsOutputToContain('roles=pass')
             ->expectsOutputToContain('secure=yes')
             ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
             ->doesntExpectOutputToContain(self::KEPT_TOKEN)
@@ -56,6 +61,8 @@ class SecurityCheckTest extends TestCase
             ->assertSee('Form posts use Laravel\'s CSRF check.')
             ->assertSee('The session cookie is HTTP-only.')
             ->assertSee('The audit log table is present.')
+            ->assertSee('Owner, manager, and staff match the role catalog.')
+            ->assertSee('and the role catalog.')
             ->assertSee('overflow-wrap: anywhere', false)
             ->assertSee('max-width: 390px', false)
             ->assertSee('/platform/security', false)
@@ -68,8 +75,49 @@ class SecurityCheckTest extends TestCase
             ->assertDontSee(self::KEPT_TOKEN);
 
         $this->assertSame($before, $this->counts());
+        $this->assertSame($roleRows, Role::query()->count());
+        $this->assertSame($roleLinks, DB::table('role_permission')->count());
         $this->assertSame(self::KEPT_TOKEN, GhlConnection::withoutGlobalScope(TenantScope::class)->where('location_id', 'loc_kept')->firstOrFail()->private_integration_token);
         $this->assertSame(0, Tenant::query()->where('slug', 'like', 'security-check-%')->count());
+    }
+
+    public function test_roles_that_do_not_match_the_catalog_are_not_secure(): void
+    {
+        $admin = $this->admin();
+        $owner = Role::query()->where('slug', 'owner')->firstOrFail();
+        $permission = Permission::query()->where('slug', 'settings.view')->firstOrFail();
+        $owner->permissions()->detach($permission->id);
+        $before = $this->counts();
+        $roleRows = Role::query()->count();
+        $roleLinks = DB::table('role_permission')->count();
+
+        $this->artisan('reserveworx:security')
+            ->expectsOutputToContain('roles=fail')
+            ->expectsOutputToContain('secure=no')
+            ->doesntExpectOutputToContain('settings.view')
+            ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
+            ->assertFailed();
+
+        $this->actingAs($admin)
+            ->get('http://app.reserveworx.com/platform/security')
+            ->assertOk()
+            ->assertSee('Not secure')
+            ->assertSee('data-secure="no"', false)
+            ->assertSee('The stored roles do not match the role catalog.')
+            ->assertSee('overflow-wrap: anywhere', false)
+            ->assertSee('max-width: 390px', false)
+            ->assertDontSee('Owner, manager, and staff match the role catalog.')
+            ->assertDontSee('settings.view')
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        Livewire::actingAs($admin)->test(Security::class)
+            ->assertSee('The stored roles do not match the role catalog.')
+            ->assertDontSee(SecurityCheck::PROBE_MARK);
+
+        $this->assertSame($before, $this->counts());
+        $this->assertSame($roleRows, Role::query()->count());
+        $this->assertSame($roleLinks, DB::table('role_permission')->count());
+        $this->assertSame(0, DB::table('role_permission')->where('role_id', $owner->id)->where('permission_id', $permission->id)->count());
     }
 
     public function test_a_cookie_that_javascript_can_read_is_not_secure(): void
@@ -80,6 +128,7 @@ class SecurityCheckTest extends TestCase
         $this->artisan('reserveworx:security')
             ->expectsOutputToContain('ghl_token=pass')
             ->expectsOutputToContain('session_http_only=fail')
+            ->expectsOutputToContain('roles=pass')
             ->expectsOutputToContain('secure=no')
             ->doesntExpectOutputToContain(SecurityCheck::PROBE_MARK)
             ->assertFailed();
