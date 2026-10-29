@@ -2,12 +2,9 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Domain\Payments\ConnectAccountSpec;
-use App\Domain\Payments\StripeGateway;
 use App\Domain\Payments\StripeNotConfiguredException;
 use App\Http\Controllers\Controller;
 use App\Models\Booking;
-use App\Models\StripeAccount;
 use App\Models\Tenant;
 use App\Models\User;
 use App\Services\Allocation\AllocationUnavailableException;
@@ -16,15 +13,17 @@ use App\Services\AuditLogger;
 use App\Services\Payments\CheckoutService;
 use App\Services\Payments\FeeLedger;
 use App\Services\Payments\RefundException;
+use App\Services\Payments\StripeConnectRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
 class PaymentController extends Controller
 {
     public function __construct(
         private readonly CheckoutService $checkout,
-        private readonly StripeGateway $stripe,
+        private readonly StripeConnectRequests $connectRequests,
         private readonly AuditLogger $audit,
         private readonly FeeLedger $ledger,
     ) {}
@@ -39,40 +38,33 @@ class PaymentController extends Controller
             'email' => ['required', 'email', 'max:255'],
             'refresh_url' => ['required', 'url', 'max:255'],
             'return_url' => ['required', 'url', 'max:255'],
+            'idempotency_key' => ['sometimes', 'nullable', 'string', 'max:80'],
         ]);
-
-        $existing = StripeAccount::query()->where('tenant_id', $tenant->id)->first();
+        $key = $this->connectKey($request, $validated['idempotency_key'] ?? null);
+        $displayName = $validated['display_name'];
+        $email = $validated['email'];
+        $refreshUrl = $validated['refresh_url'];
+        $returnUrl = $validated['return_url'];
 
         try {
-            if (! $existing instanceof StripeAccount) {
-                $created = $this->stripe->createMerchantAccount(ConnectAccountSpec::merchant(
-                    $tenant->id,
-                    $validated['display_name'],
-                    $validated['email'],
-                ));
-                $existing = StripeAccount::query()->create([
-                    'tenant_id' => $tenant->id,
-                    'stripe_account_id' => $created['id'],
-                    'card_payments_status' => $created['card_payments_status'],
-                    'livemode' => $created['livemode'],
-                ]);
-            }
-
-            $link = $this->stripe->createOnboardingLink(ConnectAccountSpec::onboardingLink(
-                $existing->stripe_account_id,
-                $validated['refresh_url'],
-                $validated['return_url'],
-            ));
-        } catch (StripeNotConfiguredException $exception) {
+            $opened = $this->connectRequests->open($tenant, [
+                'display_name' => is_string($displayName) ? $displayName : '',
+                'email' => is_string($email) ? $email : '',
+                'refresh_url' => is_string($refreshUrl) ? $refreshUrl : '',
+                'return_url' => is_string($returnUrl) ? $returnUrl : '',
+            ], $key);
+        } catch (StripeNotConfiguredException|IdempotencyConflictException $exception) {
             return response()->json(['message' => $exception->getMessage()], 409);
         }
 
-        $this->audit->log('stripe.account_linked', $existing, [], request: $request);
+        if (! $opened['replayed']) {
+            $this->audit->log('stripe.account_linked', $opened['account'], [], request: $request);
+        }
 
         return response()->json(['data' => [
-            'stripe_account_id' => $existing->stripe_account_id,
-            'card_payments_status' => $existing->card_payments_status,
-            'onboarding_url' => $link['url'],
+            'stripe_account_id' => $opened['account']->stripe_account_id,
+            'card_payments_status' => $opened['account']->card_payments_status,
+            'onboarding_url' => $opened['onboarding_url'],
         ]]);
     }
 
@@ -269,5 +261,23 @@ class PaymentController extends Controller
         $key = is_string($header) && $header !== '' ? $header : $body;
 
         return is_string($key) && $key !== '' ? $key : null;
+    }
+
+    private function connectKey(Request $request, mixed $body): ?string
+    {
+        $header = $request->headers->get('Idempotency-Key');
+        $key = is_string($header) && $header !== '' ? $header : (is_string($body) && $body !== '' ? $body : null);
+
+        if ($key === null) {
+            return null;
+        }
+
+        if (strlen($key) > 80) {
+            throw ValidationException::withMessages([
+                'idempotency_key' => 'An idempotency key must be 80 characters or fewer.',
+            ]);
+        }
+
+        return $key;
     }
 }

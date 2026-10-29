@@ -69,6 +69,7 @@ use App\Models\ServiceVariant;
 use App\Models\ServiceVariantResource;
 use App\Models\SignupAcceptance;
 use App\Models\StripeAccount;
+use App\Models\StripeConnectRequest;
 use App\Models\Tenant;
 use App\Models\TenantBranding;
 use App\Models\TenantDataExport;
@@ -343,6 +344,7 @@ class TenantExporter
             PlatformFeeRefund::class,
             Refund::class,
             StripeAccount::class,
+            StripeConnectRequest::class,
             DisclosureVersion::class,
             WaiverVersion::class,
             WaiverSignature::class,
