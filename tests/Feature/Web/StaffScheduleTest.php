@@ -9,10 +9,14 @@ use App\Models\AuditLog;
 use App\Models\Booking;
 use App\Models\Hold;
 use App\Models\Location;
+use App\Models\LocationTaxRule;
 use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\Permission;
+use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
 use App\Models\Pool;
+use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\ResourceCategory;
@@ -437,6 +441,132 @@ class StaffScheduleTest extends TestCase
         $this->assertSame($skiff->id, Allocation::withoutGlobalScope(TenantScope::class)->where('booking_id', $booking->id)->value('asset_id'));
         app(TenantManager::class)->set($beta['tenant']);
         $this->assertSame('2026-07-20 15:00:00', $betaBooking->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+    }
+
+    public function test_a_schedule_move_keeps_both_fall_back_hours_and_refuses_a_missing_hour(): void
+    {
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-03-07 12:00:00', 'UTC'));
+        $alpha = $this->workspace('alpha.test');
+        $dock = $this->location($alpha['tenant'], 'Hudson dock', 'America/New_York');
+        $boats = $this->category($alpha['tenant'], 'Boats');
+        $skiff = $this->asset($dock, $boats, 'Hudson skiff');
+        $service = $this->service($alpha['tenant'], $dock, $skiff, 'Hudson rental');
+        $spring = $this->hold($alpha, $service, '2026-03-08 06:30:00', 'Spring Guest');
+        $this->confirm($alpha, $spring);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-07-20 12:00:00', 'UTC'));
+        $utcDock = $this->location($alpha['tenant'], 'UTC dock', 'UTC');
+        $utcBoat = $this->asset($utcDock, $boats, 'UTC skiff');
+        $utcService = $this->service($alpha['tenant'], $utcDock, $utcBoat, 'UTC rental');
+        $utcBooking = $this->hold($alpha, $utcService, '2026-07-20 15:00:00', 'UTC Guest');
+        $this->confirm($alpha, $utcBooking);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-10-31 12:00:00', 'UTC'));
+        $booking = $this->hold($alpha, $service, '2026-11-01 05:30:00', 'Fall Guest');
+        $taken = $this->hold($alpha, $service, '2026-11-01 04:30:00', 'Earlier Guest');
+        $this->confirm($alpha, $booking);
+        $this->confirm($alpha, $taken);
+        $payments = Payment::query()->count();
+        $refunds = Refund::query()->count();
+        $fees = PlatformFee::query()->count();
+        $feeRefunds = PlatformFeeRefund::query()->count();
+        $snapshots = PricingSnapshot::query()->count();
+        $rules = PriceRule::query()->count();
+        $taxes = LocationTaxRule::query()->count();
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->actingAs($alpha['user']);
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->assertSee('1:30 AM EDT')
+            ->assertSee('data-repeated-start="2026-11-01T01:30-04:00"', false)
+            ->assertSee('This start happens twice. The offset keeps this hour.')
+            ->assertDontSee('data-repeated-start="2026-11-01T01:30-05:00"', false);
+
+        $dock->timezone = 'Not/AZone';
+        $dock->save();
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->assertSee('data-repeated-start="2026-11-01T01:30-04:00"', false)
+            ->assertDontSee('Not/AZone');
+
+        $dock->timezone = 'America/New_York';
+        $dock->save();
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-11-01T01:30-05:00')
+            ->call('moveBooking')
+            ->assertSee('Moved.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $later = $booking->fresh();
+        $this->assertSame('2026-11-01 06:30:00', $later->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-01 07:30:00', $later->ends_at->utc()->format('Y-m-d H:i:s'));
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-11-01T01:30')
+            ->call('moveBooking')
+            ->assertSee('Moved.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $earlier = $booking->fresh();
+        $this->assertSame('2026-11-01 05:30:00', $earlier->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-01 06:30:00', $earlier->ends_at->utc()->format('Y-m-d H:i:s'));
+
+        $conflict = Livewire::test(Schedule::class)
+            ->call('openMove', $booking->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-11-01T00:30-04:00')
+            ->call('moveBooking')
+            ->assertSee('That time is no longer available.')
+            ->assertDontSee('Sun, 1:30 AM');
+
+        $html = $conflict->html();
+        $this->assertMatchesRegularExpression(
+            '/data-start="2026-11-01T06:30:00Z"[^>]*>Sun, Nov 1, 1:30 AM EST/',
+            $html,
+        );
+
+        $conflict->call('useTime', '2026-11-01T06:30:00Z')
+            ->assertSet('moveStart', '2026-11-01T01:30-05:00')
+            ->call('moveBooking')
+            ->assertSee('Moved.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $chosen = $booking->fresh();
+        $this->assertSame('2026-11-01 06:30:00', $chosen->starts_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-01 07:30:00', $chosen->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-01 04:30:00', $taken->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $spring->id, 'asset:'.$skiff->id)
+            ->set('moveStart', '2026-03-08T02:30')
+            ->call('moveBooking')
+            ->assertSee('Choose a valid start.');
+
+        app(TenantManager::class)->set($alpha['tenant']);
+        $this->assertSame('2026-03-08 06:30:00', $spring->fresh()->starts_at->utc()->format('Y-m-d H:i:s'));
+
+        Livewire::test(Schedule::class)
+            ->call('openMove', $utcBooking->id, 'asset:'.$utcBoat->id)
+            ->assertSet('moveStart', '2026-07-20T15:00')
+            ->assertDontSee('data-repeated-start', false);
+
+        $this->assertSame($payments, Payment::query()->count());
+        $this->assertSame($refunds, Refund::query()->count());
+        $this->assertSame($fees, PlatformFee::query()->count());
+        $this->assertSame($feeRefunds, PlatformFeeRefund::query()->count());
+        $this->assertSame($snapshots, PricingSnapshot::query()->count());
+        $this->assertSame($rules, PriceRule::query()->count());
+        $this->assertSame($taxes, LocationTaxRule::query()->count());
+
+        $css = (string) file_get_contents(resource_path('ui/app.css'));
+        $this->assertMatchesRegularExpression('/\.move-panel \.field \{ min-width: 0; \}/', $css);
+        $this->assertMatchesRegularExpression('/\.move-panel \.field input \{ max-width: 100%; min-width: 0; \}/', $css);
+        $this->assertMatchesRegularExpression('/\.move-suggestions \.button \{ width: 100%; justify-self: stretch; white-space: normal;/', $css);
     }
 
     private function schedule(string $host, array $query = []): TestResponse
