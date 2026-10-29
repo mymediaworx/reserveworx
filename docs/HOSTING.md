@@ -24,8 +24,8 @@ The product owner created `app.reserveworx.com` and stored GitHub Actions secret
 | InnoDB, transactions, and `SELECT … FOR UPDATE` | 57 application tables, all `engine=InnoDB`. `for_update=ok`. `transaction_rollback=ok`. Measured October 24, 2026 by `reserveworx:hosting-check` |
 | Minimum cron interval | `reserveworx:hosting-check` reads the user crontab. `host_crontab` is `read`, `empty`, or `unavailable`. Each `schedule:run` line prints its five-field expression, or a known `@` alias, and the shortest gap in minutes. A line that is not that kind of schedule is `unparsed`, and then the interval is `unparsed`. The command text, a path, and an assignment are not printed. The October 24, 2026 run printed `host_crontab=not read` and has not been repeated on this account |
 | SSH | Opened October 23, 2026. Host key fingerprint `SHA256:yhkspJG+x6V3zEByUKDI5GH/e4+imCN9T46wst5892A`. See the install section below |
-| Git on the server | git 2.56.0. Deploys do not use it |
-| Composer on the server | Composer 2.4.3. Deploys still build `vendor` on the runner |
+| Git on the server | `reserveworx:hosting-check` prints `git=available` and `git_version` as the first `x.y.z` from `git --version`, or `unread`, when `/usr/bin/git`, `/usr/local/bin/git`, or `/bin/git` exists and that command exits 0. Otherwise `git=unavailable`. The command text and the path are not printed. A missing binary does not fail the check. The October 23 session reported git 2.56.0. Deploys do not use git. The October 24, 2026 log did not print `git`. This read has not been run on the SiteGround account |
+| Composer on the server | `reserveworx:hosting-check` prints `composer=available` and `composer_version` as the first `x.y.z` from `composer --version --no-ansi --no-interaction --no-plugins`, or `unread`, when `/usr/local/bin/composer`, `/usr/bin/composer`, or the matching `.phar` exists and that command exits 0. Network use is turned off for that probe. Otherwise `composer=unavailable`. The command text and the path are not printed. A missing binary does not fail the check. The October 23 session reported Composer 2.4.3. Deploys still build `vendor` on the runner. The October 24, 2026 log did not print `composer`. This read has not been run on the SiteGround account |
 | Process limits | This session's `ulimit`: 80 processes, 5060 open files, about 2 GB max memory size. The GoGeek inode, CPU-second, and execution caps remain a report, not a measurement |
 | Long-running processes | Assumed **not** allowed. No workers and no WebSockets. Queue work is a short cron process |
 | Custom domains and SSL for `app.reserveworx.com` | Installed October 23, 2026. `public_html` is a real directory whose `index.php` boots `../laravel/current`. HTTPS enforcement in Site Tools was not changed |
@@ -144,7 +144,7 @@ Hold expiry, when the booking engine exists, must ignore expired holds at read t
 
 ## Application target
 
-Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` is still unread. The hosting check can read the user crontab. The October 24, 2026 log printed `host_crontab=not read` and has not been repeated on this account.
+Laravel 12. The deploy PHP binary is 8.2.35, with `memory_limit=768M` and `max_execution_time=0`. The application database reports `8.4.11-11`, and all 57 application tables are InnoDB. The web `max_execution_time` is still unread. The hosting check can read the user crontab. The October 24, 2026 log printed `host_crontab=not read` and has not been repeated on this account. The hosting check prints whether an allowlisted git and composer can run. The October 24, 2026 log did not include `git` or `composer`, and this read has not been run on the SiteGround account.
 
 ## First install, October 23, 2026
 
