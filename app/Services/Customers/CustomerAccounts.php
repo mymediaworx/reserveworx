@@ -7,12 +7,17 @@ use App\Models\CustomerSignInToken;
 use App\Models\Tenant;
 use App\Notifications\CustomerSignInLink;
 use App\Services\AuditLogger;
+use App\Tenancy\TenantScope;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 use Throwable;
 
 final class CustomerAccounts
@@ -171,7 +176,13 @@ final class CustomerAccounts
 
     public function setPassword(CustomerAccount $account, string $password, Request $request): void
     {
-        $account->forceFill(['password' => $password])->save();
+        DB::transaction(function () use ($account, $password, $request): void {
+            $account->forceFill([
+                'password' => $password,
+                'remember_token' => Str::random(60),
+            ])->save();
+            $this->endOtherSignIns($account, $request);
+        });
 
         $this->audit->log(
             action: 'customer_auth.password_set',
@@ -179,6 +190,142 @@ final class CustomerAccounts
             properties: ['email' => $account->email],
             request: $request,
         );
+    }
+
+    /**
+     * A new password ends other browsers and API tokens. The session or token
+     * that submitted this request stays. Unused emailed sign-in links for this
+     * account are removed. `sessions.user_id` references staff users, so a
+     * customer browser is recognized from the session payload.
+     */
+    private function endOtherSignIns(CustomerAccount $account, Request $request): void
+    {
+        $tokens = $account->tokens();
+        $currentId = $this->currentTokenId($account, $request);
+
+        if ($currentId !== null) {
+            $tokens->whereKeyNot($currentId);
+        }
+
+        $tokens->delete();
+
+        CustomerSignInToken::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $account->tenant_id)
+            ->where('customer_account_id', $account->id)
+            ->whereNull('consumed_at')
+            ->delete();
+
+        $this->deleteOtherSessions($account->id, $this->currentSessionId($request));
+    }
+
+    private function currentTokenId(CustomerAccount $account, Request $request): int|string|null
+    {
+        $plain = $request->bearerToken();
+
+        if (! is_string($plain) || $plain === '') {
+            return null;
+        }
+
+        $token = PersonalAccessToken::findToken($plain);
+        $ownerId = $token instanceof PersonalAccessToken ? $token->getAttribute('tokenable_id') : null;
+
+        if (! $token instanceof PersonalAccessToken || ! is_string($ownerId) || $ownerId !== $account->id) {
+            return null;
+        }
+
+        $id = $token->getKey();
+
+        if (is_int($id) || (is_string($id) && $id !== '')) {
+            return $id;
+        }
+
+        return null;
+    }
+
+    private function currentSessionId(Request $request): string
+    {
+        if (! $request->hasSession()) {
+            return '';
+        }
+
+        $session = $request->session();
+
+        if (! $session->isStarted()) {
+            return '';
+        }
+
+        return $session->getId();
+    }
+
+    /**
+     * Customer sessions leave `user_id` empty. The payload is JSON, or an
+     * encrypted JSON string, then base64. Each row is decoded and kept unless
+     * it is this account's customer_web login.
+     */
+    private function deleteOtherSessions(string $accountId, string $currentSessionId): void
+    {
+        if ($accountId === '') {
+            return;
+        }
+
+        $ids = [];
+        $query = DB::table('sessions')->select(['id', 'payload'])->orderBy('id');
+
+        if ($currentSessionId !== '') {
+            $query->where('id', '!=', $currentSessionId);
+        }
+
+        $query->chunk(100, function ($rows) use ($accountId, &$ids): void {
+            foreach ($rows as $row) {
+                $id = $row->id ?? null;
+                $payload = $row->payload ?? null;
+
+                if (! is_string($id) || ! is_string($payload)) {
+                    continue;
+                }
+
+                if ($this->sessionBelongsToAccount($payload, $accountId)) {
+                    $ids[] = $id;
+                }
+            }
+        });
+
+        foreach (array_chunk($ids, 100) as $chunk) {
+            DB::table('sessions')->whereIn('id', $chunk)->delete();
+        }
+    }
+
+    private function sessionBelongsToAccount(string $stored, string $accountId): bool
+    {
+        $plain = $this->sessionPlaintext($stored);
+        $key = Auth::guard('customer_web')->getName();
+
+        if ($plain === null || $plain === '' || $key === '') {
+            return false;
+        }
+
+        return str_contains($plain, $key) && str_contains($plain, '"'.$accountId.'"');
+    }
+
+    private function sessionPlaintext(string $stored): ?string
+    {
+        $decoded = base64_decode($stored, true);
+
+        if (! is_string($decoded) || $decoded === '') {
+            return null;
+        }
+
+        if (! filter_var(config('session.encrypt'), FILTER_VALIDATE_BOOL)) {
+            return $decoded;
+        }
+
+        try {
+            $plain = Crypt::decrypt($decoded);
+        } catch (DecryptException) {
+            return null;
+        }
+
+        return is_string($plain) ? $plain : null;
     }
 
     public function issueToken(CustomerAccount $account): string
