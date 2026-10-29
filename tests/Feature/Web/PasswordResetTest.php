@@ -2,15 +2,22 @@
 
 namespace Tests\Feature\Web;
 
+use App\Models\Payment;
 use App\Models\PlatformAdministrator;
+use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\User;
 use App\Notifications\ResetPasswordLink;
 use App\Services\Auth\PasswordResets;
+use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\RateLimiter;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
@@ -175,6 +182,7 @@ class PasswordResetTest extends TestCase
     {
         $alpha = $this->workspace('alpha.test');
         $this->password($alpha['user']);
+        $this->signInElsewhere($alpha['user'], 'expired-reset-session');
         $url = $this->captureResetUrl(
             $alpha['user'],
             $this->tenantUrl('alpha.test', '/staff/forgot-password'),
@@ -191,6 +199,57 @@ class PasswordResetTest extends TestCase
         ])->assertSessionHasErrors(['email' => PasswordResets::INVALID_STATUS]);
 
         $this->assertTrue(Hash::check(self::OLD_PASSWORD, (string) $alpha['user']->fresh()->password));
+        $this->assertSame(1, PersonalAccessToken::query()->where('tokenable_id', $alpha['user']->id)->count());
+        $this->assertDatabaseHas('sessions', ['id' => 'expired-reset-session', 'user_id' => $alpha['user']->id]);
+    }
+
+    public function test_a_password_reset_ends_api_tokens_and_other_sessions(): void
+    {
+        $alpha = $this->workspace('alpha.test', 'owner', ['name' => 'Alpha Kayaks']);
+        $other = User::factory()->create();
+        $this->password($alpha['user']);
+        $token = $this->signInElsewhere($alpha['user'], 'reset-other-device');
+        $otherToken = $this->signInElsewhere($other, 'someone-else-session');
+        $money = $this->moneyCounts();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)
+            ->getJson($this->tenantUrl('alpha.test', '/api/v1/me'))
+            ->assertOk()
+            ->assertJsonPath('data.email', $alpha['user']->email);
+
+        $url = $this->captureResetUrl(
+            $alpha['user'],
+            $this->tenantUrl('alpha.test', '/staff/forgot-password'),
+            'http://alpha.test/staff/reset-password/',
+        );
+
+        $this->app['auth']->forgetGuards();
+        $this->post($this->tenantUrl('alpha.test', '/staff/reset-password'), [
+            'token' => $this->tokenFrom($url),
+            'email' => $alpha['user']->email,
+            'password' => self::NEW_PASSWORD,
+            'password_confirmation' => self::NEW_PASSWORD,
+        ])->assertRedirect('/staff/login')
+            ->assertSessionHas('status', 'Your password has been reset. Sign in with the new one.');
+
+        $this->assertSame(0, PersonalAccessToken::query()->where('tokenable_id', $alpha['user']->id)->count());
+        $this->assertDatabaseMissing('sessions', ['id' => 'reset-other-device']);
+        $this->assertSame(1, PersonalAccessToken::query()->where('tokenable_id', $other->id)->count());
+        $this->assertDatabaseHas('sessions', ['id' => 'someone-else-session', 'user_id' => $other->id]);
+        $this->assertSame($money, $this->moneyCounts());
+        $this->assertTrue(Hash::check(self::NEW_PASSWORD, (string) $alpha['user']->fresh()->password));
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($token)
+            ->getJson($this->tenantUrl('alpha.test', '/api/v1/me'))
+            ->assertUnauthorized();
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($otherToken)
+            ->getJson('http://localhost/api/v1/me')
+            ->assertOk()
+            ->assertJsonPath('data.email', $other->email);
     }
 
     public function test_a_link_from_one_workspace_does_not_reset_a_password_on_another(): void
@@ -198,6 +257,7 @@ class PasswordResetTest extends TestCase
         $alpha = $this->workspace('alpha.test');
         $this->workspace('beta.test');
         $this->password($alpha['user']);
+        $this->signInElsewhere($alpha['user'], 'wrong-host-session');
         $url = $this->captureResetUrl(
             $alpha['user'],
             $this->tenantUrl('alpha.test', '/staff/forgot-password'),
@@ -213,6 +273,8 @@ class PasswordResetTest extends TestCase
 
         $this->assertTrue(Hash::check(self::OLD_PASSWORD, (string) $alpha['user']->fresh()->password));
         $this->assertDatabaseHas('password_reset_tokens', ['email' => $alpha['user']->email]);
+        $this->assertSame(1, PersonalAccessToken::query()->where('tokenable_id', $alpha['user']->id)->count());
+        $this->assertDatabaseHas('sessions', ['id' => 'wrong-host-session', 'user_id' => $alpha['user']->id]);
     }
 
     public function test_a_platform_administrator_can_reset_from_the_platform_host(): void
@@ -313,6 +375,34 @@ class PasswordResetTest extends TestCase
     private function password(User $user): void
     {
         $user->forceFill(['password' => self::OLD_PASSWORD])->save();
+    }
+
+    private function signInElsewhere(User $user, string $sessionId): string
+    {
+        DB::table('sessions')->insert([
+            'id' => $sessionId,
+            'user_id' => $user->id,
+            'ip_address' => '203.0.113.8',
+            'user_agent' => 'other-device',
+            'payload' => 'other-device',
+            'last_activity' => time(),
+        ]);
+
+        return $user->createToken('api')->plainTextToken;
+    }
+
+    /**
+     * @return array{payments: int, refunds: int, fees: int, fee_refunds: int, snapshots: int}
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            'payments' => Payment::withoutGlobalScope(TenantScope::class)->count(),
+            'refunds' => Refund::withoutGlobalScope(TenantScope::class)->count(),
+            'fees' => PlatformFee::withoutGlobalScope(TenantScope::class)->count(),
+            'fee_refunds' => PlatformFeeRefund::withoutGlobalScope(TenantScope::class)->count(),
+            'snapshots' => PricingSnapshot::withoutGlobalScope(TenantScope::class)->count(),
+        ];
     }
 
     private function platformAdmin(): User
