@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
 use App\Support\HostOutboundHttps;
+use App\Support\PhpHostFacts;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
@@ -111,6 +112,67 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
         $this->assertOutboundLines($output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_prints_php_binaries_and_extensions_without_failing_when_one_is_missing(): void
+    {
+        $this->app->instance(PhpHostFacts::class, new PhpHostFacts(
+            probes: fn (): array => [
+                ['path' => '/usr/bin/php', 'output' => 'PHP 8.2.35 (cli) (built: Jan 1 2026) Zend Engine v4.2.35'],
+                ['path' => '/usr/local/php82', 'output' => 'password=rw-hosting-secret-canary'],
+                ['path' => '/tmp/rw-hosting-secret-canary', 'output' => 'PHP 8.2.35'],
+                ['path' => "/usr/bin/php\nrw-hosting-secret-canary", 'output' => 'PHP 8.2.35'],
+                ['path' => '/usr/bin/php', 'output' => 'PHP 9.9.9'],
+            ],
+            extensions: fn (): array => ['bcmath', 'Ctype'],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $running = strpos($output, 'php_binary=/usr/bin/php version=8.2.35');
+        $unread = strpos($output, 'php_binary=/usr/local/php82 version=unread');
+        $this->assertNotFalse($running);
+        $this->assertNotFalse($unread);
+        $this->assertLessThan($unread, $running);
+        $this->assertSame(1, substr_count($output, 'php_binary=/usr/bin/php '));
+        $this->assertStringNotContainsString('PHP 9.9.9', $output);
+        $this->assertStringNotContainsString('Zend', $output);
+        $this->assertStringNotContainsString('/tmp/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringContainsString('php_extension=ctype=yes', $output);
+        $this->assertStringContainsString('php_extension=bcmath=yes', $output);
+        $this->assertStringContainsString('php_extension=gd=no', $output);
+        $this->assertStringContainsString('php_extension=pdo_mysql=no', $output);
+        $this->assertStringContainsString('php_extensions=missing', $output);
+        $this->assertStringContainsString('php_version='.PHP_VERSION, $output);
+        $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
+        $this->assertStringNotContainsString('host_crontab=not read', $output);
+    }
+
+    public function test_the_running_process_names_its_php_binary_and_loaded_extensions(): void
+    {
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('php_binary='.$this->runningBinary().' version='.PHP_VERSION, $output);
+        $missing = false;
+
+        foreach (PhpHostFacts::EXTENSIONS as $extension) {
+            $present = extension_loaded($extension);
+            $missing = $missing || ! $present;
+            $this->assertStringContainsString(
+                'php_extension='.$extension.'='.($present ? 'yes' : 'no'),
+                $output,
+            );
+        }
+
+        $this->assertStringContainsString('php_extensions='.($missing ? 'missing' : 'ok'), $output);
+        $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
+        $this->assertStringNotContainsString('Zend', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
     }
 
@@ -234,6 +296,9 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('host_crontab_expression=*/30 * * * *', $output);
         $this->assertStringContainsString('host_crontab_expression=15 4 * * *', $output);
         $this->assertStringContainsString('host_crontab_interval_minutes=1', $output);
+        $this->assertMatchesRegularExpression('/^php_binary=.+ version=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extension=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extensions=(ok|missing)$/m', $output);
         $this->assertStringNotContainsString('super-secret-token', $output);
         $this->assertStringNotContainsString('reserveworx', $output);
         $this->assertStringNotContainsString('MAIL_PASSWORD', $output);
@@ -332,5 +397,14 @@ class HostingCheckTest extends TestCase
             'location_tax_rules' => DB::table('location_tax_rules')->count(),
             'audit_logs' => DB::table('audit_logs')->count(),
         ];
+    }
+
+    private function runningBinary(): string
+    {
+        if (preg_match('#^/[A-Za-z0-9_./+-]+$#', PHP_BINARY) === 1 && ! str_contains(PHP_BINARY, '..')) {
+            return PHP_BINARY;
+        }
+
+        return 'current';
     }
 }
