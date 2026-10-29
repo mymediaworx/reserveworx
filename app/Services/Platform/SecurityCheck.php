@@ -15,12 +15,14 @@ use Throwable;
 
 /**
  * Local answers for Spec Section 12 credential storage, card data, CSRF,
- * and the session cookie. A sample token is written and rolled back.
+ * the session cookie, and role-based access. A sample token is written and rolled back.
  * Nothing here calls Stripe or keeps a row.
  */
 final class SecurityCheck
 {
     public const PROBE_MARK = 'rw-secret-probe-';
+
+    public function __construct(private readonly RoleCatalogCheck $roleCatalog) {}
 
     /**
      * @return array{secure: bool, checks: list<array{key: string, label: string, state: string, detail: string, line: string}>}
@@ -35,6 +37,7 @@ final class SecurityCheck
             $this->csrf(),
             $this->httpOnly(),
             $this->auditLog(),
+            $this->roles(),
         ];
 
         $secure = collect($checks)->every(fn (array $check): bool => $check['state'] !== 'fail');
@@ -207,6 +210,24 @@ final class SecurityCheck
             $present ? 'pass' : 'fail',
             $present ? 'The audit log table is present.' : 'The audit log table is missing.',
         );
+    }
+
+    /**
+     * @return array{key: string, label: string, state: string, detail: string, line: string}
+     */
+    private function roles(): array
+    {
+        $status = $this->roleCatalog->status();
+
+        if ($status === 'synced') {
+            return $this->check('roles', 'Roles', 'pass', 'Owner, manager, and staff match the role catalog.');
+        }
+
+        if ($status === 'out_of_sync') {
+            return $this->check('roles', 'Roles', 'fail', 'The stored roles do not match the role catalog.');
+        }
+
+        return $this->check('roles', 'Roles', 'fail', 'The role catalog could not be checked.');
     }
 
     private function enabled(mixed $value): bool
