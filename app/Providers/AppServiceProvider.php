@@ -29,6 +29,7 @@ use App\Services\Payments\UnconfiguredStripeGateway;
 use App\Services\Webhooks\HostAddressLookup;
 use App\Services\Webhooks\SystemHostAddressLookup;
 use App\Services\Webhooks\WebhookPublisher;
+use App\Support\EncryptedSessionManager;
 use App\Support\SharedHostBudget;
 use App\Tenancy\StaffLocationAccess;
 use App\Tenancy\TenantManager;
@@ -37,6 +38,7 @@ use App\View\Composers\WorkspaceBrandingComposer;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Application;
 use Illuminate\Http\Request;
+use Illuminate\Session\SessionManager;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\View;
@@ -46,6 +48,13 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->app->singleton('session', function (): EncryptedSessionManager {
+            return new EncryptedSessionManager($this->app);
+        });
+        $this->app->forgetInstance('session');
+        $this->app->forgetInstance(SessionManager::class);
+        $this->app->forgetInstance('session.store');
+
         $this->app->singleton(TenantManager::class);
         $this->app->bind(SharedHostBudget::class, fn (): SharedHostBudget => SharedHostBudget::start());
         $this->app->singleton(StaffLocationAccess::class);
