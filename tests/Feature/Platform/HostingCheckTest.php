@@ -4,6 +4,7 @@ namespace Tests\Feature\Platform;
 
 use App\Support\HostCrontab;
 use App\Support\HostProcessLimits;
+use App\Support\PhpHostFacts;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Artisan;
@@ -61,6 +62,7 @@ class HostingCheckTest extends TestCase
         $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
         $this->assertStringNotContainsString('host_crontab=not read', $output);
         $this->assertProcessLimitLines($output);
+        $this->assertPhpHostFactLines($output);
         $this->assertMatchesRegularExpression('/app_tables=(\d+)/', $output, $output);
         preg_match('/app_tables=(\d+)/', $output, $tables);
         preg_match('/app_tables_innodb=(\d+)/', $output, $innodbTables);
@@ -108,7 +110,71 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('innodb=no', $output);
         $this->assertStringContainsString('non_innodb=hosting_myisam_probe=MyISAM', $output);
         $this->assertStringContainsString('long_running_processes=not_measured', $output);
+        $this->assertPhpHostFactLines($output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+    }
+
+    public function test_prints_php_binaries_and_extensions_without_failing_when_one_is_missing(): void
+    {
+        $this->app->instance(PhpHostFacts::class, new PhpHostFacts(
+            probes: fn (): array => [
+                ['path' => '/usr/bin/php', 'output' => 'PHP 8.2.35 (cli) (built: Jan 1 2026) Zend Engine v4.2.35'],
+                ['path' => '/usr/local/php82', 'output' => 'password=rw-hosting-secret-canary'],
+                ['path' => '/tmp/rw-hosting-secret-canary', 'output' => 'PHP 8.2.35'],
+                ['path' => "/usr/bin/php\nrw-hosting-secret-canary", 'output' => 'PHP 8.2.35'],
+                ['path' => '/usr/bin/php', 'output' => 'PHP 9.9.9'],
+            ],
+            extensions: fn (): array => ['bcmath', 'Ctype'],
+        ));
+
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $running = strpos($output, 'php_binary=/usr/bin/php version=8.2.35');
+        $unread = strpos($output, 'php_binary=/usr/local/php82 version=unread');
+        $this->assertNotFalse($running);
+        $this->assertNotFalse($unread);
+        $this->assertLessThan($unread, $running);
+        $this->assertSame(1, substr_count($output, 'php_binary=/usr/bin/php '));
+        $this->assertStringNotContainsString('PHP 9.9.9', $output);
+        $this->assertStringNotContainsString('Zend', $output);
+        $this->assertStringNotContainsString('/tmp/', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertStringContainsString('php_extension=ctype=yes', $output);
+        $this->assertStringContainsString('php_extension=bcmath=yes', $output);
+        $this->assertStringContainsString('php_extension=gd=no', $output);
+        $this->assertStringContainsString('php_extension=pdo_mysql=no', $output);
+        $this->assertStringContainsString('php_extensions=missing', $output);
+        $this->assertStringContainsString('php_version='.PHP_VERSION, $output);
+        $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
+        $this->assertStringNotContainsString('host_crontab=not read', $output);
+        $this->assertProcessLimitLines($output);
+    }
+
+    public function test_the_running_process_names_its_php_binary_and_loaded_extensions(): void
+    {
+        $exitCode = Artisan::call('reserveworx:hosting-check');
+        $output = Artisan::output();
+
+        $this->assertSame(0, $exitCode, $output);
+        $this->assertStringContainsString('php_binary='.$this->runningBinary().' version='.PHP_VERSION, $output);
+        $missing = false;
+
+        foreach (PhpHostFacts::EXTENSIONS as $extension) {
+            $present = extension_loaded($extension);
+            $missing = $missing || ! $present;
+            $this->assertStringContainsString(
+                'php_extension='.$extension.'='.($present ? 'yes' : 'no'),
+                $output,
+            );
+        }
+
+        $this->assertStringContainsString('php_extensions='.($missing ? 'missing' : 'ok'), $output);
+        $this->assertMatchesRegularExpression('/^host_crontab=(read|empty|unavailable)$/m', $output);
+        $this->assertStringNotContainsString('Zend', $output);
+        $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertProcessLimitLines($output);
     }
 
     public function test_process_soft_limits_are_reported_without_the_file_text(): void
@@ -152,6 +218,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('/home/', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
         $this->assertStringNotContainsString('reserveworx', $output);
+        $this->assertPhpHostFactLines($output);
         $this->assertSame($before, $this->moneyCounts());
         $this->assertDatabaseMissing('cache', ['key' => 'reserveworx:hosting-check:probe']);
     }
@@ -180,6 +247,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('5060secret', $output);
         $this->assertStringNotContainsString('unlimited-secret', $output);
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
+        $this->assertPhpHostFactLines($output);
 
         $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
             reader: function (): string {
@@ -199,6 +267,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('rw-hosting-secret-canary', $output);
         $this->assertStringNotContainsString('/proc/', $output);
         $this->assertStringNotContainsString('RuntimeException', $output);
+        $this->assertPhpHostFactLines($output);
 
         $this->app->instance(HostProcessLimits::class, new HostProcessLimits(
             reader: fn (): false => false,
@@ -213,57 +282,7 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('max_memory_bytes=unread', $output);
         $this->assertStringContainsString('address_space_bytes=unread', $output);
         $this->assertStringContainsString('long_running_processes=not_measured', $output);
-    }
-
-    private function assertProcessLimitLines(string $output): void
-    {
-        $processes = strpos($output, 'max_user_processes=');
-        $files = strpos($output, 'open_files=');
-        $memory = strpos($output, 'max_memory_bytes=');
-        $space = strpos($output, 'address_space_bytes=');
-        $running = strpos($output, 'long_running_processes=not_measured');
-        $this->assertNotFalse($processes);
-        $this->assertNotFalse($files);
-        $this->assertNotFalse($memory);
-        $this->assertNotFalse($space);
-        $this->assertNotFalse($running);
-        $this->assertLessThan($files, $processes);
-        $this->assertLessThan($memory, $files);
-        $this->assertLessThan($space, $memory);
-        $this->assertLessThan($running, $space);
-        $this->assertSame(1, substr_count($output, 'max_user_processes='));
-        $this->assertSame(1, substr_count($output, 'open_files='));
-        $this->assertSame(1, substr_count($output, 'max_memory_bytes='));
-        $this->assertSame(1, substr_count($output, 'address_space_bytes='));
-        $this->assertSame(1, substr_count($output, 'long_running_processes='));
-        $this->assertMatchesRegularExpression('/^max_user_processes=(unlimited|\d+|unread)$/m', $output);
-        $this->assertMatchesRegularExpression('/^open_files=(unlimited|\d+|unread)$/m', $output);
-        $this->assertMatchesRegularExpression('/^max_memory_bytes=(unlimited|\d+|unread)$/m', $output);
-        $this->assertMatchesRegularExpression('/^address_space_bytes=(unlimited|\d+|unread)$/m', $output);
-        $this->assertStringNotContainsString('Max processes', $output);
-        $this->assertStringNotContainsString('/proc/', $output);
-    }
-
-    /**
-     * @return array<string, int>
-     */
-    private function moneyCounts(): array
-    {
-        return [
-            'payments' => DB::table('payments')->count(),
-            'refunds' => DB::table('refunds')->count(),
-            'platform_fees' => DB::table('platform_fees')->count(),
-            'platform_fee_refunds' => DB::table('platform_fee_refunds')->count(),
-            'pricing_snapshots' => DB::table('pricing_snapshots')->count(),
-            'price_rules' => DB::table('price_rules')->count(),
-            'location_tax_rules' => DB::table('location_tax_rules')->count(),
-            'audit_logs' => DB::table('audit_logs')->count(),
-        ];
-    }
-
-    private function padded(string $label, string $soft): string
-    {
-        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
+        $this->assertPhpHostFactLines($output);
     }
 
     public function test_a_schedule_run_crontab_reports_the_shortest_gap_and_hides_the_command(): void
@@ -283,6 +302,9 @@ class HostingCheckTest extends TestCase
         $this->assertStringContainsString('host_crontab_expression=*/30 * * * *', $output);
         $this->assertStringContainsString('host_crontab_expression=15 4 * * *', $output);
         $this->assertStringContainsString('host_crontab_interval_minutes=1', $output);
+        $this->assertMatchesRegularExpression('/^php_binary=.+ version=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extension=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extensions=(ok|missing)$/m', $output);
         $this->assertStringNotContainsString('super-secret-token', $output);
         $this->assertStringNotContainsString('reserveworx', $output);
         $this->assertStringNotContainsString('MAIL_PASSWORD', $output);
@@ -322,6 +344,65 @@ class HostingCheckTest extends TestCase
         $this->assertStringNotContainsString('host_crontab_schedule=', $missing);
     }
 
+    private function assertProcessLimitLines(string $output): void
+    {
+        $processes = strpos($output, 'max_user_processes=');
+        $files = strpos($output, 'open_files=');
+        $memory = strpos($output, 'max_memory_bytes=');
+        $space = strpos($output, 'address_space_bytes=');
+        $running = strpos($output, 'long_running_processes=not_measured');
+        $this->assertNotFalse($processes);
+        $this->assertNotFalse($files);
+        $this->assertNotFalse($memory);
+        $this->assertNotFalse($space);
+        $this->assertNotFalse($running);
+        $this->assertLessThan($files, $processes);
+        $this->assertLessThan($memory, $files);
+        $this->assertLessThan($space, $memory);
+        $this->assertLessThan($running, $space);
+        $this->assertSame(1, substr_count($output, 'max_user_processes='));
+        $this->assertSame(1, substr_count($output, 'open_files='));
+        $this->assertSame(1, substr_count($output, 'max_memory_bytes='));
+        $this->assertSame(1, substr_count($output, 'address_space_bytes='));
+        $this->assertSame(1, substr_count($output, 'long_running_processes='));
+        $this->assertMatchesRegularExpression('/^max_user_processes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^open_files=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^max_memory_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertMatchesRegularExpression('/^address_space_bytes=(unlimited|\d+|unread)$/m', $output);
+        $this->assertStringNotContainsString('Max processes', $output);
+        $this->assertStringNotContainsString('/proc/', $output);
+    }
+
+    private function assertPhpHostFactLines(string $output): void
+    {
+        $this->assertMatchesRegularExpression('/^php_binary=.+ version=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extension=/m', $output);
+        $this->assertMatchesRegularExpression('/^php_extensions=(ok|missing)$/m', $output);
+        $this->assertStringNotContainsString('Zend', $output);
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            'payments' => DB::table('payments')->count(),
+            'refunds' => DB::table('refunds')->count(),
+            'platform_fees' => DB::table('platform_fees')->count(),
+            'platform_fee_refunds' => DB::table('platform_fee_refunds')->count(),
+            'pricing_snapshots' => DB::table('pricing_snapshots')->count(),
+            'price_rules' => DB::table('price_rules')->count(),
+            'location_tax_rules' => DB::table('location_tax_rules')->count(),
+            'audit_logs' => DB::table('audit_logs')->count(),
+        ];
+    }
+
+    private function padded(string $label, string $soft): string
+    {
+        return str_pad($label, 25, ' ', STR_PAD_RIGHT).' '.str_pad($soft, 20, ' ', STR_PAD_RIGHT);
+    }
+
     private function checkWithCrontab(?string $text): string
     {
         $this->app->instance(HostCrontab::class, new HostCrontab(fn (): ?string => $text));
@@ -329,7 +410,17 @@ class HostingCheckTest extends TestCase
         $output = Artisan::output();
         $this->assertSame(0, $exitCode, $output);
         $this->assertProcessLimitLines($output);
+        $this->assertPhpHostFactLines($output);
 
         return $output;
+    }
+
+    private function runningBinary(): string
+    {
+        if (preg_match('#^/[A-Za-z0-9_./+-]+$#', PHP_BINARY) === 1 && ! str_contains(PHP_BINARY, '..')) {
+            return PHP_BINARY;
+        }
+
+        return 'current';
     }
 }
