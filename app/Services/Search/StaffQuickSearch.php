@@ -95,6 +95,8 @@ final class StaffQuickSearch
     }
 
     /**
+     * Each booking names its start in that location's timezone, with the abbreviation.
+     *
      * @param  list<string>  $terms
      * @param  list<string>|null  $locationIds
      */
@@ -122,7 +124,7 @@ final class StaffQuickSearch
                 ? ($customer?->name ?: ($customer?->email ?: 'Walk-in'))
                 : $booking->id;
             $zone = DisplayZone::forLocation($booking->location);
-            $when = Display::dateTime($booking->starts_at, $zone);
+            $when = Display::dateTimeWithZone($booking->starts_at, $zone);
             $place = $booking->location?->name ?: 'Location';
             $service = $booking->service?->name ?: 'Booking';
 

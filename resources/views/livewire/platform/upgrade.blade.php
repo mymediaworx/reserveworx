@@ -27,4 +27,9 @@
             @endforeach
         </ol>
     </section>
+
+    <section class="panel">
+        <div class="panel-head"><h2>{{ $install['title'] }}</h2></div>
+        <p class="upgrade-step">{{ $install['body'] }}</p>
+    </section>
 </div>

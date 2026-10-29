@@ -26,12 +26,13 @@ use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
+use Tests\Support\AssertsZoneAbbreviations;
 use Tests\Support\CreatesWorkspace;
 use Tests\TestCase;
 
 class ServiceDepartureClockTest extends TestCase
 {
-    use CreatesWorkspace, RefreshDatabase;
+    use AssertsZoneAbbreviations, CreatesWorkspace, RefreshDatabase;
 
     protected function tearDown(): void
     {
@@ -68,11 +69,11 @@ class ServiceDepartureClockTest extends TestCase
             ->assertSee('@media (max-width: 390px)', false)
             ->assertSee('overflow-wrap: anywhere', false);
 
-        $this->get($this->tenantUrl('dock.test', '/staff/setup/services/'.$utc->id))
+        $utcPage = $this->get($this->tenantUrl('dock.test', '/staff/setup/services/'.$utc->id))
             ->assertOk()
             ->assertSee('Times are in UTC.')
-            ->assertSee('Mon, Jun 15, 6:00 PM – 8:00 PM UTC', false)
-            ->assertDontSee('EDT');
+            ->assertSee('Mon, Jun 15, 6:00 PM – 8:00 PM UTC', false);
+        $this->assertOmitsZoneAbbreviations($utcPage, 'EDT');
 
         $this->assertSame($money, $this->moneyCounts());
     }
