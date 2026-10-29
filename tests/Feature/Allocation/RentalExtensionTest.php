@@ -10,18 +10,25 @@ use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Domain;
 use App\Models\Location;
+use App\Models\LocationTaxRule;
 use App\Models\Membership;
 use App\Models\NotificationHook;
 use App\Models\Payment;
 use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
+use App\Models\PriceRule;
+use App\Models\PricingSnapshot;
+use App\Models\Refund;
 use App\Models\ResourceCategory;
 use App\Models\ResourceRequirement;
 use App\Models\Service;
 use App\Models\StripeAccount;
 use App\Models\Tenant;
+use App\Models\TenantSetting;
 use App\Models\User;
 use App\Services\Payments\FakeStripeGateway;
 use App\Tenancy\TenantManager;
+use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -120,7 +127,7 @@ class RentalExtensionTest extends TestCase
             ->set('extendEnd', '2026-06-15T17:30')
             ->call('extend')
             ->assertSet('problem', 'That time is no longer available.')
-            ->assertSee('Extend until Jun 15, 5:00 PM')
+            ->assertSee('Extend until Mon, Jun 15, 5:00 PM UTC')
             ->assertSee('Use '.$other->name.' instead')
             ->call('acceptAssetExtension', $other->id)
             ->assertSet('flash', 'Extended.');
@@ -129,6 +136,65 @@ class RentalExtensionTest extends TestCase
         $this->assertSame('2026-06-15 17:30:00', $booking->ends_at->utc()->format('Y-m-d H:i:s'));
         $this->assertSame($other->id, Allocation::query()->where('booking_id', $bookingId)->value('asset_id'));
         app(TenantManager::class)->forget();
+    }
+
+    public function test_staff_keep_the_offered_shorter_return_through_a_daylight_saving_change(): void
+    {
+        [$workspace, $service, $asset] = $this->pair();
+        $this->actingAsWorkspace($workspace);
+        app(TenantManager::class)->set($workspace['tenant']);
+        Location::query()->whereKey($service->location_id)->update(['timezone' => 'America/New_York']);
+        app(TenantManager::class)->forget();
+
+        $this->acceptShorter(
+            $workspace,
+            $service,
+            $asset,
+            '2026-11-01T04:00:00Z',
+            '2026-11-01T05:00:00Z',
+            '2026-11-01T05:45:00Z',
+            '2026-11-01T07:00:00Z',
+            '2026-11-01T03:00',
+            'fallback',
+            'Extend until Sun, Nov 1, 1:45 AM EDT',
+            '1:45 AM EST',
+            '2026-11-01 05:45:00',
+        );
+
+        $this->acceptShorter(
+            $workspace,
+            $service,
+            $asset,
+            '2026-03-08T06:00:00Z',
+            '2026-03-08T06:30:00Z',
+            '2026-03-08T07:45:00Z',
+            '2026-03-08T09:00:00Z',
+            '2026-03-08T04:30',
+            'spring',
+            'Extend until Sun, Mar 8, 3:45 AM EDT',
+            '2:30 AM',
+            '2026-03-08 07:45:00',
+        );
+
+        app(TenantManager::class)->set($workspace['tenant']);
+        TenantSetting::query()->where('tenant_id', $workspace['tenant']->id)->update(['timezone' => 'America/Chicago']);
+        Location::query()->whereKey($service->location_id)->update(['timezone' => 'Not/AZone']);
+        app(TenantManager::class)->forget();
+
+        $this->acceptShorter(
+            $workspace,
+            $service,
+            $asset,
+            '2025-11-02T05:00:00Z',
+            '2025-11-02T06:00:00Z',
+            '2025-11-02T06:45:00Z',
+            '2025-11-02T08:00:00Z',
+            '2025-11-02T03:00',
+            'business-zone',
+            'Extend until Sun, Nov 2, 1:45 AM CDT',
+            'Not/AZone',
+            '2025-11-02 06:45:00',
+        );
     }
 
     public function test_a_customer_can_ask_from_the_booking_page_and_a_conflict_offers_alternatives(): void
@@ -399,6 +465,71 @@ class RentalExtensionTest extends TestCase
         $service = $this->serviceOn($workspace, $asset, 'Later '.$start);
 
         return $this->confirmed($service, $start, $end, 'later-'.$start);
+    }
+
+    /**
+     * @param  array{tenant: Tenant, domain: Domain, user: User, membership: Membership}  $workspace
+     */
+    private function acceptShorter(
+        array $workspace,
+        Service $service,
+        Asset $asset,
+        string $start,
+        string $end,
+        string $blockStart,
+        string $blockEnd,
+        string $localEnd,
+        string $key,
+        string $label,
+        string $absent,
+        string $storedEnd,
+    ): void {
+        $this->actingAsWorkspace($workspace);
+        $bookingId = $this->confirmed($service, $start, $end, $key);
+        $this->confirmedOnAsset($workspace, $asset, $blockStart, $blockEnd);
+        app(TenantManager::class)->set($workspace['tenant']);
+        $this->actingAs($workspace['user']);
+        $before = $this->moneyCounts();
+
+        Livewire::test(BookingShow::class, ['booking' => $bookingId])
+            ->set('extendEnd', $localEnd)
+            ->call('extend')
+            ->assertSet('problem', 'That time is no longer available.')
+            ->assertSee($label, false)
+            ->assertSee('data-extend-until', false)
+            ->assertSee('@media (max-width: 390px)', false)
+            ->assertSee('button[data-extend-until] { width: 100%; white-space: normal; overflow-wrap: anywhere; }', false)
+            ->assertDontSee($absent, false)
+            ->call('acceptShorterExtension')
+            ->assertSet('flash', 'Extended.');
+
+        $this->assertSame($storedEnd, Booking::query()->findOrFail($bookingId)->ends_at->utc()->format('Y-m-d H:i:s'));
+        $this->assertSame($before, $this->moneyCounts());
+        app(TenantManager::class)->forget();
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            $this->rows(Payment::class),
+            $this->rows(Refund::class),
+            $this->rows(PlatformFee::class),
+            $this->rows(PlatformFeeRefund::class),
+            $this->rows(PricingSnapshot::class),
+            $this->rows(PriceRule::class),
+            $this->rows(LocationTaxRule::class),
+        ];
+    }
+
+    /**
+     * @param  class-string  $model
+     */
+    private function rows(string $model): int
+    {
+        return $model::withoutGlobalScope(TenantScope::class)->count();
     }
 
     private function durationPrices(Service $service): void

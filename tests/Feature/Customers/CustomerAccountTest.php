@@ -11,10 +11,14 @@ use App\Models\Asset;
 use App\Models\Booking;
 use App\Models\Customer;
 use App\Models\CustomerAccount;
+use App\Models\CustomerSignInToken;
 use App\Models\Domain;
 use App\Models\Location;
 use App\Models\Membership;
 use App\Models\Payment;
+use App\Models\PlatformFee;
+use App\Models\PlatformFeeRefund;
+use App\Models\PriceRule;
 use App\Models\PricingSnapshot;
 use App\Models\Refund;
 use App\Models\ResourceRequirement;
@@ -26,6 +30,8 @@ use App\Services\Customers\CustomerAccounts;
 use App\Tenancy\TenantManager;
 use App\Tenancy\TenantScope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
@@ -41,6 +47,7 @@ class CustomerAccountTest extends TestCase
 
     protected function tearDown(): void
     {
+        config(['session.encrypt' => false]);
         app(TenantManager::class)->forget();
         parent::tearDown();
     }
@@ -401,6 +408,138 @@ class CustomerAccountTest extends TestCase
         ])->assertStatus(429);
     }
 
+    public function test_saving_a_password_ends_other_browsers_and_api_tokens(): void
+    {
+        $dock = $this->workspace('dock.test', 'owner', ['name' => 'Harbor']);
+        $other = $this->workspace('other.test', 'owner', ['name' => 'Inland']);
+        $url = $this->captureLink($dock['tenant']->id, 'http://dock.test', 'ada@example.com', 'Ada', self::PASSWORD);
+        $this->getJson($url)->assertOk();
+        $account = $this->account('ada@example.com');
+        $otherUrl = $this->captureLink($other['tenant']->id, 'http://other.test', 'bee@example.com', 'Bee', self::PASSWORD);
+        $this->getJson($otherUrl)->assertOk();
+        $otherAccount = CustomerAccount::withoutGlobalScope(TenantScope::class)
+            ->where('tenant_id', $other['tenant']->id)
+            ->where('email', 'bee@example.com')
+            ->firstOrFail();
+
+        $current = $account->createToken('phone')->plainTextToken;
+        $elsewhere = $account->createToken('tablet')->plainTextToken;
+        $otherToken = $otherAccount->createToken('phone')->plainTextToken;
+        $this->assertIsString($current);
+        $this->assertIsString($elsewhere);
+        $this->assertIsString($otherToken);
+
+        $openLink = $this->signInToken($account, false);
+        $usedLink = $this->signInToken($account, true);
+        $otherLink = $this->signInToken($otherAccount, false);
+        $money = $this->moneyCounts();
+
+        $this->actingAs($account, 'customer_web')
+            ->get($this->tenantUrl('dock.test', '/account'))
+            ->assertOk()
+            ->assertSee('Signed in as ada@example.com.');
+
+        RateLimiter::clear(md5('customer-authada@example.com|127.0.0.1'));
+        $this->from($this->tenantUrl('dock.test', '/account'))
+            ->post($this->tenantUrl('dock.test', '/account/password'), [
+                'password' => 'fresh-harbor-paddle',
+                'password_confirmation' => 'not-the-same-pass',
+            ])
+            ->assertSessionHasErrors('password');
+        $this->assertTrue(Hash::check(self::PASSWORD, (string) $account->fresh()->password));
+
+        $currentSession = str_repeat('a', 40);
+        $this->storeCustomerSession($currentSession, $account->id);
+        $this->storeCustomerSession('other-browser', $account->id);
+        $this->storeCustomerSession('other-account-browser', $otherAccount->id);
+        $this->storeStaffSession('staff-browser', $dock['user']->id);
+        $this->assertDatabaseHas('sessions', ['id' => 'other-browser']);
+        $this->assertNotNull(CustomerSignInToken::withoutGlobalScope(TenantScope::class)->find($openLink));
+
+        $this->withCookie((string) config('session.cookie'), $currentSession)
+            ->post($this->tenantUrl('dock.test', '/account/password'), [
+                'password' => 'fresh-harbor-paddle',
+                'password_confirmation' => 'fresh-harbor-paddle',
+            ])
+            ->assertRedirect('/account')
+            ->assertSessionHas('status', 'Password saved.');
+
+        $this->get($this->tenantUrl('dock.test', '/account'))
+            ->assertOk()
+            ->assertSee('Signed in as ada@example.com.');
+        $this->assertDatabaseHas('sessions', ['id' => $currentSession]);
+        $this->assertDatabaseMissing('sessions', ['id' => 'other-browser']);
+        $this->assertDatabaseHas('sessions', ['id' => 'other-account-browser']);
+        $this->assertDatabaseHas('sessions', ['id' => 'staff-browser']);
+        $this->assertNull(CustomerSignInToken::withoutGlobalScope(TenantScope::class)->find($openLink));
+        $this->assertNotNull(CustomerSignInToken::withoutGlobalScope(TenantScope::class)->find($usedLink));
+        $this->assertNotNull(CustomerSignInToken::withoutGlobalScope(TenantScope::class)->find($otherLink));
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($current)->getJson($this->tenantUrl('dock.test', '/api/v1/customer/me'))->assertUnauthorized();
+        $this->withToken($elsewhere)->getJson($this->tenantUrl('dock.test', '/api/v1/customer/me'))->assertUnauthorized();
+        $this->withToken($otherToken)->getJson($this->tenantUrl('other.test', '/api/v1/customer/me'))->assertOk();
+
+        $kept = $account->fresh()->createToken('kept')->plainTextToken;
+        $dropped = $account->fresh()->createToken('dropped')->plainTextToken;
+        $this->assertIsString($kept);
+        $this->assertIsString($dropped);
+        $this->storeCustomerSession('api-other-browser', $account->id);
+        $this->app['auth']->forgetGuards();
+        $this->withToken($kept)->putJson($this->tenantUrl('dock.test', '/api/v1/customer/password'), [
+            'password' => 'second-harbor-paddle',
+            'password_confirmation' => 'second-harbor-paddle',
+        ])->assertOk();
+        $this->withToken($kept)->getJson($this->tenantUrl('dock.test', '/api/v1/customer/me'))->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($dropped)->getJson($this->tenantUrl('dock.test', '/api/v1/customer/me'))->assertUnauthorized();
+        $this->withToken($otherToken)->getJson($this->tenantUrl('other.test', '/api/v1/customer/me'))->assertOk();
+        $this->assertDatabaseMissing('sessions', ['id' => 'api-other-browser']);
+        $this->assertDatabaseMissing('sessions', ['id' => $currentSession]);
+        $this->assertDatabaseHas('sessions', ['id' => 'staff-browser']);
+        $this->assertDatabaseHas('sessions', ['id' => 'other-account-browser']);
+
+        $fresh = $account->fresh();
+        $this->assertInstanceOf(CustomerAccount::class, $fresh);
+        $this->assertTrue(Hash::check('second-harbor-paddle', (string) $fresh->password));
+        $this->assertNotSame('', (string) $fresh->remember_token);
+        $encoded = (string) json_encode(DB::table('audit_logs')->get());
+        $this->assertStringNotContainsString(self::PASSWORD, $encoded);
+        $this->assertStringNotContainsString('fresh-harbor-paddle', $encoded);
+        $this->assertStringNotContainsString('second-harbor-paddle', $encoded);
+        $this->assertStringNotContainsString((string) $fresh->remember_token, $encoded);
+        $this->assertSame($money, $this->moneyCounts());
+    }
+
+    public function test_an_encrypted_customer_session_ends_when_the_password_changes(): void
+    {
+        config(['session.encrypt' => true]);
+        $dock = $this->workspace('dock.test', 'owner', ['name' => 'Harbor']);
+        $account = CustomerAccount::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $dock['tenant']->id,
+            'email' => 'ada@example.com',
+            'name' => 'Ada',
+            'password' => self::PASSWORD,
+        ]);
+        $account->forceFill(['email_verified_at' => now()])->save();
+        $token = $account->createToken('phone')->plainTextToken;
+        $this->assertIsString($token);
+        $this->storeCustomerSession('encrypted-browser', $account->id, true);
+        $this->storeStaffSession('staff-browser', $dock['user']->id);
+        $money = $this->moneyCounts();
+
+        $this->withToken($token)->putJson($this->tenantUrl('dock.test', '/api/v1/customer/password'), [
+            'password' => 'fresh-harbor-paddle',
+            'password_confirmation' => 'fresh-harbor-paddle',
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('sessions', ['id' => 'encrypted-browser']);
+        $this->assertDatabaseHas('sessions', ['id' => 'staff-browser']);
+        $this->withToken($token)->getJson($this->tenantUrl('dock.test', '/api/v1/customer/me'))->assertOk();
+        $this->assertSame($money, $this->moneyCounts());
+        config(['session.encrypt' => false]);
+    }
+
     public function test_a_short_password_is_refused(): void
     {
         $this->workspace('dock.test');
@@ -412,6 +551,64 @@ class CustomerAccountTest extends TestCase
         ])->assertUnprocessable()->assertJsonValidationErrors('password');
 
         $this->assertSame(0, CustomerAccount::withoutGlobalScope(TenantScope::class)->count());
+    }
+
+    private function storeCustomerSession(string $id, string $accountId, bool $encrypted = false): void
+    {
+        $json = json_encode([
+            Auth::guard('customer_web')->getName() => $accountId,
+            '_token' => 'csrf-token',
+        ], JSON_THROW_ON_ERROR);
+        $this->insertSession($id, base64_encode($encrypted ? Crypt::encrypt($json) : $json), null);
+    }
+
+    private function storeStaffSession(string $id, string $userId): void
+    {
+        $json = json_encode([
+            Auth::guard('web')->getName() => $userId,
+            '_token' => 'staff-csrf',
+        ], JSON_THROW_ON_ERROR);
+        $this->insertSession($id, base64_encode($json), $userId);
+    }
+
+    private function insertSession(string $id, string $payload, ?string $userId): void
+    {
+        DB::table('sessions')->insert([
+            'id' => $id,
+            'user_id' => $userId,
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'PHPUnit',
+            'payload' => $payload,
+            'last_activity' => time(),
+        ]);
+    }
+
+    private function signInToken(CustomerAccount $account, bool $consumed): string
+    {
+        $row = CustomerSignInToken::withoutGlobalScope(TenantScope::class)->create([
+            'tenant_id' => $account->tenant_id,
+            'customer_account_id' => $account->id,
+            'token_hash' => hash('sha256', $account->id.'-'.($consumed ? 'used' : 'open').'-'.str()->random(16)),
+            'expires_at' => now()->addHour(),
+            'consumed_at' => $consumed ? now() : null,
+        ]);
+
+        return $row->id;
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function moneyCounts(): array
+    {
+        return [
+            Payment::withoutGlobalScope(TenantScope::class)->count(),
+            Refund::withoutGlobalScope(TenantScope::class)->count(),
+            PlatformFee::withoutGlobalScope(TenantScope::class)->count(),
+            PlatformFeeRefund::withoutGlobalScope(TenantScope::class)->count(),
+            PricingSnapshot::withoutGlobalScope(TenantScope::class)->count(),
+            PriceRule::withoutGlobalScope(TenantScope::class)->count(),
+        ];
     }
 
     private function captureLink(string $tenantId, string $origin, string $email, ?string $name = null, ?string $password = null): string
